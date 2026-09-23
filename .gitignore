@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+target
+src-tauri/gen/schemas
+.vite
+coverage
+test-results
+playwright-report
+*.tsbuildinfo

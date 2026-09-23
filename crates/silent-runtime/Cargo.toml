@@ -1,0 +1,17 @@
+[package]
+name = "silent-runtime"
+version = "0.1.0"
+description = "Process runtime for Silent: spawns AI CLIs (Codex first) and normalizes their event streams"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+regex = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
