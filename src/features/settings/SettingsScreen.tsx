@@ -35,6 +35,7 @@ function CliCard({ id }: { id: ProviderId }) {
   const install = useProvidersStore((s) => s.install)
   const login = useProvidersStore((s) => s.login)
   const [showLog, setShowLog] = React.useState(false)
+  const scanned = useProvidersStore((s) => !!s.lastDetectedAt && !s.detecting)
   return (
     <GlowCard tone={p.installed ? (id === "codex" ? "cyan" : "default") : "default"} className={cn("flex flex-col gap-3", !p.installed && "opacity-90")}>
       <div className="flex items-start gap-3">
@@ -52,8 +53,9 @@ function CliCard({ id }: { id: ProviderId }) {
         {p.installed && <Switch checked={p.enabled} onCheckedChange={(v) => void setEnabled(id, v)} className={cn(p.enabled && "data-[state=checked]:bg-cyan")} aria-label={t("common.enabled")} />}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {!p.installed && info.installScript && <NeonButton size="sm" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "script") }}><Download />{p.installing ? t("settings.installing") : t("settings.install")}</NeonButton>}
-        {!p.installed && info.installNpm && info.installNpm !== info.installScript && <NeonButton size="sm" variant="outline" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "npm") }}><Download />{t("settings.installVia", { method: "npm" })}</NeonButton>}
+        {!p.installed && scanned && info.installScript && <NeonButton size="sm" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "script") }}><Download />{p.installing ? t("settings.installing") : t("settings.install")}</NeonButton>}
+        {!p.installed && scanned && info.installNpm && info.installNpm !== info.installScript && <NeonButton size="sm" variant="outline" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "npm") }}><Download />{t("settings.installVia", { method: "npm" })}</NeonButton>}
+        {!p.installed && !scanned && <span className="text-[11px] text-text-3">{t("settings.detectPending")}</span>}
         {p.installed && <NeonButton size="sm" variant="outline" onClick={() => void login(id)} title={t("settings.loginHint", { cmd: info.loginCommand })}><LogIn />{t("settings.login")}</NeonButton>}
         <button type="button" onClick={() => void getBackend().then((b) => b.openExternal(info.docsUrl))} className="flex items-center gap-1 text-[11px] text-text-3 hover:text-cyan"><ExternalLink className="size-3" />docs</button>
         {p.installed && <span className="ml-auto text-[11px] text-text-3">{p.models.length} {t("common.models").toLowerCase()}</span>}
@@ -70,6 +72,7 @@ export function SettingsScreen() {
   const providers = useProvidersStore((s) => s.providers)
   const detecting = useProvidersStore((s) => s.detecting)
   const lastDetectedAt = useProvidersStore((s) => s.lastDetectedAt)
+  const lastError = useProvidersStore((s) => s.lastError)
   const detect = useProvidersStore((s) => s.detect)
   const addCustomModel = useProvidersStore((s) => s.addCustomModel)
   const removeCustomModel = useProvidersStore((s) => s.removeCustomModel)
@@ -100,6 +103,8 @@ export function SettingsScreen() {
                 <NeonButton size="sm" variant="outline" className="ml-auto" onClick={() => void detect()} disabled={detecting}><RefreshCw className={cn(detecting && "animate-spin")} />{detecting ? t("settings.detecting") : t("settings.redetect")}</NeonButton>
                 {lastDetectedAt && <span className="text-[11px] text-text-3">{formatRelative(lastDetectedAt)}</span>}
               </div>
+              {lastError && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{t("settings.detectError", { error: lastError })}</div>}
+              {installedIds.length === 0 && !lastError && <div className="text-[11px] text-text-3">{t("settings.alreadyInstalledHint")}</div>}
               <div className="grid gap-3 md:grid-cols-2">{installedIds.map((id) => <CliCard key={id} id={id} />)}</div>
               {missingIds.length > 0 && (
                 <>

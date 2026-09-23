@@ -19,6 +19,8 @@ interface ProvidersState {
   providers: Record<ProviderId, ProviderState>
   detecting: boolean
   lastDetectedAt?: number
+  /** Set when the host failed to detect CLIs; shown in Settings. */
+  lastError?: string
   load(): Promise<void>
   detect(): Promise<void>
   setEnabled(id: ProviderId, enabled: boolean): Promise<void>
@@ -56,7 +58,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     await get().detect()
   },
   async detect() {
-    set({ detecting: true })
+    set({ detecting: true, lastError: undefined })
     try {
       const backend = await getBackend()
       const detected = await backend.providersDetect()
@@ -86,7 +88,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         await useSettingsStore.getState().update({ defaultModelRef: modelRef(prefer.providerId, prefer.id), fallbackModelRef: modelRef(fallback.providerId, fallback.id) })
       }
     } catch (err) {
-      console.warn("provider detection failed", err)
+      console.error("provider detection failed", err)
+      set({ lastError: err instanceof Error ? err.message : String(err) })
     } finally {
       set({ detecting: false })
     }
@@ -119,6 +122,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     })
     set({ providers: { ...get().providers, [id]: { ...get().providers[id], installing: false } } })
     await get().detect()
+    const after = get().providers[id]
+    if (after.installed) push({ ts: Date.now(), stream: "system", text: `✓ ${after.detected?.path ?? id} ${after.detected?.version ?? ""}` })
   },
   async login(id) {
     const backend = await getBackend()

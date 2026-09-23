@@ -121,3 +121,28 @@ mod tests {
         assert_eq!(extract_version("no version here"), None);
     }
 }
+
+#[cfg(test)]
+mod probe {
+    #[tokio::test]
+    #[ignore]
+    async fn print_detection_on_this_machine() {
+        for p in super::providers_detect().await.unwrap() {
+            eprintln!("{}", serde_json::to_string(&p).unwrap());
+        }
+    }
+}
+
+#[cfg(test)]
+mod probe_models {
+    #[tokio::test]
+    #[ignore]
+    async fn print_models_on_this_machine() {
+        for id in ["codex", "claude", "kimi"] {
+            match super::super::models::provider_models(id.parse().unwrap()).await {
+                Ok(models) => eprintln!("{id}: {}", serde_json::to_string(&models).unwrap()),
+                Err(e) => eprintln!("{id}: ERROR {e}"),
+            }
+        }
+    }
+}
