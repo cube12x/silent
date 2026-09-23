@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 /** Every column the TauriBackend writes must exist in the SQLite schema (all migrations applied). */
 describe("sqlite schema vs repositories", () => {
   const dir = join(here, "../../src-tauri/migrations")
-  const sql = readdirSync(dir).sort().map((f) => readFileSync(join(dir, f), "utf8")).join("\n")
+  const sql = readdirSync(dir).sort().map((f: string) => readFileSync(join(dir, f), "utf8")).join("\n")
   const tables = new Map<string, Set<string>>()
   for (const m of sql.matchAll(/CREATE TABLE IF NOT EXISTS (\w+) \(([\s\S]*?)\);/g)) {
     const cols = String(m[2]).split("\n").map((l: string) => l.trim()).filter((l: string) => l && !/^(PRIMARY|CREATE)/.test(l)).map((l: string) => l.split(/\s+/)[0])
