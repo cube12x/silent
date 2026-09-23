@@ -1,8 +1,8 @@
-import type { Attempt, RoutingDecision, SilentCodeRun, Subtask, WorkerState } from "@/domain"
+import type { Attempt, ProviderModel, RoutingDecision, SilentCodeRun, Subtask, WorkerState } from "@/domain"
 import { isTerminalState } from "@/domain"
 import { EventBus } from "./events"
 import { nextModel } from "./router"
-import { MODEL_BY_ID } from "./capabilities"
+import { ModelIndex } from "./capabilities"
 import type { Worker, WorkerHandle, WorkerJob, WorkerSink } from "./workers/Worker"
 
 export interface ExecutorOptions {
@@ -14,6 +14,8 @@ export interface ExecutorOptions {
   gatewayBrief?: string
   sandbox?: "read-only" | "workspace-write"
   now?: () => number
+  /** Models the pool refs resolve to (for fallback/escalation and display). */
+  models?: ProviderModel[]
 }
 
 export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
@@ -33,12 +35,14 @@ export class Executor {
   private readonly resolve: WorkerResolver
   readonly bus: EventBus
   private readonly opts: ExecutorOptions
+  private readonly models: ModelIndex
 
   constructor(run: SilentCodeRun, resolve: WorkerResolver, bus: EventBus, opts: ExecutorOptions = {}) {
     this.run = run
     this.resolve = resolve
     this.bus = bus
     this.opts = opts
+    this.models = new ModelIndex(opts.models ?? [])
     this.subtasks = new Map(run.plan.map((s) => [s.id, structuredClone(s)]))
     this.routing = new Map(run.routing.map((r) => [r.subtaskId, r]))
     this.now = opts.now ?? Date.now
@@ -137,7 +141,7 @@ export class Executor {
       }
       if (this.cancelled) return
       tried.push(modelId)
-      const next = nextModel(decision, tried, this.run.modelPool)
+      const next = nextModel(decision, tried, this.run.modelPool, this.models.all())
       if (!next || !result.retryable) {
         this.setState(subtask, "failed", subtask.progress, result.error)
         return
@@ -193,7 +197,7 @@ export class Executor {
   }
 
   private brief(subtask: Subtask, modelId: string): string {
-    const model = MODEL_BY_ID[modelId]
+    const model = this.models.get(modelId)
     const upstream = subtask.dependsOn.map((d) => this.summaries.get(d)).filter(Boolean)
     return [
       `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker in a Silent orchestration run.`,

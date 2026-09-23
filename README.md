@@ -1,58 +1,56 @@
 # Silent
 
-**Desktop-first multi-AI orchestration workstation.** One prompt in; Silent decomposes it into subtasks, routes each to the best model in your enabled pool, executes through CLI integrations (Codex CLI is the execution core), and shows everything live in a dark, tactical command-center UI.
+**Masaüstü, CLI-native çoklu-AI orkestrasyon istasyonu.** Tek istek yazarsın; Silent onu alt görevlere böler, her birini makinendeki gerçek AI CLI'larından en uygun modele yönlendirir, terminalde çalıştırır ve canlı izler. API anahtarı yok, simülasyon yok: yalnızca kurulu CLI'lar.
 
-> Status: v1 — all ten screens, a real orchestration engine (planner → router → executor with retry / fallback / escalation), real **Codex CLI** execution through a Rust runtime, simulated workers for providers that are not wired yet, SQLite persistence, and a browser demo mode.
+> v2 (2026-09-23): 4 ekran (Sohbet · Silent Code · Ajanlar · Ayarlar), 10 CLI adaptörü, Türkçe/İngilizce arayüz, hayalet logo.
 
-## Stack
+## Desteklenen CLI'lar
 
-| Layer | Choice |
-|---|---|
-| Shell | Tauri 2 (Rust) |
-| UI | React 19 · TypeScript 5.9 · Vite 8 · Tailwind v4 · shadcn (radix) · Zustand · react-router 7 |
-| Engine | `src/engine` — pure TS, no React/Tauri imports, unit-tested with Vitest |
-| Runtime | `crates/silent-runtime` — spawns `codex exec --json`, normalises JSONL into `RuntimeEvent`s, redacts secrets, enforces timeouts and process-group kill |
-| Persistence | SQLite (tauri-plugin-sql) + `settings.json` (tauri-plugin-store) |
+| CLI | Binary | Kur | Ayrıştırıcı |
+|---|---|---|---|
+| Codex (OpenAI) | `codex` | `npm i -g @openai/codex` | doğrulanmış (gerçek transkript) |
+| Claude Code (Anthropic) | `claude` | `curl -fsSL https://claude.ai/install.sh \| bash` | doğrulanmış |
+| Kimi Code (Moonshot) | `kimi` | `curl -fsSL https://code.kimi.com/install.sh \| bash` | doğrulanmış |
+| Grok Build (xAI) | `grok` | `curl -fsSL https://x.ai/cli/install.sh \| bash` | beta |
+| Gemini CLI (Google) | `gemini` | `npm i -g @google/gemini-cli` | beta |
+| Qwen Code (Alibaba) | `qwen` | `npm i -g @qwen-code/qwen-code` | beta |
+| OpenCode | `opencode` | `npm i -g opencode-ai` | beta |
+| Copilot CLI (GitHub) | `copilot` | `npm i -g @github/copilot` | beta |
+| Cursor Agent | `agent` | `curl https://cursor.com/install -fsS \| bash` | beta |
+| Amp (Sourcegraph) | `amp` | `npm i -g @ampcode/cli` | beta |
 
-## Run
+Kurulu olmayanlar Ayarlar > CLI'lar'da **Kur** butonuyla kurulur (çıktı uygulama içinde akar), **Giriş yap** Terminal.app'te ilgili login komutunu açar. Her CLI'ın modelleri kendi yerel kataloğundan okunur (Codex `models_cache.json`, Kimi `config.toml`, Claude alias + `settings.json`); istediğin model kimliğini elle ekleyebilir, sohbette `/model <id>` veya `/cli <ad>` ile anında değiştirebilirsin. "beta" ayrıştırıcılar dokümana göre yazıldı; tanınmayan satırlar terminale ham düşer, asla çökmez.
+
+## Çalıştırma
 
 ```bash
 npm install
-npm run tauri:dev            # desktop app (needs Rust toolchain + Codex CLI on PATH for real execution)
-VITE_SILENT_FAKE_BACKEND=1 npm run dev   # browser demo with in-memory backend and a simulated live run
+npm run tauri:dev
 ```
 
-Checks:
+Kontroller:
 
 ```bash
-npm run typecheck && npm run lint && npm run test   # TS + engine tests
-cargo test --workspace                              # Rust runtime (incl. a real codex exec transcript fixture)
-cargo test -p silent-runtime --test real_codex -- --ignored   # spawns the real Codex CLI once (needs `codex login`)
+npm run typecheck && npm run lint && npm run test     # TS + motor + i18n testleri
+cargo test --workspace                                # Rust runtime (gerçek Codex/Claude/Kimi transkript fixture'ları)
+cargo test -p silent-runtime -- --ignored             # kurulu CLI'ları gerçekten çağırır (küçük prompt)
 npm run build && npx tauri build --debug --no-bundle
+VITE_SILENT_PREVIEW=1 npm run dev                     # yalnız görsel önizleme: katalog görünür, hiçbir şey çalışmaz
 ```
 
-## Layout
+## Yapı
 
 ```
-src/app             shell: sidebar · top bar · intelligence panel · command palette · routes
-src/design-system   tokens + tactical components (GlowCard, RouteGraph, TerminalView, ModelSelectorGrid…)
-src/domain          data model (Provider, Model, Chat, RepoAgent, SilentCodeRun, Subtask, MemoryEntry, Settings, RuntimeEvent)
-src/engine          planner · router · gateway interpreter · executor · workers (Simulated)
-src/services        backend seam: FakeBackend (browser/tests) · TauriBackend (Rust) · CodexWorker
-src/stores          Zustand slices: chats · agents · runs · memory · providers · settings · ui · phone
-src/features        screens: dashboard · chat · repo-agents · silent-code · monitor · terminal-drawer · memory · settings · phone-link
-crates/silent-runtime   Rust: spawn · codex/args · codex/events · redaction
-src-tauri           Tauri commands: app_info · providers_detect · repo_inspect · codex_run_start (Channel) · codex_run_cancel
-docs/superpowers/specs  design spec
+src/app             kabuk: Sidebar · TopBar · ⌘K palet · hayalet logo (SilentMark)
+src/features        chat · silent-code (plan + canlı çalıştırma + terminal drawer) · agents · settings · new-session-modal
+src/engine          planner · router · executor (retry → fallback → escalation) · workers/CliWorker
+src/providers       10 CLI'lık registry (binary, kurulum, login, yetenekler)
+src/i18n            tr · en
+src/services        TauriBackend (gerçek) · TestBackend (yalnız test)
+crates/silent-runtime   Rust: spawn · cli/<adaptör>.rs (argv + JSONL → RuntimeEvent) · generic fallback · redaction
+src-tauri           komutlar: providers_detect · provider_models · provider_install · provider_login · cli_run_start · cli_run_cancel
 ```
 
-## How execution works
+## Güvenlik
 
-- **Standard chat on Codex** → `codex -a never -s workspace-write [-C repo] exec --json --color never "<prompt>"`; the first turn stores the thread id, later turns use `exec resume <thread>`.
-- **Silent Code** → the planner produces a subtask DAG; the router scores every enabled model per subtask kind under the chosen cost mode; the executor runs the DAG (sequential / parallel / staged) with *retry → fallback → escalation*. Subtasks routed to Codex run as `--ephemeral` one-shots (`exec review` for review subtasks); everything else runs on `SimulatedWorker`, which emits the same events so the UI is provider-agnostic.
-- **Safety**: approvals are `never`, sandbox is capped at `workspace-write` (read-only when the agent's *Write* permission is off), `danger-full-access` is rejected at the type level, secrets are redacted before output reaches the UI, and raw reasoning text is never surfaced.
-- **Git push** is off by default and can never be enabled by a Gateway prompt.
-
-## Out of scope for v1
-
-Real execution for non-Codex providers, the phone WebSocket bridge / APK, repo indexing, API-key storage, auto-update, code signing. Seams exist for each (`Worker` interface, `bridge.rs`, `repoIndex` settings).
+Onaylar her zaman kapalı (`-a never` / `--permission-prompts none`), sandbox tavanı workspace-write (Codex'te gerçek sandbox; diğerlerinde salt-okunur brief ile), gizli anahtarlar çıktıya ulaşmadan maskelenir, ham akıl yürütme metni gösterilmez. Git push varsayılan kapalı ve bir Gateway promptuyla asla açılamaz. Silent hiçbir kimlik bilgisi saklamaz; her CLI kendi girişini kullanır.

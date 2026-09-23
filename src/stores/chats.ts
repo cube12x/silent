@@ -1,14 +1,13 @@
 import { create } from "zustand"
-import type { Chat, ChatKind, Message, MessageBlock, RuntimeEvent, TokenUsage } from "@/domain"
-import { interpretGateway } from "@/engine/gateway"
-import { MODEL_BY_ID } from "@/engine/capabilities"
+import type { Chat, ChatKind, Message, MessageBlock, ProviderId, RuntimeEvent, TokenUsage } from "@/domain"
+import { interpretGateway, renderGatewayBrief } from "@/engine/gateway"
 import { getBackend } from "@/services"
-import type { CodexRunHandle } from "@/services/backend"
-import { simulateReply } from "@/services/chatReply"
+import type { RunHandle } from "@/services/backend"
 import { newId } from "@/lib/ids"
 
 export interface CreateChatInput {
   kind: ChatKind
+  providerId: ProviderId
   modelId: string
   title?: string
   repoAgentId?: string
@@ -23,16 +22,19 @@ interface ChatsState {
   load(): Promise<void>
   loadMessages(chatId: string): Promise<void>
   create(input: CreateChatInput): Promise<Chat>
-  rename(id: string, title: string): Promise<void>
+  update(id: string, patch: Partial<Chat>): Promise<void>
   remove(id: string): Promise<void>
-  send(chatId: string, content: string): Promise<void>
+  /** Switch CLI/model; a new CLI session starts on the next message. */
+  setModel(id: string, providerId: ProviderId, modelId: string): Promise<void>
+  clearMessages(id: string): Promise<void>
+  send(chatId: string, content: string, sandbox?: "read-only" | "workspace-write"): Promise<void>
   cancel(chatId: string): void
   byId(id: string | undefined): Chat | undefined
 }
 
 function titleFrom(content: string): string {
   const t = content.replace(/\s+/g, " ").trim()
-  return t.length > 48 ? `${t.slice(0, 45)}…` : t || "New chat"
+  return t.length > 48 ? `${t.slice(0, 45)}…` : t || "…"
 }
 
 export const useChatsStore = create<ChatsState>((set, get) => ({
@@ -41,20 +43,20 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
   streaming: {},
   async load() {
     const backend = await getBackend()
-    set({ chats: await backend.db.chats.list() })
+    set({ chats: (await backend.db.chats.list()).sort((a, b) => b.updatedAt - a.updatedAt) })
   },
   async loadMessages(chatId) {
     if (get().messages[chatId]) return
     const backend = await getBackend()
-    const list = await backend.db.messages.listByChat(chatId)
-    set({ messages: { ...get().messages, [chatId]: list } })
+    set({ messages: { ...get().messages, [chatId]: await backend.db.messages.listByChat(chatId) } })
   },
   async create(input) {
     const now = Date.now()
     const chat: Chat = {
       id: newId("chat"),
-      title: input.title?.trim() || (input.kind === "repo-agent" ? "Repo agent chat" : "New chat"),
+      title: input.title?.trim() || "…",
       kind: input.kind,
+      providerId: input.providerId,
       modelId: input.modelId,
       repoAgentId: input.repoAgentId,
       repoPath: input.repoPath,
@@ -68,10 +70,10 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     await backend.db.chats.upsert(chat)
     return chat
   },
-  async rename(id, title) {
+  async update(id, patch) {
     const chat = get().chats.find((c) => c.id === id)
     if (!chat) return
-    const next = { ...chat, title, updatedAt: Date.now() }
+    const next = { ...chat, ...patch, updatedAt: Date.now() }
     set({ chats: get().chats.map((c) => (c.id === id ? next : c)) })
     const backend = await getBackend()
     await backend.db.chats.upsert(next)
@@ -84,131 +86,117 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     const backend = await getBackend()
     await backend.db.chats.delete(id)
   },
+  async setModel(id, providerId, modelId) {
+    const chat = get().chats.find((c) => c.id === id)
+    if (!chat) return
+    const providerChanged = chat.providerId !== providerId
+    await get().update(id, { providerId, modelId, sessionId: providerChanged ? undefined : chat.sessionId })
+  },
+  async clearMessages(id) {
+    set({ messages: { ...get().messages, [id]: [] } })
+    await get().update(id, { sessionId: undefined })
+  },
   cancel(chatId) {
     get().streaming[chatId]?.cancel()
   },
-  async send(chatId, content) {
+  async send(chatId, content, sandbox = "workspace-write") {
     const chat = get().chats.find((c) => c.id === chatId)
     if (!chat || get().streaming[chatId]) return
     const backend = await getBackend()
     const now = Date.now()
     const user: Message = { id: newId("msg"), chatId, role: "user", content, blocks: [], createdAt: now }
-    const assistant: Message = { id: newId("msg"), chatId, role: "assistant", content: "", blocks: [], modelId: chat.modelId, streaming: true, createdAt: now + 1 }
+    const assistant: Message = { id: newId("msg"), chatId, role: "assistant", content: "", blocks: [], providerId: chat.providerId, modelId: chat.modelId, streaming: true, createdAt: now + 1 }
     const isFirst = (get().messages[chatId] ?? []).length === 0
     const upsertMsg = (m: Message) => set({ messages: { ...get().messages, [chatId]: (get().messages[chatId] ?? []).map((x) => (x.id === m.id ? m : x)) } })
     set({ messages: { ...get().messages, [chatId]: [...(get().messages[chatId] ?? []), user, assistant] } })
     await backend.db.messages.upsert(user)
-    if (isFirst) await get().rename(chatId, titleFrom(content))
+    if (isFirst && (chat.title === "…" || !chat.title)) await get().update(chatId, { title: titleFrom(content) })
 
     let text = ""
+    let deltaText = ""
     const blocks: MessageBlock[] = []
     let usage: TokenUsage | undefined
+    let costUsd: number | undefined
     let error: string | undefined
-    const flush = (streaming: boolean) => upsertMsg({ ...assistant, content: text, blocks: [...blocks], usage, error, streaming })
+    let sessionId = chat.sessionId
+    const pendingCards = new Map<string, number>()
+    const flush = (streaming: boolean) => upsertMsg({ ...assistant, content: text || deltaText, blocks: [...blocks], usage, costUsd, error, streaming })
 
     const finish = async () => {
       const streaming = { ...get().streaming }
       delete streaming[chatId]
       set({ streaming })
+      const finalText = text || deltaText
       flush(false)
-      await backend.db.messages.upsert({ ...assistant, content: text, blocks, usage, error, streaming: false })
-      const c = get().chats.find((x) => x.id === chatId)
-      if (c) {
-        const next = { ...c, updatedAt: Date.now() }
-        set({ chats: get().chats.map((x) => (x.id === chatId ? next : x)).sort((a, b) => b.updatedAt - a.updatedAt) })
-        await backend.db.chats.upsert(next)
-      }
+      await backend.db.messages.upsert({ ...assistant, content: finalText, blocks, usage, costUsd, error, streaming: false })
+      await get().update(chatId, { sessionId })
+      set({ chats: [...get().chats].sort((a, b) => b.updatedAt - a.updatedAt) })
     }
 
-    const model = MODEL_BY_ID[chat.modelId]
-    if (model?.providerId === "codex") {
-      let handle: CodexRunHandle | undefined
-      let threadId = chat.codexThreadId
-      const pendingCards = new Map<string, number>()
-      const onEvent = (e: RuntimeEvent) => {
-        switch (e.type) {
-          case "threadStarted":
-            threadId = e.data.threadId
-            break
-          case "textDelta":
-            text += e.data.text
-            flush(true)
-            break
-          case "agentMessage":
-            // Codex emits one agent_message per assistant turn segment; keep them all.
-            text = text.trim() ? `${text.trim()}\n\n${e.data.text}` : e.data.text
-            flush(true)
-            break
-          case "commandStarted": {
-            blocks.push({ type: "task-card", title: e.data.command, status: "running", command: e.data.command })
-            pendingCards.set(e.data.command, blocks.length - 1)
-            flush(true)
-            break
-          }
-          case "commandCompleted": {
-            const i = pendingCards.get(e.data.command)
-            if (i !== undefined) blocks[i] = { type: "task-card", title: e.data.command, status: e.data.exitCode === 0 ? "done" : "failed", command: e.data.command, detail: e.data.outputTail.split("\n").slice(-3).join("\n") }
-            flush(true)
-            break
-          }
-          case "fileChanged": {
-            const existing = blocks.find((b): b is Extract<MessageBlock, { type: "context" }> => b.type === "context" && b.label === "Files touched")
-            if (existing) existing.items.push(e.data.path)
-            else blocks.push({ type: "context", label: "Files touched", items: [e.data.path] })
-            flush(true)
-            break
-          }
-          case "usage":
-            usage = { inputTokens: e.data.inputTokens, outputTokens: e.data.outputTokens, totalTokens: e.data.totalTokens, cachedInputTokens: e.data.cachedInputTokens }
-            break
-          case "failed":
-            if (e.data.code !== "cancelled") error = e.data.message
-            break
-          case "stderr":
-            if (!text && /error/i.test(e.data.line)) error = e.data.line
-            break
-          case "exited": {
-            if (e.data.code && e.data.code !== 0 && !error) error = `codex exited with code ${e.data.code}`
-            if (threadId && threadId !== chat.codexThreadId) {
-              const next = { ...chat, codexThreadId: threadId }
-              set({ chats: get().chats.map((x) => (x.id === chatId ? next : x)) })
-              void backend.db.chats.upsert(next)
-            }
-            void finish()
-          }
+    const onEvent = (e: RuntimeEvent) => {
+      switch (e.type) {
+        case "sessionStarted":
+          sessionId = e.data.sessionId
+          break
+        case "textDelta":
+          deltaText += e.data.text
+          flush(true)
+          break
+        case "agentMessage":
+          // Full messages win over deltas; several messages per turn are joined.
+          text = text.trim() ? `${text.trim()}\n\n${e.data.text}` : e.data.text
+          deltaText = ""
+          flush(true)
+          break
+        case "commandStarted":
+          blocks.push({ type: "task-card", title: e.data.command, status: "running", command: e.data.command })
+          pendingCards.set(e.data.command, blocks.length - 1)
+          flush(true)
+          break
+        case "commandCompleted": {
+          const i = pendingCards.get(e.data.command) ?? blocks.findIndex((b) => b.type === "task-card" && b.status === "running")
+          if (i >= 0) blocks[i] = { type: "task-card", title: e.data.command, status: e.data.exitCode === 0 || e.data.exitCode === null ? "done" : "failed", command: e.data.command, detail: e.data.outputTail.split("\n").slice(-4).join("\n") }
+          flush(true)
+          break
         }
+        case "fileChanged": {
+          const existing = blocks.find((b): b is Extract<MessageBlock, { type: "context" }> => b.type === "context" && b.label === "files")
+          if (existing) {
+            if (!existing.items.includes(e.data.path)) existing.items.push(e.data.path)
+          } else blocks.push({ type: "context", label: "files", items: [e.data.path] })
+          flush(true)
+          break
+        }
+        case "usage":
+          usage = { inputTokens: e.data.inputTokens, outputTokens: e.data.outputTokens, totalTokens: e.data.totalTokens, cachedInputTokens: e.data.cachedInputTokens }
+          break
+        case "cost":
+          costUsd = e.data.usd
+          break
+        case "failed":
+          if (e.data.code !== "cancelled") error = e.data.message
+          break
+        case "stderr":
+          if (!text && !deltaText && /error|failed|denied|not logged|unauthori/i.test(e.data.line)) error = e.data.line
+          break
+        case "exited":
+          if (e.data.code && e.data.code !== 0 && !error) error = `${chat.providerId} exited with code ${e.data.code}`
+          void finish()
       }
-      try {
-        handle = await backend.codexStart(
-          {
-            runId: `chat:${chatId}:${user.id}`,
-            prompt: chat.gatewayProfile ? `${chat.gatewayPrompt}\n\n${content}` : content,
-            cwd: chat.repoPath,
-            sandbox: "workspace-write",
-            resumeThreadId: chat.codexThreadId,
-            ephemeral: false,
-            skipGitRepoCheck: true,
-          },
-          onEvent,
-        )
-        set({ streaming: { ...get().streaming, [chatId]: { cancel: () => void handle?.cancel() } } })
-      } catch (err) {
-        error = err instanceof Error ? err.message : String(err)
-        await finish()
-      }
-      return
     }
 
-    const signal = { cancelled: false }
-    set({ streaming: { ...get().streaming, [chatId]: { cancel: () => (signal.cancelled = true) } } })
-    const result = await simulateReply(chat, content, (delta) => {
-      text += delta
-      flush(true)
-    }, signal)
-    text = result.text
-    blocks.push(...result.blocks)
-    usage = { inputTokens: 900 + content.length, outputTokens: Math.round(text.length / 4), totalTokens: 900 + content.length + Math.round(text.length / 4) }
-    await finish()
+    let handle: RunHandle | undefined
+    try {
+      const brief = chat.gatewayProfile ? `${renderGatewayBrief(chat.gatewayProfile)}\n\n${content}` : content
+      handle = await backend.cliStart(
+        { runId: `chat:${chatId}:${user.id}`, providerId: chat.providerId, modelId: chat.modelId || undefined, prompt: brief, cwd: chat.repoPath, sandbox, resumeSessionId: chat.sessionId, ephemeral: false },
+        onEvent,
+      )
+      set({ streaming: { ...get().streaming, [chatId]: { cancel: () => void handle?.cancel() } } })
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err)
+      await finish()
+    }
   },
   byId(id) {
     return id ? get().chats.find((c) => c.id === id) : undefined

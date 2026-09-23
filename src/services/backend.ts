@@ -1,5 +1,4 @@
-import type { Chat, CodexRunRequest, DetectedProvider, Message, MemoryEntry, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { ActivityItem } from "@/mocks/activity"
+import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 
 export interface AppInfo {
   name: string
@@ -7,11 +6,10 @@ export interface AppInfo {
   platform: string
 }
 
-export interface CodexRunHandle {
+export interface RunHandle {
   cancel(): Promise<void>
 }
 
-/** Key-value document store for settings and UI preferences. */
 export interface KvStore {
   get<T>(key: string): Promise<T | undefined>
   set<T>(key: string, value: T): Promise<void>
@@ -24,21 +22,23 @@ export interface Repositories {
   runs: { list(): Promise<SilentCodeRun[]>; upsert(run: SilentCodeRun): Promise<void>; delete(id: string): Promise<void> }
   terminal: { listBySubtask(subtaskId: string): Promise<TerminalLine[]>; append(runId: string, subtaskId: string, lines: TerminalLine[]): Promise<void> }
   memory: { list(): Promise<MemoryEntry[]>; upsert(entry: MemoryEntry): Promise<void>; delete(id: string): Promise<void> }
-  activity: { list(limit?: number): Promise<ActivityItem[]>; append(item: ActivityItem): Promise<void> }
 }
 
 /**
- * The single seam between the UI/engine and the host. `TauriBackend` talks to Rust;
- * `FakeBackend` runs in a plain browser (`npm run dev`, tests) with in-memory data.
+ * The single seam between UI/engine and the host. `TauriBackend` talks to Rust; `TestBackend` is an
+ * in-memory double for unit tests only (there is no demo/simulation mode in the product).
  */
 export interface Backend {
-  readonly kind: "tauri" | "fake"
+  readonly kind: "tauri" | "test"
   appInfo(): Promise<AppInfo>
   providersDetect(): Promise<DetectedProvider[]>
+  providerModels(providerId: ProviderId): Promise<ProviderModel[]>
+  providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
+  providerLogin(providerId: ProviderId): Promise<void>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
   openExternal(url: string): Promise<void>
-  codexStart(request: CodexRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<CodexRunHandle>
+  cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore
   db: Repositories
 }

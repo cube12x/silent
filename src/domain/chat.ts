@@ -1,7 +1,7 @@
 import type { GatewayProfile } from "./agents"
+import type { ProviderId } from "./runtime"
 
 export type ChatKind = "standard" | "repo-agent"
-
 export type MessageRole = "user" | "assistant" | "system"
 
 export interface TaskCardBlock {
@@ -11,7 +11,6 @@ export interface TaskCardBlock {
   command?: string
   detail?: string
 }
-
 export interface ExecutionSummaryBlock {
   type: "execution-summary"
   title: string
@@ -20,13 +19,11 @@ export interface ExecutionSummaryBlock {
   durationMs: number
   tokens?: number
 }
-
 export interface ContextBlock {
   type: "context"
   label: string
   items: string[]
 }
-
 export type MessageBlock = TaskCardBlock | ExecutionSummaryBlock | ContextBlock
 
 export interface TokenUsage {
@@ -40,10 +37,11 @@ export interface Message {
   id: string
   chatId: string
   role: MessageRole
-  /** Markdown body. */
   content: string
   blocks: MessageBlock[]
   usage?: TokenUsage
+  costUsd?: number
+  providerId?: ProviderId
   modelId?: string
   streaming?: boolean
   error?: string
@@ -54,13 +52,14 @@ export interface Chat {
   id: string
   title: string
   kind: ChatKind
+  providerId: ProviderId
   modelId: string
   repoAgentId?: string
   repoPath?: string
   gatewayPrompt?: string
   gatewayProfile?: GatewayProfile
-  /** Codex thread id for `codex exec resume`. */
-  codexThreadId?: string
+  /** CLI session to resume (Codex thread id, Claude/Kimi/Gemini session id). */
+  sessionId?: string
   pinned?: boolean
   createdAt: number
   updatedAt: number

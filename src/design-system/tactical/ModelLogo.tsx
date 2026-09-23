@@ -1,32 +1,16 @@
 import { cn } from "cn"
 import type { ProviderId } from "@/domain"
-import { MODEL_BY_ID } from "@/engine/capabilities"
+import { PROVIDERS } from "@/providers/registry"
 
-/**
- * Original vector monograms per provider. Rendered as inline SVG so they stay razor-sharp at any DPI.
- * Deliberately not vendor trademarks: these are Silent's own placeholder marks.
- */
-export const PROVIDER_COLOR: Record<ProviderId, string> = {
-  codex: "var(--cyan)",
-  claude: "#e8b98a",
-  gemini: "#7c9cff",
-  grok: "#e6eaf0",
-  glm: "#4ade80",
-  fable: "var(--violet)",
-}
-
+/** Original vector monograms per CLI. Inline SVG, razor-sharp at any DPI. Not vendor trademarks. */
 function Mark({ provider }: { provider: ProviderId }) {
+  const s = { fill: "none", stroke: "currentColor", strokeWidth: 2.1, strokeLinecap: "round" as const, strokeLinejoin: "round" as const }
   switch (provider) {
     case "codex":
-      return (
-        <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M7 8l5 4-5 4" />
-          <path d="M13 16h5" />
-        </g>
-      )
+      return <g {...s}><path d="M7 8l5 4-5 4" /><path d="M13 16h5" /></g>
     case "claude":
       return (
-        <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <g {...s} strokeWidth={2}>
           {Array.from({ length: 8 }).map((_, i) => {
             const a = (i * Math.PI) / 4
             const r1 = i % 2 ? 4.2 : 3
@@ -34,34 +18,27 @@ function Mark({ provider }: { provider: ProviderId }) {
           })}
         </g>
       )
+    case "kimi":
+      return <g {...s}><path d="M7 5v14" /><path d="M17 5l-8 7 8 7" /></g>
+    case "grok":
+      return <g {...s}><path d="M6 6l12 12" /><path d="M18 6l-5.2 5.2" /><path d="M6 18l4.2-4.2" /></g>
     case "gemini":
       return <path fill="currentColor" d="M12 3c.6 5 3.9 8.4 9 9-5.1.6-8.4 4-9 9-.6-5-3.9-8.4-9-9 5.1-.6 8.4-4 9-9z" />
-    case "grok":
-      return (
-        <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-          <path d="M6 6l12 12" />
-          <path d="M18 6l-5.2 5.2" />
-          <path d="M6 18l4.2-4.2" />
-        </g>
-      )
-    case "glm":
-      return (
-        <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-          <path d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z" />
-          <path d="M12 8.5v7M8.8 10.3l6.4 3.4M15.2 10.3l-6.4 3.4" strokeWidth="1.5" />
-        </g>
-      )
-    case "fable":
-      return (
-        <g fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round">
-          <path d="M12 12c-1.8-3-3.6-4.5-5.5-4.5C4 7.5 3 9.5 3 12s1 4.5 3.5 4.5c1.9 0 3.7-1.5 5.5-4.5 1.8 3 3.6 4.5 5.5 4.5 2.5 0 3.5-2 3.5-4.5s-1-4.5-3.5-4.5c-1.9 0-3.7 1.5-5.5 4.5z" />
-        </g>
-      )
+    case "qwen":
+      return <g {...s}><path d="M12 4l7 4v8l-7 4-7-4V8z" /><path d="M12 12l7-4M12 12v8M12 12L5 8" strokeWidth={1.4} /></g>
+    case "opencode":
+      return <g {...s}><rect x="4" y="5" width="16" height="14" rx="3" /><path d="M8 10l3 2-3 2M13 14h3" /></g>
+    case "copilot":
+      return <g {...s}><path d="M5 12a7 7 0 0 1 14 0v3a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3z" /><circle cx="9.5" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="14.5" cy="12" r="1.2" fill="currentColor" stroke="none" /></g>
+    case "cursor":
+      return <g {...s}><path d="M6 4l12 8-5 1.5L11 19z" /></g>
+    case "amp":
+      return <g {...s}><path d="M4 16l4-8 4 8 4-8 4 8" /></g>
   }
 }
 
 export function ProviderLogo({ provider, size = 20, className, plain }: { provider: ProviderId; size?: number; className?: string; plain?: boolean }) {
-  const color = PROVIDER_COLOR[provider]
+  const color = PROVIDERS[provider].color
   return (
     <span
       className={cn("relative inline-flex shrink-0 items-center justify-center rounded-lg", !plain && "border border-line bg-ink-2", className)}
@@ -75,19 +52,22 @@ export function ProviderLogo({ provider, size = 20, className, plain }: { provid
   )
 }
 
-export function ModelLogo({ modelId, size = 18, className, plain }: { modelId: string; size?: number; className?: string; plain?: boolean }) {
-  const model = MODEL_BY_ID[modelId]
-  if (!model) return <span className={cn("inline-flex size-7 items-center justify-center rounded-lg border border-line bg-ink-2 text-[10px] text-text-3", className)}>?</span>
-  return <ProviderLogo provider={model.providerId} size={size} className={className} plain={plain} />
+/** Logo for a ModelRef (`provider:model`) or bare provider id. */
+export function ModelLogo({ modelRef, size = 18, className, plain }: { modelRef: string; size?: number; className?: string; plain?: boolean }) {
+  const provider = modelRef.split(":")[0] as ProviderId
+  if (!PROVIDERS[provider]) return <span className={cn("inline-flex size-7 items-center justify-center rounded-lg border border-line bg-ink-2 text-[10px] text-text-3", className)}>?</span>
+  return <ProviderLogo provider={provider} size={size} className={className} plain={plain} />
 }
 
-export function ModelTag({ modelId, className, size = "sm" }: { modelId: string; className?: string; size?: "xs" | "sm" }) {
-  const model = MODEL_BY_ID[modelId]
-  if (!model) return <span className={cn("mono text-xs text-text-3", className)}>{modelId || "unrouted"}</span>
+/** Inline "logo + name" tag. `label` overrides the derived name. */
+export function ModelTag({ modelRef, label, className, size = "sm" }: { modelRef: string; label?: string; className?: string; size?: "xs" | "sm" }) {
+  const [provider, ...rest] = modelRef.split(":")
+  const info = PROVIDERS[provider as ProviderId]
+  const name = label ?? (rest.join(":") || info?.name || modelRef)
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-text-1", size === "xs" ? "text-[11px]" : "text-xs", className)}>
-      <ModelLogo modelId={modelId} size={size === "xs" ? 11 : 13} plain className="!size-4" />
-      <span className="font-medium">{model.displayName}</span>
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5 text-text-1", size === "xs" ? "text-[11px]" : "text-xs", className)}>
+      <ModelLogo modelRef={modelRef} size={size === "xs" ? 11 : 13} plain className="!size-4" />
+      <span className="truncate font-medium">{name}</span>
     </span>
   )
 }

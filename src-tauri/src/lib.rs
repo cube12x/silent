@@ -8,15 +8,21 @@ mod db;
 /// have a logical work area around 1200x750), then center it.
 fn fit_main_window_to_monitor(app: &tauri::App) {
     use tauri::{LogicalSize, Manager};
-    let Some(window) = app.get_webview_window("main") else { return };
-    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
     let scale = monitor.scale_factor();
     let logical_w = monitor.size().width as f64 / scale;
     let logical_h = monitor.size().height as f64 / scale;
     // Leave room for the menu bar / dock and a small margin.
     let max_w = (logical_w - 32.0).max(960.0);
     let max_h = (logical_h - 96.0).max(600.0);
-    let Ok(current) = window.inner_size() else { return };
+    let Ok(current) = window.inner_size() else {
+        return;
+    };
     let cur_w = current.width as f64 / scale;
     let cur_h = current.height as f64 / scale;
     if cur_w > max_w || cur_h > max_h {
@@ -43,7 +49,7 @@ pub fn run() {
                 .add_migrations("sqlite:silent.db", db::migrations())
                 .build(),
         )
-        .manage(commands::codex::RunRegistry::default())
+        .manage(commands::cli::RunRegistry::default())
         .setup(|app| {
             fit_main_window_to_monitor(app);
             Ok(())
@@ -51,9 +57,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::providers::providers_detect,
+            commands::models::provider_models,
             commands::repo::repo_inspect,
-            commands::codex::codex_run_start,
-            commands::codex::codex_run_cancel,
+            commands::cli::cli_run_start,
+            commands::cli::cli_run_cancel,
+            commands::cli::provider_install,
+            commands::cli::provider_login,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Silent");

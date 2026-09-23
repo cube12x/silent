@@ -1,4 +1,5 @@
 import type { SubtaskKind } from "./models"
+import type { ProviderId } from "./runtime"
 
 export interface AgentPermissions {
   read: boolean
@@ -82,8 +83,10 @@ export interface RepoAgent {
   id: string
   name: string
   repoPath: string
-  primaryModelId: string
-  fallbackModelIds: string[]
+  providerId: ProviderId
+  modelId: string
+  /** Fallback models as ModelRefs (`provider:model`). */
+  fallbackModelRefs: string[]
   gatewayPrompt: string
   gatewayProfile: GatewayProfile
   permissions: AgentPermissions

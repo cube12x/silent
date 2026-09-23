@@ -1,23 +1,22 @@
 import type { Backend } from "./backend"
 import { isTauri } from "./backend"
-import { FakeBackend } from "./fakeBackend"
 
 let instance: Backend | undefined
 
-/** Resolve the host backend once. Browser dev and tests get the in-memory fake. */
+/** Resolve the host backend once. Outside Tauri (unit tests) the in-memory TestBackend is used. */
 export async function getBackend(): Promise<Backend> {
   if (instance) return instance
-  const forceFake = import.meta.env.VITE_SILENT_FAKE_BACKEND === "1"
-  if (isTauri() && !forceFake) {
+  if (isTauri()) {
     const { TauriBackend } = await import("./tauriBackend")
     instance = new TauriBackend()
   } else {
-    instance = new FakeBackend()
+    const { TestBackend } = await import("./testBackend")
+    const test = new TestBackend()
+    instance = import.meta.env.DEV && import.meta.env.VITE_SILENT_PREVIEW === "1" ? test.enablePreview() : test
   }
   return instance
 }
 
-/** Test seam. */
 export function setBackend(backend: Backend | undefined): void {
   instance = backend
 }

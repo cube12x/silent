@@ -16,5 +16,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0002_chats_repo_path.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "v2 cli-native: provider/session columns, drop demo rows",
+            sql: include_str!("../migrations/0003_v2.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

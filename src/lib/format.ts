@@ -20,17 +20,25 @@ export function formatDuration(ms: number): string {
   return `${h}h ${m % 60}m`
 }
 
+let relativeLanguage: "tr" | "en" = "tr"
+/** Set once by the i18n store so relative times follow the UI language without prop drilling. */
+export function setRelativeLanguage(lang: "tr" | "en"): void {
+  relativeLanguage = lang
+}
+
 export function formatRelative(ts: number, now = Date.now()): string {
   const diff = Math.max(0, now - ts)
   const s = Math.round(diff / 1000)
-  if (s < 5) return "just now"
-  if (s < 60) return `${s}s ago`
+  const tr = relativeLanguage === "tr"
+  if (s < 5) return tr ? "az önce" : "just now"
+  const unit = (n: number, u: string) => (tr ? `${n}${u} önce` : `${n}${u} ago`)
+  if (s < 60) return unit(s, tr ? "sn" : "s")
   const m = Math.round(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return unit(m, tr ? "dk" : "m")
   const h = Math.round(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return unit(h, tr ? "sa" : "h")
   const d = Math.round(h / 24)
-  return `${d}d ago`
+  return unit(d, tr ? "g" : "d")
 }
 
 export function shortPath(path: string, keep = 2): string {

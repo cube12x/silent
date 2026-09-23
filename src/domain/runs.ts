@@ -2,23 +2,9 @@ import type { SubtaskKind } from "./models"
 
 export type ExecutionMode = "sequential" | "parallel" | "staged"
 
-export type CostMode = "economy" | "balanced" | "max-quality" | "local-first" | "zero-api"
+export type CostMode = "economy" | "balanced" | "max-quality"
 
-export const COST_MODES: readonly CostMode[] = [
-  "economy",
-  "balanced",
-  "max-quality",
-  "local-first",
-  "zero-api",
-] as const
-
-export const COST_MODE_LABELS: Record<CostMode, string> = {
-  economy: "Economy",
-  balanced: "Balanced",
-  "max-quality": "Maximum Quality",
-  "local-first": "Local First",
-  "zero-api": "Zero-API Mode",
-}
+export const COST_MODES: readonly CostMode[] = ["economy", "balanced", "max-quality"] as const
 
 export type WorkerState =
   | "planning"
@@ -87,7 +73,6 @@ export interface Subtask {
 
 export interface RunEstimate {
   tokens: number
-  costUsd: number
   seconds: number
 }
 

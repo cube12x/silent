@@ -4,15 +4,19 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 
-use crate::codex::events::{parse_jsonl_line, RuntimeEvent};
 use crate::error::{RuntimeError, RuntimeResult};
+use crate::events::{classify_error, RuntimeEvent};
+
+/// Turns one stdout line into zero or more events. Built per run via `cli::line_parser`.
+pub type LineParser = Box<dyn FnMut(&str) -> Vec<RuntimeEvent> + Send + 'static>;
 
 #[derive(Debug, Clone)]
 pub struct SpawnConfig {
@@ -156,10 +160,12 @@ where
     }
 }
 
-/// Spawn `config.program` and stream events to `sink` until exit, cancel or timeout.
-/// Always emits a final `RuntimeEvent::Exited` (code `None` on cancel/timeout/signal).
+/// Spawn `config.program`, feed every stdout line through `parser`, and stream events to `sink`
+/// until exit, cancel or timeout. Always emits a final `RuntimeEvent::Exited` (code `None` on
+/// cancel/timeout/signal).
 pub async fn run_streaming<F>(
     config: SpawnConfig,
+    mut parser: LineParser,
     sink: F,
     mut cancel: watch::Receiver<bool>,
 ) -> RuntimeResult<RunExit>
@@ -200,20 +206,37 @@ where
         .take()
         .ok_or_else(|| RuntimeError::Unavailable("stderr pipe unavailable".into()))?;
 
+    // Track whether the CLI already reported a structured failure, and remember the last
+    // error-looking stderr line so a silent non-zero exit can still be explained.
+    let failed_emitted = Arc::new(AtomicBool::new(false));
+    let last_error_line: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
     let out_sink = Arc::clone(&sink);
+    let out_failed = Arc::clone(&failed_emitted);
     let max_line = config.max_line_bytes;
     let stdout_task = tokio::spawn(async move {
         pump_lines(stdout, max_line, |line| {
-            for event in parse_jsonl_line(&line) {
+            for event in parser(&line) {
+                if matches!(event, RuntimeEvent::Failed { .. }) {
+                    out_failed.store(true, Ordering::Relaxed);
+                }
                 out_sink(event.redacted());
             }
         })
         .await
     });
     let err_sink = Arc::clone(&sink);
+    let err_last = Arc::clone(&last_error_line);
     let stderr_task = tokio::spawn(async move {
         pump_lines(stderr, max_line, |line| {
             if !line.trim().is_empty() {
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("error") || lower.contains("failed") || lower.contains("invalid")
+                {
+                    if let Ok(mut slot) = err_last.lock() {
+                        *slot = Some(line.trim().to_owned());
+                    }
+                }
                 err_sink(RuntimeEvent::Stderr { line }.redacted());
             }
         })
@@ -264,6 +287,24 @@ where
         RunExit::Exited(code) => *code,
         _ => None,
     };
+    if let RunExit::Exited(Some(status)) = &exit {
+        if *status != 0 && !failed_emitted.load(Ordering::Relaxed) {
+            let detail = last_error_line
+                .lock()
+                .ok()
+                .and_then(|slot| slot.clone())
+                .unwrap_or_else(|| format!("process exited with code {status}"));
+            let (code, retryable) = classify_error(&detail, "exit_nonzero");
+            sink(
+                RuntimeEvent::Failed {
+                    code,
+                    message: detail,
+                    retryable,
+                }
+                .redacted(),
+            );
+        }
+    }
     sink(RuntimeEvent::Exited { code });
     Ok(exit)
 }
@@ -283,7 +324,7 @@ async fn wait_for_cancel(cancel: &mut watch::Receiver<bool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::cli::{line_parser, ProviderId};
     use std::time::Instant;
 
     fn collector() -> (
@@ -306,19 +347,24 @@ mod tests {
                 r#"echo '{"type":"thread.started","thread_id":"t1"}'; echo plain; echo err 1>&2; exit 3"#.into(),
             ],
         );
-        let exit = run_streaming(config, sink, rx).await.unwrap();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx)
+            .await
+            .unwrap();
         assert_eq!(exit, RunExit::Exited(Some(3)));
         let events = events.lock().unwrap().clone();
         assert_eq!(
             events.first(),
-            Some(&RuntimeEvent::ThreadStarted {
-                thread_id: "t1".into()
+            Some(&RuntimeEvent::SessionStarted {
+                session_id: "t1".into()
             })
         );
         assert!(events.contains(&RuntimeEvent::Stdout {
             line: "plain".into()
         }));
         assert!(events.contains(&RuntimeEvent::Stderr { line: "err".into() }));
+        assert!(
+            matches!(&events[events.len() - 2], RuntimeEvent::Failed { code, message, .. } if code == "exit_nonzero" && message.contains("code 3"))
+        );
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: Some(3) }));
     }
 
@@ -328,7 +374,12 @@ mod tests {
         let (handle, rx) = RunHandle::new();
         let mut config = SpawnConfig::new("/bin/sh", vec!["-c".into(), "sleep 30".into()]);
         config.shutdown_grace = Duration::from_secs(2);
-        let task = tokio::spawn(run_streaming(config, sink, rx));
+        let task = tokio::spawn(run_streaming(
+            config,
+            line_parser(ProviderId::Codex),
+            sink,
+            rx,
+        ));
         tokio::time::sleep(Duration::from_millis(200)).await;
         let started = Instant::now();
         handle.cancel();
@@ -349,7 +400,9 @@ mod tests {
         let mut config = SpawnConfig::new("/bin/sh", vec!["-c".into(), "sleep 30".into()]);
         config.timeout = Duration::from_millis(300);
         config.shutdown_grace = Duration::from_secs(2);
-        let exit = run_streaming(config, sink, rx).await.unwrap();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx)
+            .await
+            .unwrap();
         assert_eq!(exit, RunExit::TimedOut);
         assert_eq!(
             events.lock().unwrap().last(),
@@ -362,7 +415,11 @@ mod tests {
         let (events, sink) = collector();
         let (_handle, rx) = RunHandle::new();
         let config = SpawnConfig::new("/nonexistent/silent-binary", vec![]);
-        assert!(run_streaming(config, sink, rx).await.is_err());
+        assert!(
+            run_streaming(config, line_parser(ProviderId::Codex), sink, rx)
+                .await
+                .is_err()
+        );
         let events = events.lock().unwrap().clone();
         assert!(matches!(&events[0], RuntimeEvent::Failed { code, .. } if code == "spawn_failed"));
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
@@ -380,7 +437,9 @@ mod tests {
             ],
         );
         config.max_line_bytes = 1024;
-        let exit = run_streaming(config, sink, rx).await.unwrap();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx)
+            .await
+            .unwrap();
         assert!(matches!(exit, RunExit::Exited(_)));
         let events = events.lock().unwrap().clone();
         assert!(events.iter().any(

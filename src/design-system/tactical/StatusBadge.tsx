@@ -25,20 +25,20 @@ export const RUN_STATUS_META: Record<RunStatus, { label: string; tone: Tone; act
   cancelled: { label: "Cancelled", tone: "warn", active: false },
 }
 
-export function StatusBadge({ state, className, size }: { state: WorkerState; className?: string; size?: "xs" | "sm" }) {
+export function StatusBadge({ state, className, size, label }: { state: WorkerState; className?: string; size?: "xs" | "sm"; label?: string }) {
   const meta = WORKER_STATE_META[state]
   return (
     <TacticalChip tone={meta.tone} dot pulse={meta.active} size={size} className={cn(className)}>
-      {meta.label}
+      {label ?? meta.label}
     </TacticalChip>
   )
 }
 
-export function RunStatusBadge({ status, className, size }: { status: RunStatus; className?: string; size?: "xs" | "sm" }) {
+export function RunStatusBadge({ status, className, size, label }: { status: RunStatus; className?: string; size?: "xs" | "sm"; label?: string }) {
   const meta = RUN_STATUS_META[status]
   return (
     <TacticalChip tone={meta.tone} dot pulse={meta.active} size={size} className={className}>
-      {meta.label}
+      {label ?? meta.label}
     </TacticalChip>
   )
 }

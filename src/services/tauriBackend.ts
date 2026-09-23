@@ -3,9 +3,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
-import type { Chat, CodexRunRequest, DetectedProvider, Message, MemoryEntry, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { ActivityItem } from "@/mocks/activity"
-import type { AppInfo, Backend, CodexRunHandle, KvStore, Repositories } from "./backend"
+import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { AppInfo, Backend, KvStore, Repositories, RunHandle } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -44,6 +43,21 @@ export class TauriBackend implements Backend {
     return invoke<DetectedProvider[]>("providers_detect")
   }
 
+  providerModels(providerId: ProviderId): Promise<ProviderModel[]> {
+    return invoke<ProviderModel[]>("provider_models", { providerId })
+  }
+
+  async providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
+    const channel = new Channel<RuntimeEvent>()
+    channel.onmessage = onEvent
+    const runId = await invoke<string>("provider_install", { providerId, method, onEvent: channel })
+    return { cancel: () => invoke<void>("cli_run_cancel", { runId }) }
+  }
+
+  providerLogin(providerId: ProviderId): Promise<void> {
+    return invoke<void>("provider_login", { providerId })
+  }
+
   repoInspect(path: string): Promise<RepoInfo> {
     return invoke<RepoInfo>("repo_inspect", { path })
   }
@@ -57,13 +71,11 @@ export class TauriBackend implements Backend {
     await openShell(url)
   }
 
-  async codexStart(request: CodexRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<CodexRunHandle> {
+  async cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
     const channel = new Channel<RuntimeEvent>()
     channel.onmessage = onEvent
-    await invoke<string>("codex_run_start", { request, onEvent: channel })
-    return {
-      cancel: () => invoke<void>("codex_run_cancel", { runId: request.runId }),
-    }
+    await invoke<string>("cli_run_start", { request, onEvent: channel })
+    return { cancel: () => invoke<void>("cli_run_cancel", { runId: request.runId }) }
   }
 
   kv: KvStore = {
@@ -83,12 +95,13 @@ export class TauriBackend implements Backend {
             id: String(r.id),
             title: String(r.title),
             kind: r.kind as Chat["kind"],
+            providerId: (str(r.provider_id) ?? "codex") as Chat["providerId"],
             modelId: String(r.model_id),
             repoAgentId: str(r.repo_agent_id),
             repoPath: str(r.repo_path),
             gatewayPrompt: str(r.gateway),
             gatewayProfile: json(r.gateway_profile_json, undefined),
-            codexThreadId: str(r.codex_thread_id),
+            sessionId: str(r.session_id) ?? str(r.codex_thread_id),
             pinned: Boolean(num(r.pinned)),
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at),
@@ -97,10 +110,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (c) => {
         await (await this.conn()).execute(
-          `INSERT INTO chats (id, title, kind, model_id, repo_agent_id, repo_path, gateway, gateway_profile_json, codex_thread_id, pinned, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-           ON CONFLICT(id) DO UPDATE SET title=$2, kind=$3, model_id=$4, repo_agent_id=$5, repo_path=$6, gateway=$7, gateway_profile_json=$8, codex_thread_id=$9, pinned=$10, updated_at=$12`,
-          [c.id, c.title, c.kind, c.modelId, c.repoAgentId ?? null, c.repoPath ?? null, c.gatewayPrompt ?? null, JSON.stringify(c.gatewayProfile ?? null), c.codexThreadId ?? null, c.pinned ? 1 : 0, c.createdAt, c.updatedAt],
+          `INSERT INTO chats (id, title, kind, provider_id, model_id, repo_agent_id, repo_path, gateway, gateway_profile_json, session_id, pinned, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT(id) DO UPDATE SET title=$2, kind=$3, provider_id=$4, model_id=$5, repo_agent_id=$6, repo_path=$7, gateway=$8, gateway_profile_json=$9, session_id=$10, pinned=$11, updated_at=$13`,
+          [c.id, c.title, c.kind, c.providerId, c.modelId, c.repoAgentId ?? null, c.repoPath ?? null, c.gatewayPrompt ?? null, JSON.stringify(c.gatewayProfile ?? null), c.sessionId ?? null, c.pinned ? 1 : 0, c.createdAt, c.updatedAt],
         )
       },
       delete: async (id) => {
@@ -120,6 +133,8 @@ export class TauriBackend implements Backend {
             content: String(r.content),
             blocks: json(r.blocks_json, []),
             usage: json(r.usage_json, undefined),
+            costUsd: num(r.cost_usd),
+            providerId: str(r.provider_id) as Message["providerId"],
             modelId: str(r.model_id),
             error: str(r.error),
             createdAt: Number(r.created_at),
@@ -128,10 +143,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (m) => {
         await (await this.conn()).execute(
-          `INSERT INTO messages (id, chat_id, role, content, blocks_json, usage_json, model_id, error, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT(id) DO UPDATE SET content=$4, blocks_json=$5, usage_json=$6, model_id=$7, error=$8`,
-          [m.id, m.chatId, m.role, m.content, JSON.stringify(m.blocks), m.usage ? JSON.stringify(m.usage) : null, m.modelId ?? null, m.error ?? null, m.createdAt],
+          `INSERT INTO messages (id, chat_id, role, content, blocks_json, usage_json, model_id, provider_id, cost_usd, error, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT(id) DO UPDATE SET content=$4, blocks_json=$5, usage_json=$6, model_id=$7, provider_id=$8, cost_usd=$9, error=$10`,
+          [m.id, m.chatId, m.role, m.content, JSON.stringify(m.blocks), m.usage ? JSON.stringify(m.usage) : null, m.modelId ?? null, m.providerId ?? null, m.costUsd ?? null, m.error ?? null, m.createdAt],
         )
       },
     },
@@ -143,8 +158,9 @@ export class TauriBackend implements Backend {
             id: String(r.id),
             name: String(r.name),
             repoPath: String(r.repo_path),
-            primaryModelId: String(r.primary_model_id),
-            fallbackModelIds: json(r.fallback_model_ids_json, []),
+            providerId: (str(r.provider_id) ?? "codex") as RepoAgent["providerId"],
+            modelId: String(r.model_id ?? ""),
+            fallbackModelRefs: json(r.fallback_model_refs_json, []),
             gatewayPrompt: String(r.gateway_prompt ?? ""),
             gatewayProfile: json(r.gateway_profile_json, {} as RepoAgent["gatewayProfile"]),
             permissions: json(r.permissions_json, {} as RepoAgent["permissions"]),
@@ -159,10 +175,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (a) => {
         await (await this.conn()).execute(
-          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, fallback_model_ids_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, fallback_model_ids_json=$5, gateway_prompt=$6, gateway_profile_json=$7, permissions_json=$8, tools_json=$9, memory_count=$10, status=$11, last_actions_json=$12, updated_at=$14`,
-          [a.id, a.name, a.repoPath, a.primaryModelId, JSON.stringify(a.fallbackModelIds), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt],
+          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, provider_id, model_id, fallback_model_refs_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, provider_id=$5, model_id=$6, fallback_model_refs_json=$7, gateway_prompt=$8, gateway_profile_json=$9, permissions_json=$10, tools_json=$11, memory_count=$12, status=$13, last_actions_json=$14, updated_at=$16`,
+          [a.id, a.name, a.repoPath, `${a.providerId}:${a.modelId}`, a.providerId, a.modelId, JSON.stringify(a.fallbackModelRefs), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt],
         )
       },
       delete: async (id) => {
@@ -185,7 +201,7 @@ export class TauriBackend implements Backend {
             status: r.status as SilentCodeRun["status"],
             plan: json(r.plan_json, []),
             routing: json(r.routing_json, []),
-            estimate: json(r.estimate_json, { tokens: 0, costUsd: 0, seconds: 0 }),
+            estimate: json(r.estimate_json, { tokens: 0, seconds: 0 }),
             actual: json(r.actual_json, undefined),
             startedAt: num(r.started_at),
             finishedAt: num(r.finished_at),
@@ -248,29 +264,6 @@ export class TauriBackend implements Backend {
       },
       delete: async (id) => {
         await (await this.conn()).execute("DELETE FROM memory_entries WHERE id = $1", [id])
-      },
-    },
-    activity: {
-      list: async (limit = 50) => {
-        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM activity ORDER BY created_at DESC LIMIT $1", [limit])
-        return rows.map(
-          (r): ActivityItem => ({
-            id: String(r.id),
-            kind: r.kind as ActivityItem["kind"],
-            title: String(r.title),
-            detail: str(r.detail),
-            refId: str(r.ref_id),
-            refRoute: str(r.ref_route),
-            ok: Boolean(num(r.ok)),
-            at: Number(r.created_at),
-          }),
-        )
-      },
-      append: async (item) => {
-        await (await this.conn()).execute(
-          "INSERT OR REPLACE INTO activity (id, kind, title, detail, ref_id, ref_route, ok, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-          [item.id, item.kind, item.title, item.detail ?? null, item.refId ?? null, item.refRoute ?? null, item.ok ? 1 : 0, item.at],
-        )
       },
     },
   }

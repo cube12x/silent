@@ -2,33 +2,32 @@ import type { SubtaskKind } from "./models"
 import type { CostMode } from "./runs"
 import type { AgentPermissions } from "./agents"
 import { DEFAULT_PERMISSIONS } from "./agents"
+import type { ProviderId } from "./runtime"
 
-export type ThemeName = "obsidian" | "graphite"
+export type Language = "tr" | "en"
+
+export interface CustomModel {
+  id: string
+  label: string
+}
 
 export interface Settings {
-  defaultPrimaryModelId: string
-  defaultFallbackModelId: string
+  language: Language
+  /** ModelRef `provider:model`. Empty until a CLI is detected. */
+  defaultModelRef: string
+  fallbackModelRef: string
   costMode: CostMode
   routingOverrides: Partial<Record<SubtaskKind, string>>
-  theme: ThemeName
+  /** User-added model ids per CLI (e.g. a new Codex slug or a full Claude model name). */
+  customModels: Partial<Record<ProviderId, CustomModel[]>>
+  enabledProviders: Partial<Record<ProviderId, boolean>>
   reducedMotion: boolean
   security: {
-    /** Never true in v1; Codex sandbox is capped at workspace-write. */
     allowDangerFullAccess: boolean
     redactSecrets: boolean
     requireApprovalForGitPush: boolean
   }
   defaultPermissions: AgentPermissions
-  memory: {
-    autoCaptureSession: boolean
-    autoCaptureRepo: boolean
-    retentionDays: number
-  }
-  repoIndex: {
-    enabled: boolean
-    maxFiles: number
-    ignoreGlobs: string[]
-  }
   logs: {
     level: "error" | "warn" | "info" | "debug"
     keepTerminalLines: number
@@ -36,19 +35,15 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  defaultPrimaryModelId: "codex",
-  defaultFallbackModelId: "claude-sonnet",
+  language: "tr",
+  defaultModelRef: "",
+  fallbackModelRef: "",
   costMode: "balanced",
   routingOverrides: {},
-  theme: "obsidian",
+  customModels: {},
+  enabledProviders: {},
   reducedMotion: false,
-  security: {
-    allowDangerFullAccess: false,
-    redactSecrets: true,
-    requireApprovalForGitPush: true,
-  },
+  security: { allowDangerFullAccess: false, redactSecrets: true, requireApprovalForGitPush: true },
   defaultPermissions: DEFAULT_PERMISSIONS,
-  memory: { autoCaptureSession: true, autoCaptureRepo: true, retentionDays: 90 },
-  repoIndex: { enabled: false, maxFiles: 20000, ignoreGlobs: ["node_modules", "target", "dist", ".git"] },
   logs: { level: "info", keepTerminalLines: 5000 },
 }

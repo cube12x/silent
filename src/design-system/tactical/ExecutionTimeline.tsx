@@ -5,7 +5,7 @@ import { KIND_LABEL } from "./RouteGraph"
 import { ModelTag } from "./ModelLogo"
 
 /** Horizontal lane view of subtasks over time: waiting → active → terminal. */
-export function ExecutionTimeline({ plan, className, onSelect, selectedId }: { plan: Subtask[]; className?: string; onSelect?: (id: string) => void; selectedId?: string }) {
+export function ExecutionTimeline({ plan, className, onSelect, selectedId, kindLabels, stateLabels }: { plan: Subtask[]; className?: string; onSelect?: (id: string) => void; selectedId?: string; kindLabels?: Record<Subtask["kind"], string>; stateLabels?: Record<Subtask["state"], string> }) {
   return (
     <ol className={cn("relative flex flex-col gap-1.5", className)}>
       {plan.map((s, i) => {
@@ -28,7 +28,7 @@ export function ExecutionTimeline({ plan, className, onSelect, selectedId }: { p
               </span>
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
-                  <span className="shrink-0 text-sm font-medium text-text-1">{KIND_LABEL[s.kind]}</span>
+                  <span className="shrink-0 text-sm font-medium text-text-1">{(kindLabels ?? KIND_LABEL)[s.kind]}</span>
                   <span className="min-w-0 truncate text-xs text-text-3">{s.title.replace(/^[^:]+:\s*/, "")}</span>
                 </span>
                 <span className="mt-1 block h-1 w-full overflow-hidden rounded-full bg-ink-4/80">
@@ -36,8 +36,8 @@ export function ExecutionTimeline({ plan, className, onSelect, selectedId }: { p
                 </span>
               </span>
               <span className="flex flex-col items-end gap-1">
-                {s.assignedModelId ? <ModelTag modelId={s.assignedModelId} size="xs" /> : <span className="text-[11px] text-text-3">{dep ? `waits on ${dep}` : "queued"}</span>}
-                <span className={cn("text-[10px] tracking-wider uppercase", meta.active ? "text-cyan" : s.state === "completed" ? "text-success" : s.state === "failed" ? "text-danger" : "text-text-3")}>{meta.label}</span>
+                {s.assignedModelId ? <ModelTag modelRef={s.assignedModelId} size="xs" /> : <span className="text-[11px] text-text-3">{dep ? `waits on ${dep}` : "queued"}</span>}
+                <span className={cn("text-[10px] tracking-wider uppercase", meta.active ? "text-cyan" : s.state === "completed" ? "text-success" : s.state === "failed" ? "text-danger" : "text-text-3")}>{stateLabels?.[s.state] ?? meta.label}</span>
               </span>
             </button>
           </li>

@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { AgentAction, AgentPermissions, RepoAgent } from "@/domain"
+import type { AgentAction, AgentPermissions, ProviderId, RepoAgent } from "@/domain"
 import { DEFAULT_PERMISSIONS } from "@/domain"
 import { interpretGateway } from "@/engine/gateway"
 import { getBackend } from "@/services"
@@ -8,8 +8,9 @@ import { newId } from "@/lib/ids"
 export interface CreateAgentInput {
   name: string
   repoPath: string
-  primaryModelId: string
-  fallbackModelIds?: string[]
+  providerId: ProviderId
+  modelId: string
+  fallbackModelRefs?: string[]
   gatewayPrompt: string
   permissions?: Partial<AgentPermissions>
 }
@@ -38,16 +39,16 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
       id: newId("agent"),
       name: input.name.trim() || profile.role,
       repoPath: input.repoPath,
-      primaryModelId: input.primaryModelId,
-      fallbackModelIds: input.fallbackModelIds ?? [],
+      providerId: input.providerId,
+      modelId: input.modelId,
+      fallbackModelRefs: input.fallbackModelRefs ?? [],
       gatewayPrompt: input.gatewayPrompt,
       gatewayProfile: profile,
-      // Gateway-derived permissions layer on top of defaults; explicit UI choices win. Git push always off.
       permissions: { ...DEFAULT_PERMISSIONS, ...profile.permissions, ...input.permissions, gitPush: false },
       toolsEnabled: ["shell", "git", "tests", "file-edit", "search"],
       memoryCount: 0,
       status: "idle",
-      lastActions: [{ id: newId("act"), at: now, kind: "memory", title: "Agent created; Gateway interpreted", detail: profile.summary, ok: true }],
+      lastActions: [],
       createdAt: now,
       updatedAt: now,
     }
@@ -68,14 +69,12 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   },
   async setPermission(id, key, value) {
     const current = get().agents.find((a) => a.id === id)
-    if (!current) return
-    await get().update(id, { permissions: { ...current.permissions, [key]: value } })
+    if (current) await get().update(id, { permissions: { ...current.permissions, [key]: value } })
   },
   async recordAction(id, action) {
     const current = get().agents.find((a) => a.id === id)
     if (!current) return
-    const full: AgentAction = { ...action, id: newId("act"), at: Date.now() }
-    await get().update(id, { lastActions: [full, ...current.lastActions].slice(0, 20) })
+    await get().update(id, { lastActions: [{ ...action, id: newId("act"), at: Date.now() }, ...current.lastActions].slice(0, 20) })
   },
   async remove(id) {
     set({ agents: get().agents.filter((a) => a.id !== id) })

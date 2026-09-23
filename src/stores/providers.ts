@@ -1,30 +1,58 @@
 import { create } from "zustand"
-import type { DetectedProvider, Model, Provider, ProviderId } from "@/domain"
-import { MODELS, PROVIDERS } from "@/engine/capabilities"
+import type { DetectedProvider, InstallMethod, ProviderId, ProviderModel, RuntimeEvent, TerminalLine } from "@/domain"
+import { PROVIDER_IDS, modelRef } from "@/domain"
+import { PROVIDERS } from "@/providers/registry"
 import { getBackend } from "@/services"
+import { useSettingsStore } from "./settings"
 
-interface ProvidersState {
-  providers: Provider[]
-  detected: DetectedProvider[]
-  detecting: boolean
-  lastDetectedAt?: number
-  detect(): Promise<void>
-  setEnabled(id: ProviderId, enabled: boolean): Promise<void>
-  /** Models whose provider is enabled. */
-  enabledModels(): Model[]
-  load(): Promise<void>
+export interface ProviderState {
+  id: ProviderId
+  detected?: DetectedProvider
+  installed: boolean
+  enabled: boolean
+  models: ProviderModel[]
+  installing: boolean
+  installLog: TerminalLine[]
 }
 
-const KEY = "providers.enabled"
+interface ProvidersState {
+  providers: Record<ProviderId, ProviderState>
+  detecting: boolean
+  lastDetectedAt?: number
+  load(): Promise<void>
+  detect(): Promise<void>
+  setEnabled(id: ProviderId, enabled: boolean): Promise<void>
+  install(id: ProviderId, method: InstallMethod): Promise<void>
+  login(id: ProviderId): Promise<void>
+  addCustomModel(id: ProviderId, modelId: string, label?: string): Promise<void>
+  removeCustomModel(id: ProviderId, modelId: string): Promise<void>
+  /** Models of installed + enabled CLIs (catalog + static + custom), deduplicated. */
+  availableModels(): ProviderModel[]
+  modelByRef(ref: string): ProviderModel | undefined
+}
+
+function emptyState(id: ProviderId): ProviderState {
+  return { id, installed: false, enabled: true, models: [], installing: false, installLog: [] }
+}
+
+function mergeModels(id: ProviderId, fromCli: ProviderModel[]): ProviderModel[] {
+  const custom = useSettingsStore.getState().settings.customModels[id] ?? []
+  const info = PROVIDERS[id]
+  const out = new Map<string, ProviderModel>()
+  for (const m of fromCli) out.set(m.id, m)
+  for (const s of info.staticModels) if (!out.has(s.id)) out.set(s.id, { ...s, providerId: id, source: "alias" })
+  for (const c of custom) out.set(c.id, { id: c.id, providerId: id, displayName: c.label || c.id, source: "custom", tier: "strong" })
+  const list = Array.from(out.values())
+  if (!list.some((m) => m.isDefault) && list.length) list[0] = { ...list[0], isDefault: true }
+  return list
+}
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
-  providers: PROVIDERS,
-  detected: [],
+  providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, emptyState(id)])) as Record<ProviderId, ProviderState>,
   detecting: false,
   async load() {
-    const backend = await getBackend()
-    const enabled = await backend.kv.get<Record<string, boolean>>(KEY)
-    if (enabled) set({ providers: get().providers.map((p) => ({ ...p, enabled: enabled[p.id] ?? p.enabled })) })
+    const enabled = useSettingsStore.getState().settings.enabledProviders
+    set({ providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { ...get().providers[id], enabled: enabled[id] ?? true }])) as Record<ProviderId, ProviderState> })
     await get().detect()
   },
   async detect() {
@@ -32,19 +60,31 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     try {
       const backend = await getBackend()
       const detected = await backend.providersDetect()
-      set({
-        detected,
-        lastDetectedAt: Date.now(),
-        providers: get().providers.map((p) => {
-          const d = detected.find((x) => x.id === p.id)
-          if (!d) return p
-          if (p.executable) {
-            return { ...p, status: d.installed ? (p.enabled ? "connected" : "disabled") : "not-installed", version: d.version, path: d.path }
+      const next = { ...get().providers }
+      await Promise.all(
+        PROVIDER_IDS.map(async (id) => {
+          const d = detected.find((x) => x.id === id)
+          const installed = Boolean(d?.installed)
+          let models: ProviderModel[] = []
+          if (installed) {
+            try {
+              models = await backend.providerModels(id)
+            } catch (err) {
+              console.warn(`provider_models(${id}) failed`, err)
+            }
           }
-          // Installed CLI but not wired yet: still simulated, but show the real version for honesty.
-          return { ...p, status: p.enabled ? "simulated" : "disabled", version: d.installed ? d.version : undefined, path: d.path }
+          next[id] = { ...next[id], detected: d, installed, models: mergeModels(id, models) }
         }),
-      })
+      )
+      set({ providers: next, lastDetectedAt: Date.now() })
+      // First real detection: pick a sensible default model if none is set.
+      const settings = useSettingsStore.getState().settings
+      const available = get().availableModels()
+      if (available.length && !available.some((m) => modelRef(m.providerId, m.id) === settings.defaultModelRef)) {
+        const prefer = available.find((m) => m.isDefault) ?? available[0]
+        const fallback = available.find((m) => m.providerId !== prefer.providerId) ?? available.find((m) => m.id !== prefer.id) ?? prefer
+        await useSettingsStore.getState().update({ defaultModelRef: modelRef(prefer.providerId, prefer.id), fallbackModelRef: modelRef(fallback.providerId, fallback.id) })
+      }
     } catch (err) {
       console.warn("provider detection failed", err)
     } finally {
@@ -52,19 +92,63 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     }
   },
   async setEnabled(id, enabled) {
-    set({
-      providers: get().providers.map((p) => {
-        if (p.id !== id) return p
-        const installed = get().detected.find((d) => d.id === id)?.installed
-        const status = !enabled ? "disabled" : p.executable ? (installed ? "connected" : "not-installed") : "simulated"
-        return { ...p, enabled, status }
-      }),
-    })
-    const backend = await getBackend()
-    await backend.kv.set(KEY, Object.fromEntries(get().providers.map((p) => [p.id, p.enabled])))
+    set({ providers: { ...get().providers, [id]: { ...get().providers[id], enabled } } })
+    await useSettingsStore.getState().update((s) => ({ ...s, enabledProviders: { ...s.enabledProviders, [id]: enabled } }))
   },
-  enabledModels() {
-    const enabled = new Set(get().providers.filter((p) => p.enabled).map((p) => p.id))
-    return MODELS.filter((m) => enabled.has(m.providerId))
+  async install(id, method) {
+    const backend = await getBackend()
+    const push = (line: TerminalLine) => set({ providers: { ...get().providers, [id]: { ...get().providers[id], installLog: [...get().providers[id].installLog.slice(-800), line] } } })
+    set({ providers: { ...get().providers, [id]: { ...get().providers[id], installing: true, installLog: [] } } })
+    const cmd = method === "npm" ? PROVIDERS[id].installNpm : PROVIDERS[id].installScript
+    push({ ts: Date.now(), stream: "system", text: `$ ${cmd ?? ""}` })
+    await new Promise<void>((resolve) => {
+      const onEvent = (e: RuntimeEvent) => {
+        if (e.type === "stdout") push({ ts: Date.now(), stream: "stdout", text: e.data.line })
+        else if (e.type === "stderr") push({ ts: Date.now(), stream: "stderr", text: e.data.line })
+        else if (e.type === "agentMessage") push({ ts: Date.now(), stream: "stdout", text: e.data.text })
+        else if (e.type === "failed") push({ ts: Date.now(), stream: "stderr", text: e.data.message })
+        else if (e.type === "exited") {
+          push({ ts: Date.now(), stream: "system", text: `exit ${e.data.code ?? "?"}` })
+          resolve()
+        }
+      }
+      backend.providerInstall(id, method, onEvent).catch((err: unknown) => {
+        push({ ts: Date.now(), stream: "stderr", text: err instanceof Error ? err.message : String(err) })
+        resolve()
+      })
+    })
+    set({ providers: { ...get().providers, [id]: { ...get().providers[id], installing: false } } })
+    await get().detect()
+  },
+  async login(id) {
+    const backend = await getBackend()
+    await backend.providerLogin(id)
+  },
+  async addCustomModel(id, modelId, label) {
+    const trimmed = modelId.trim()
+    if (!trimmed) return
+    await useSettingsStore.getState().update((s) => ({ ...s, customModels: { ...s.customModels, [id]: [...(s.customModels[id] ?? []).filter((m) => m.id !== trimmed), { id: trimmed, label: label?.trim() || trimmed }] } }))
+    set({ providers: { ...get().providers, [id]: { ...get().providers[id], models: mergeModels(id, get().providers[id].models.filter((m) => m.source !== "custom")) } } })
+  },
+  async removeCustomModel(id, modelId) {
+    await useSettingsStore.getState().update((s) => ({ ...s, customModels: { ...s.customModels, [id]: (s.customModels[id] ?? []).filter((m) => m.id !== modelId) } }))
+    set({ providers: { ...get().providers, [id]: { ...get().providers[id], models: mergeModels(id, get().providers[id].models.filter((m) => m.source !== "custom")) } } })
+  },
+  availableModels() {
+    return PROVIDER_IDS.flatMap((id) => {
+      const p = get().providers[id]
+      return p.installed && p.enabled ? p.models : []
+    })
+  },
+  modelByRef(ref) {
+    const i = ref.indexOf(":")
+    if (i < 0) return undefined
+    const p = get().providers[ref.slice(0, i) as ProviderId]
+    return p?.models.find((m) => m.id === ref.slice(i + 1))
   },
 }))
+
+/** Pure helper so components can memoise on the providers map only. */
+export function selectAvailableModels(providers: Record<ProviderId, ProviderState>): ProviderModel[] {
+  return PROVIDER_IDS.flatMap((id) => (providers[id].installed && providers[id].enabled ? providers[id].models : []))
+}

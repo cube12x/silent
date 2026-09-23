@@ -1,5 +1,6 @@
 pub mod binaries;
-pub mod codex;
+pub mod cli;
+pub mod models;
 pub mod providers;
 pub mod repo;
 
