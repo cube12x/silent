@@ -5,11 +5,11 @@ type Tone = "default" | "cyan" | "violet" | "success" | "warn" | "danger"
 
 const TONE: Record<Tone, string> = {
   default: "",
-  cyan: "border-cyan/35 shadow-glow",
-  violet: "border-violet/40 shadow-[0_0_0_1px_color-mix(in_oklch,var(--violet)_30%,transparent),0_0_24px_color-mix(in_oklch,var(--violet)_18%,transparent)]",
-  success: "border-success/35 shadow-[0_0_0_1px_color-mix(in_oklch,var(--success)_25%,transparent),0_0_24px_color-mix(in_oklch,var(--success)_14%,transparent)]",
-  warn: "border-warn/35",
-  danger: "border-danger/40 shadow-[0_0_0_1px_color-mix(in_oklch,var(--danger)_25%,transparent),0_0_24px_color-mix(in_oklch,var(--danger)_14%,transparent)]",
+  cyan: "border-text-2",
+  violet: "border-text-2",
+  success: "border-success/50",
+  warn: "border-warn/50",
+  danger: "border-danger/50",
 }
 
 export interface GlowCardProps extends React.ComponentProps<"div"> {
@@ -25,10 +25,10 @@ export function GlowCard({ className, tone = "default", interactive, active, pad
     <div
       data-slot="glow-card"
       className={cn(
-        "panel relative rounded-xl text-sm text-text-1 transition-[box-shadow,border-color,transform] duration-200",
+        "panel relative rounded-md text-sm text-text-1 transition-[border-color] duration-150",
         padded && "p-4",
-        interactive && "cursor-pointer hover:border-line-strong hover:shadow-glow focus-visible:shadow-glow outline-none",
-        active && "border-cyan/50 shadow-glow",
+        interactive && "cursor-pointer hover:border-line-strong   outline-none",
+        active && "border-text-1",
         TONE[tone],
         className,
       )}

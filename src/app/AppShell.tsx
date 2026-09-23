@@ -45,8 +45,8 @@ export function AppShell() {
       <div className="col-span-2 row-start-1"><TopBar /></div>
       <aside className="row-start-2 min-h-0 border-r border-line bg-ink-1"><Sidebar /></aside>
       <main key={location.pathname.split("/")[1]} className="relative row-start-2 min-h-0 min-w-0 overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.3]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklch,var(--cyan)_9%,transparent),transparent)]" />
+        <div className="pointer-events-none absolute inset-0  opacity-[0.3]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 " />
         <div className="relative h-full min-h-0 overflow-auto"><Outlet /></div>
       </main>
       <CommandPalette />

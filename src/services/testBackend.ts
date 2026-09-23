@@ -79,7 +79,7 @@ export class TestBackend implements Backend {
     messages: { listByChat: async (chatId) => Array.from(this.messages.values()).filter((m) => m.chatId === chatId), upsert: async (m) => void this.messages.set(m.id, m) },
     agents: { list: async () => Array.from(this.agents.values()), upsert: async (a) => void this.agents.set(a.id, a), delete: async (id) => void this.agents.delete(id) },
     runs: { list: async () => Array.from(this.runs.values()), upsert: async (r) => void this.runs.set(r.id, r), delete: async (id) => void this.runs.delete(id) },
-    terminal: { listBySubtask: async (id) => this.terminal.get(id) ?? [], append: async (_r, id, lines) => void this.terminal.set(id, [...(this.terminal.get(id) ?? []), ...lines]) },
+    terminal: { listBySubtask: async (id) => this.terminal.get(id) ?? [], append: async (_r, id, lines, keep = 2000) => void this.terminal.set(id, [...(this.terminal.get(id) ?? []), ...lines].slice(-keep)) },
     memory: { list: async () => Array.from(this.memory.values()), upsert: async (e) => void this.memory.set(e.id, e), delete: async (id) => void this.memory.delete(id) },
   }
 }

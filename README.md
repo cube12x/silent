@@ -2,7 +2,7 @@
 
 **Masaüstü, CLI-native çoklu-AI orkestrasyon istasyonu.** Tek istek yazarsın; Silent onu alt görevlere böler, her birini makinendeki gerçek AI CLI'larından en uygun modele yönlendirir, terminalde çalıştırır ve canlı izler. API anahtarı yok, simülasyon yok: yalnızca kurulu CLI'lar.
 
-> v2 (2026-09-23): 4 ekran (Sohbet · Silent Code · Ajanlar · Ayarlar), 10 CLI adaptörü, Türkçe/İngilizce arayüz, hayalet logo.
+> v2.1 (2026-09-24): monokrom "Monolith" tema, arcade hayalet logo, plan editörü (manuel görev atama, effort, süre limiti), tür→katman yönlendirme politikası, timeout'ta oturumu devam ettirme, olumsuzlama anlayan planner ("algoritma yazma"), toplu terminal yazımı.
 
 ## Desteklenen CLI'lar
 
@@ -50,6 +50,10 @@ src/services        TauriBackend (gerçek) · TestBackend (yalnız test)
 crates/silent-runtime   Rust: spawn · cli/<adaptör>.rs (argv + JSONL → RuntimeEvent) · generic fallback · redaction
 src-tauri           komutlar: providers_detect · provider_models · provider_install · provider_login · cli_run_start · cli_run_cancel
 ```
+
+## Yönlendirme politikası
+
+Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızlı (Haiku, GPT-6-Luna…), backend/frontend/entegrasyon → güçlü (Sonnet, GPT-6-Sol…), mimari/algoritma/inceleme → en güçlü (Opus/Fable, GPT-6-Astra, K3). Ekonomik mod bir katman aşağı iner; En yüksek kalite yapım türlerini de en güçlüye çıkarır. Effort de tür bazlıdır (docs/tests low, yapım medium, mimari high; xhigh yalnız En yüksek kalite + mimari/algoritma) — kullanıcının global CLI ayarı (ör. Codex `model_reasoning_effort = "xhigh"`) hiçbir zaman hafif görevlere sızmaz. Süre limiti dolan görev **aynı oturumdan devam ettirilir** (en fazla 2 kez), sıfırdan başlatılmaz. Plan editöründe bunların hepsi görev başına elle değiştirilebilir.
 
 ## Güvenlik
 

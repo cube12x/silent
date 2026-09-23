@@ -13,8 +13,7 @@ import { modelRef } from "@/domain"
 import { useAgentsStore } from "./agents"
 import { useProvidersStore } from "./providers"
 import { useSettingsStore } from "./settings"
-
-const RING = 5000
+import { useTerminalStore } from "./terminal"
 
 export interface DraftInput {
   prompt: string
@@ -27,7 +26,6 @@ export interface DraftInput {
 
 interface RunsState {
   runs: SilentCodeRun[]
-  terminal: Record<string, TerminalLine[]>
   usage: Record<string, { tokens: number; costUsd: number }>
   executors: Record<string, Executor>
   load(): Promise<void>
@@ -69,7 +67,6 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
 
 export const useRunsStore = create<RunsState>((set, get) => ({
   runs: [],
-  terminal: {},
   usage: {},
   executors: {},
   async load() {
@@ -109,26 +106,28 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const bus = new EventBus()
     const worker = new CliWorker(backend)
     const sandbox = agent && !agent.permissions.write ? "read-only" : "workspace-write"
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, maxRetriesPerModel: 1, models: useProvidersStore.getState().availableModels() })
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
 
     const started = { ...run, status: "running" as const, startedAt: Date.now() }
     set({ runs: [started, ...get().runs.filter((r) => r.id !== run.id)], executors: { ...get().executors, [run.id]: executor }, usage: { ...get().usage, [run.id]: { tokens: 0, costUsd: 0 } } })
     await backend.db.runs.upsert(started)
     if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true })
 
+    // Terminal lines: in-memory via the throttled terminal store; to SQLite in one batched insert every 3 s.
     const pending: Record<string, TerminalLine[]> = {}
-    const flushTimer = setInterval(() => {
+    const keep = useSettingsStore.getState().settings.logs.keepTerminalLines || 2000
+    const flush = () => {
       for (const [subtaskId, lines] of Object.entries(pending)) {
         if (!lines.length) continue
         pending[subtaskId] = []
-        void backend.db.terminal.append(run.id, subtaskId, lines)
+        void backend.db.terminal.append(run.id, subtaskId, lines, keep)
       }
-    }, 1500)
+    }
+    const flushTimer = setInterval(flush, 3000)
 
     bus.subscribe((e) => {
       if (e.type === "worker.log") {
-        const cur = get().terminal[e.subtaskId] ?? []
-        set({ terminal: { ...get().terminal, [e.subtaskId]: cur.length >= RING ? [...cur.slice(cur.length - RING + 1), e.line] : [...cur, e.line] } })
+        useTerminalStore.getState().append(e.subtaskId, e.line)
         ;(pending[e.subtaskId] ??= []).push(e.line)
         return
       }
@@ -143,6 +142,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       set({ runs: get().runs.map((r) => (r.id === run.id ? updated : r)) })
       if (e.type === "run.completed" || e.type === "run.failed" || e.type === "run.cancelled") {
         clearInterval(flushTimer)
+        flush()
         const usage = get().usage[run.id]
         const final = { ...updated, actual: usage ? { tokens: usage.tokens, costUsd: Number(usage.costUsd.toFixed(2)) } : undefined }
         const executors = { ...get().executors }
@@ -166,10 +166,10 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     await backend.db.runs.delete(runId)
   },
   async loadTerminal(runId, subtaskId) {
-    if (get().terminal[subtaskId]?.length || get().executors[runId]) return
+    if (useTerminalStore.getState().lines[subtaskId]?.length || get().executors[runId]) return
     const backend = await getBackend()
     const lines = await backend.db.terminal.listBySubtask(subtaskId)
-    if (lines.length) set({ terminal: { ...get().terminal, [subtaskId]: lines } })
+    if (lines.length) useTerminalStore.getState().replace(subtaskId, lines)
   },
   byId(id) {
     return id ? get().runs.find((r) => r.id === id) : undefined

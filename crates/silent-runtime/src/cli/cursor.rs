@@ -157,7 +157,7 @@ mod tests {
                 "gpt-5",
                 "--resume",
                 "s",
-                "Read-only task: do not modify any files. do the thing"
+                "Read-only task: do not create, modify or delete any files; only read and report. do the thing"
             ]
         );
     }

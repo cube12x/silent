@@ -14,11 +14,11 @@ export function NeonButton({ className, glow = true, variant = "default", ...pro
     <Button
       variant={variant}
       className={cn(
-        variant === "default" && "bg-cyan text-[#04131a] font-semibold hover:bg-cyan hover:brightness-110",
-        variant === "default" && glow && "shadow-[0_0_0_1px_color-mix(in_oklch,var(--cyan)_40%,transparent),0_0_18px_color-mix(in_oklch,var(--cyan)_28%,transparent)] hover:shadow-glow-strong",
-        variant === "outline" && "border-line-strong bg-ink-2/60 hover:border-cyan/50 hover:bg-ink-3 hover:text-cyan",
+        variant === "default" && "rounded-md bg-text-1 text-black font-semibold hover:bg-white",
+        variant === "default" && glow && "",
+        variant === "outline" && "rounded-md border-line-strong bg-transparent hover:border-text-2 hover:bg-ink-3",
         variant === "ghost" && "hover:bg-ink-3 hover:text-text-1",
-        "transition-all duration-200",
+        "transition-colors duration-150",
         className,
       )}
       {...props}

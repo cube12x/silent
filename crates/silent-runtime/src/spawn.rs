@@ -255,7 +255,7 @@ where
                 sink(RuntimeEvent::Failed {
                     code: "timeout".into(),
                     message: format!("process exceeded {} s timeout", config.timeout.as_secs()),
-                    retryable: true,
+                    retryable: false,
                 });
                 RunExit::TimedOut
             }
@@ -404,10 +404,12 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(exit, RunExit::TimedOut);
-        assert_eq!(
-            events.lock().unwrap().last(),
-            Some(&RuntimeEvent::Exited { code: None })
+        let events = events.lock().unwrap().clone();
+        assert!(
+            events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, retryable: false, .. } if code == "timeout")),
+            "{events:?}"
         );
+        assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
     }
 
     #[tokio::test]

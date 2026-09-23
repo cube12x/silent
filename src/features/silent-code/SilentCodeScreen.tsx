@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { getBackend } from "@/services"
 import { formatDuration } from "@/lib/format"
 import { useT } from "@/i18n"
+import { PlanEditor, type PlanEdit } from "./PlanEditor"
+import { excludedKinds } from "@/engine/planner"
 
 const KINDS: SubtaskKind[] = ["architecture", "backend", "frontend", "algorithm", "tests", "review", "integration", "docs"]
 const STATES: WorkerState[] = ["planning", "thinking", "coding", "testing", "reviewing", "waiting", "blocked", "completed", "failed"]
@@ -47,10 +49,22 @@ function Composer() {
   const [agentId, setAgentId] = React.useState<string | undefined>(params.get("agent") ?? undefined)
   const [folder, setFolder] = React.useState<string | undefined>()
   const [starting, setStarting] = React.useState(false)
+  const [manual, setManual] = React.useState(false)
+  const [edit, setEdit] = React.useState<PlanEdit | null>(null)
   const agent = agents.find((a) => a.id === agentId)
   const repoPath = agent?.repoPath ?? folder
-  const preview: SilentCodeRun | null = React.useMemo(() => (prompt.trim().length > 8 && pool.length ? draft({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath }) : null), [prompt, pool, mode, costMode, agentId, repoPath, draft])
+  const autoPreview: SilentCodeRun | null = React.useMemo(() => (prompt.trim().length > 8 && pool.length ? draft({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath }) : null), [prompt, pool, mode, costMode, agentId, repoPath, draft])
+  // Manual edits are keyed to the auto plan they started from; a new prompt/pool resets them.
+  const editKey = autoPreview ? `${autoPreview.plan.map((s) => s.kind).join(",")}|${pool.join(",")}|${costMode}` : ""
+  const [editFor, setEditFor] = React.useState("")
+  const preview: SilentCodeRun | null = autoPreview && edit && editFor === editKey ? { ...autoPreview, plan: edit.plan.map((s) => ({ ...s, runId: autoPreview.id })), routing: edit.routing, manual } : autoPreview
+  const applyEdit = (e: PlanEdit) => {
+    setEdit(e)
+    setEditFor(editKey)
+    setManual(true)
+  }
   const unrouted = preview?.routing.filter((r) => !r.primaryModelId).length ?? 0
+  const excluded = Array.from(excludedKinds(prompt))
 
   const pickFolder = async () => {
     const backend = await getBackend()
@@ -119,6 +133,15 @@ function Composer() {
           <SectionHeader eyebrow={t("code.preview")} title={preview ? preview.title : t("code.previewEmpty")} description={preview ? `${t("code.subtasks", { n: preview.plan.length })} · ${t("code.modelsCount", { n: new Set(preview.routing.map((r) => r.primaryModelId).filter(Boolean)).size })} · ${t(`code.modes.${mode}` as const)}` : undefined} />
           {preview && (
             <>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t("code.planEditor")}</span>
+                <div className="ml-auto flex rounded-sm border border-line text-[11px]">
+                  <button type="button" onClick={() => { setManual(false); setEdit(null) }} className={cn("px-2 py-0.5", !manual ? "bg-text-1 text-black" : "text-text-2")}>{t("code.auto")}</button>
+                  <button type="button" onClick={() => { setManual(true); if (!edit || editFor !== editKey) { setEdit({ plan: preview.plan, routing: preview.routing }); setEditFor(editKey) } }} className={cn("px-2 py-0.5", manual ? "bg-text-1 text-black" : "text-text-2")}>{t("code.manual")}</button>
+                </div>
+              </div>
+              <div className="text-[11px] text-text-3">{manual ? t("code.manualHint") : t("code.autoHint")}{excluded.length ? ` · ${t("code.excluded", { kinds: excluded.map((k) => labels.kinds[k]).join(", ") })}` : ""}</div>
+              <PlanEditor plan={preview.plan} routing={preview.routing} models={models} pool={pool} costMode={costMode} manual={manual} onChange={applyEdit} kindLabels={labels.kinds} />
               <RouteGraph plan={preview.plan} routing={preview.routing} labels={modelLabels} kindLabels={labels.kinds} />
               <CostMeter tokens={preview.estimate.tokens} seconds={preview.estimate.seconds} labels={{ tokens: t("code.tokens"), time: t("code.time"), cost: t("code.costUsd"), estimate: t("code.estimate") }} />
               <div>

@@ -122,6 +122,9 @@ pub struct CliRunRequest {
     pub review: Option<bool>,
     #[serde(default)]
     pub effort: Option<String>,
+    /// Wall-clock limit for this run; the host clamps and applies it (default 40 min).
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 impl CliRunRequest {
@@ -153,7 +156,9 @@ impl CliRunRequest {
             out.push_str("Review the current changes in this repository. Do not modify files. ");
         }
         if self.read_only() && !has_read_only_flag {
-            out.push_str("Read-only task: do not modify any files. ");
+            out.push_str(
+                "Read-only task: do not create, modify or delete any files; only read and report. ",
+            );
         }
         out.push_str(&self.prompt);
         out
@@ -261,6 +266,7 @@ pub(crate) fn req(provider: ProviderId) -> CliRunRequest {
         ephemeral: false,
         review: None,
         effort: None,
+        timeout_secs: None,
     }
 }
 

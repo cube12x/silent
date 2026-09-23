@@ -38,14 +38,15 @@ function Mark({ provider }: { provider: ProviderId }) {
 }
 
 export function ProviderLogo({ provider, size = 20, className, plain }: { provider: ProviderId; size?: number; className?: string; plain?: boolean }) {
-  const color = PROVIDERS[provider].color
+  const color = "var(--text-1)"
+  void PROVIDERS[provider]
   return (
     <span
-      className={cn("relative inline-flex shrink-0 items-center justify-center rounded-lg", !plain && "border border-line bg-ink-2", className)}
-      style={{ width: size * 1.5, height: size * 1.5, color, boxShadow: plain ? undefined : `inset 0 0 0 1px color-mix(in oklch, ${color} 25%, transparent), 0 0 14px color-mix(in oklch, ${color} 18%, transparent)` }}
+      className={cn("relative inline-flex shrink-0 items-center justify-center rounded-md", !plain && "border border-line bg-ink-2", className)}
+      style={{ width: size * 1.5, height: size * 1.5, color }}
       aria-hidden
     >
-      <svg width={size} height={size} viewBox="0 0 24 24" style={{ filter: `drop-shadow(0 0 4px color-mix(in oklch, ${color} 55%, transparent))` }}>
+      <svg width={size} height={size} viewBox="0 0 24 24">
         <Mark provider={provider} />
       </svg>
     </span>

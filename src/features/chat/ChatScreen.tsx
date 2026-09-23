@@ -189,7 +189,7 @@ export function ChatScreen() {
 
       <div className="border-t border-line bg-ink-1/80 px-5 py-3 backdrop-blur">
         <div className="mx-auto max-w-[1100px]">
-          <div className="panel flex items-end gap-2 rounded-xl p-2 pl-3 transition-shadow focus-within:shadow-glow">
+          <div className="panel flex items-end gap-2 rounded-xl p-2 pl-3 transition-shadow ">
             <Textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

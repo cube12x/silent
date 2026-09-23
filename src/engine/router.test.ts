@@ -11,8 +11,8 @@ describe("router (CLI models)", () => {
     const byKind = Object.fromEntries(routes.map((r) => [r.kind, r.primaryModelId]))
     expect(byKind.architecture).toBe("claude:opus")
     expect(byKind.review).toBe("claude:opus")
-    expect(byKind.tests).toBe("gemini:gemini-2.5-pro")
-    expect(byKind.integration).toBe("codex:gpt-6-astra")
+    // max-quality keeps tests on a strong model, never a frontier one
+    expect(byKind.tests).toBe("claude:sonnet")
   })
 
   it("never routes outside the pool and prefers a different CLI as first fallback", () => {

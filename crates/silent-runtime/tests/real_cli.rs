@@ -25,6 +25,7 @@ async fn roundtrip(provider: ProviderId) -> (RunExit, Vec<String>) {
         ephemeral: true,
         review: None,
         effort: None,
+        timeout_secs: None,
     };
     let adapter = adapter_for(provider);
     let mut config = SpawnConfig::new(adapter.binary(), adapter.build_args(&request));

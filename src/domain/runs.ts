@@ -42,8 +42,10 @@ export interface Attempt {
   finishedAt?: number
   outcome: "success" | "failure" | "cancelled" | "running"
   error?: string
-  /** Why this attempt happened: first try, retry after failure, or fallback to another model. */
-  cause: "initial" | "retry" | "fallback" | "escalation"
+  /** Why this attempt happened: first try, retry after failure, continuation of a timed-out session, or fallback to another model. */
+  cause: "initial" | "retry" | "continue" | "fallback" | "escalation"
+  /** CLI session id, kept so a timed-out attempt can be resumed. */
+  sessionId?: string
 }
 
 export interface TerminalLine {
@@ -65,11 +67,16 @@ export interface Subtask {
   files: string[]
   commands: string[]
   summary?: string
-  /** Rough size, drives estimates and simulated durations. */
+  /** Rough size, drives estimates and default timeouts. */
   weight: 1 | 2 | 3
   progress: number
   lastUpdate: number
+  /** Manual overrides from the plan editor. */
+  effort?: Effort
+  timeoutSecs?: number
 }
+
+export type Effort = "low" | "medium" | "high" | "xhigh"
 
 export interface RunEstimate {
   tokens: number
@@ -89,6 +96,8 @@ export interface SilentCodeRun {
   routing: RoutingDecision[]
   status: RunStatus
   estimate: RunEstimate
+  /** True when the user edited the plan/assignments by hand. */
+  manual?: boolean
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

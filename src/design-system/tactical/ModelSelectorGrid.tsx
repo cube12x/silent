@@ -22,7 +22,7 @@ export function ModelSelectorGrid({ models, selected, onToggle, className, compa
             type="button"
             aria-pressed={on}
             onClick={() => onToggle(ref)}
-            className={cn("group relative flex flex-col gap-2 rounded-xl border p-3 text-left transition-all duration-200 outline-none focus-visible:border-cyan/60", on ? "border-cyan/50 bg-cyan/[0.06] shadow-glow" : "border-line bg-ink-2/60 hover:border-line-strong hover:bg-ink-3/60")}
+            className={cn("group relative flex flex-col gap-2 rounded-xl border p-3 text-left transition-all duration-200 outline-none focus-visible:border-cyan/60", on ? "border-cyan/50 bg-cyan/[0.06] " : "border-line bg-ink-2/60 hover:border-line-strong hover:bg-ink-3/60")}
           >
             <div className="flex items-start justify-between gap-2">
               <ModelLogo modelRef={ref} size={compact ? 14 : 18} />

@@ -105,7 +105,7 @@ function NewSessionForm({ preset, close }: { preset: NonNullable<NewSessionPrese
         {step === "type" && (
           <div className="grid grid-cols-2 gap-3">
             {([{ k: "standard", icon: <MessageSquare />, title: t("modal.standard"), desc: t("modal.standardDesc") }, { k: "repo-agent", icon: <Bot />, title: t("modal.agent"), desc: t("modal.agentDesc2") }] as const).map((o) => (
-              <button key={o.k} type="button" onClick={() => setKind(o.k)} className={cn("flex flex-col gap-3 rounded-xl border p-4 text-left transition-all", kind === o.k ? "border-cyan/50 bg-cyan/[0.06] shadow-glow" : "border-line bg-ink-2/60 hover:border-line-strong")}>
+              <button key={o.k} type="button" onClick={() => setKind(o.k)} className={cn("flex flex-col gap-3 rounded-xl border p-4 text-left transition-all", kind === o.k ? "border-cyan/50 bg-cyan/[0.06] " : "border-line bg-ink-2/60 hover:border-line-strong")}>
                 <span className={cn("flex size-9 items-center justify-center rounded-lg border [&_svg]:size-4", kind === o.k ? "border-cyan/50 text-cyan" : "border-line text-text-2")}>{o.icon}</span>
                 <span className="font-heading text-sm font-semibold text-text-1">{o.title}</span>
                 <span className="text-xs text-text-2">{o.desc}</span>

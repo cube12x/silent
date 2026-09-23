@@ -1,6 +1,6 @@
-import type { Subtask, SubtaskKind, WorkerState } from "@/domain"
+import type { Effort, Subtask, SubtaskKind, WorkerState } from "@/domain"
 
-/** What a worker receives. Deliberately small so real and simulated workers stay interchangeable. */
+/** What a worker receives. Deliberately small so every CLI adapter stays interchangeable. */
 export interface WorkerJob {
   runId: string
   subtask: Subtask
@@ -10,15 +10,20 @@ export interface WorkerJob {
   brief: string
   repoPath?: string
   sandbox: "read-only" | "workspace-write"
+  effort: Effort
+  timeoutSecs: number
+  /** Resume this CLI session instead of starting a new one (continuation after a timeout). */
+  resumeSessionId?: string
 }
 
-/** Progress callbacks. The executor translates these into RunEvents. */
 export interface WorkerSink {
   state(state: WorkerState, progress?: number): void
   log(text: string, stream?: "stdout" | "stderr" | "system"): void
   command(command: string): void
   file(path: string): void
   usage(tokens: number, costUsd: number): void
+  /** The CLI announced its session id; the executor stores it for continuations. */
+  session(sessionId: string): void
 }
 
 export interface WorkerResult {
@@ -26,6 +31,8 @@ export interface WorkerResult {
   summary: string
   error?: string
   retryable?: boolean
+  /** Set when the process hit its wall-clock limit; the executor may resume the same session. */
+  timedOut?: boolean
 }
 
 export interface WorkerHandle {

@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUiStore } from "@/stores/ui"
 import { useRunsStore } from "@/stores/runs"
+import { useTerminalStore } from "@/stores/terminal"
 import { KeyValueList, ModelLogo, ModelTag, NeonButton, StatusBadge, TacticalChip, TerminalView, ProgressBar } from "@/design-system"
 import { formatDuration, formatRelative } from "@/lib/format"
 import { PROVIDERS } from "@/providers/registry"
@@ -21,7 +22,7 @@ export function TerminalDrawer() {
   const drawer = useUiStore((s) => s.drawer)
   const close = useUiStore((s) => s.closeDrawer)
   const run = useRunsStore((s) => s.byId(drawer?.runId))
-  const storedLines = useRunsStore((s) => (drawer ? s.terminal[drawer.subtaskId] : undefined))
+  const storedLines = useTerminalStore((s) => (drawer ? s.lines[drawer.subtaskId] : undefined))
   const lines = storedLines ?? EMPTY_LINES
   const loadTerminal = useRunsStore((s) => s.loadTerminal)
   const cancel = useRunsStore((s) => s.cancel)

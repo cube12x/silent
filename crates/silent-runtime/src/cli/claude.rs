@@ -12,12 +12,14 @@ use crate::events::{
 pub struct Claude;
 
 /// `claude -p <prompt> --output-format stream-json --verbose --include-partial-messages
-/// --permission-prompts none --permission-mode <plan|acceptEdits> [--model m] [--effort e]
+/// --permission-prompts none --permission-mode acceptEdits [--model m] [--effort e]
 /// [--resume id] [--add-dir cwd] [--no-session-persistence]`. Process cwd = req.cwd.
+/// Read-only is enforced by a prompt brief, never by `--permission-mode plan`: plan mode
+/// kept Claude reading the repository for the whole 30-minute budget in real runs.
 pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "-p".into(),
-        req.prompt_with_brief(true),
+        req.prompt_with_brief(false),
         "--output-format".into(),
         "stream-json".into(),
         "--verbose".into(),
@@ -25,12 +27,7 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         "--permission-prompts".into(),
         "none".into(),
         "--permission-mode".into(),
-        if req.read_only() {
-            "plan"
-        } else {
-            "acceptEdits"
-        }
-        .into(),
+        "acceptEdits".into(),
     ];
     if let Some(model) = req.model() {
         args.push("--model".into());
@@ -311,7 +308,7 @@ mod tests {
             build_args(&r),
             [
                 "-p",
-                "do the thing",
+                "Read-only task: do not create, modify or delete any files; only read and report. do the thing",
                 "--output-format",
                 "stream-json",
                 "--verbose",
@@ -319,7 +316,7 @@ mod tests {
                 "--permission-prompts",
                 "none",
                 "--permission-mode",
-                "plan",
+                "acceptEdits",
                 "--model",
                 "opus",
                 "--effort",
@@ -328,6 +325,10 @@ mod tests {
                 "s1"
             ]
         );
+        // Resuming never disables session persistence, and plan mode is never used.
+        assert!(!build_args(&r)
+            .iter()
+            .any(|a| a == "--no-session-persistence" || a == "plan"));
         let r = CliRunRequest {
             ephemeral: true,
             review: Some(true),

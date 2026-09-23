@@ -30,7 +30,7 @@ function Section({ title, count, children, collapsed, action }: { title: string;
 
 function Item({ to, icon, label, meta, collapsed, badge, end }: { to: string; icon: React.ReactNode; label: string; meta?: React.ReactNode; collapsed: boolean; badge?: React.ReactNode; end?: boolean }) {
   const link = (
-    <NavLink to={to} end={end} className={({ isActive }) => cn("group relative mx-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-all duration-150", isActive ? "bg-cyan/[0.08] text-text-1 shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--cyan)_30%,transparent)]" : "text-text-2 hover:bg-ink-3/70 hover:text-text-1", collapsed && "justify-center px-0")}>
+    <NavLink to={to} end={end} className={({ isActive }) => cn("group relative mx-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-all duration-150", isActive ? "bg-cyan/[0.08] text-text-1 shadow-[inset_0_0_0_1px_var(--line-strong)]" : "text-text-2 hover:bg-ink-3/70 hover:text-text-1", collapsed && "justify-center px-0")}>
       {({ isActive }) => (
         <>
           <span className={cn("absolute top-1/2 -left-2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-cyan transition-opacity", isActive ? "opacity-100" : "opacity-0")} />
@@ -83,7 +83,7 @@ export function Sidebar() {
       </div>
 
       <div className={cn("flex gap-2 px-3 pb-1", collapsed && "flex-col items-center px-0")}>
-        <button type="button" onClick={() => openNewSession({ kind: "standard" })} className={cn("flex h-8 flex-1 items-center justify-center gap-2 rounded-lg border border-cyan/40 bg-cyan/10 text-[13px] font-medium text-cyan transition-all hover:bg-cyan/15 hover:shadow-glow", collapsed && "size-8 flex-none")}>
+        <button type="button" onClick={() => openNewSession({ kind: "standard" })} className={cn("flex h-8 flex-1 items-center justify-center gap-2 rounded-lg border border-cyan/40 bg-cyan/10 text-[13px] font-medium text-cyan transition-all hover:bg-cyan/15 ", collapsed && "size-8 flex-none")}>
           <Plus className="size-4" />
           {!collapsed && <span>{t("nav.newChat")}</span>}
           {!collapsed && <Kbd className="ml-auto border-cyan/30 bg-transparent text-cyan/70">⌘N</Kbd>}
@@ -121,7 +121,7 @@ export function Sidebar() {
           <Languages className="size-4" />
           {!collapsed && <span>{language === "tr" ? "Türkçe → English" : "English → Türkçe"}</span>}
         </button>
-        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />v0.2.0 · CLI-native</div>}
+        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />v0.2.1 · CLI-native</div>}
       </div>
     </div>
   )

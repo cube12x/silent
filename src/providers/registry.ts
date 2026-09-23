@@ -72,7 +72,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
       { id: "haiku", displayName: "Claude Haiku (latest)", tier: "fast" },
     ],
     color: "#e8b98a",
-    note: "Read-only is enforced with --permission-mode plan; write mode uses acceptEdits.",
+    note: "Runs with --permission-mode acceptEdits; read-only tasks are enforced by the brief.",
   },
   kimi: {
     id: "kimi",

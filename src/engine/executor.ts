@@ -3,7 +3,8 @@ import { isTerminalState } from "@/domain"
 import { EventBus } from "./events"
 import { nextModel } from "./router"
 import { ModelIndex } from "./capabilities"
-import type { Worker, WorkerHandle, WorkerJob, WorkerSink } from "./workers/Worker"
+import { effortFor, timeoutFor } from "./effort"
+import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./workers/Worker"
 
 export interface ExecutorOptions {
   /** Retries of the same model before falling back. Default 1. */
@@ -16,6 +17,8 @@ export interface ExecutorOptions {
   now?: () => number
   /** Models the pool refs resolve to (for fallback/escalation and display). */
   models?: ProviderModel[]
+  /** Continuations of a timed-out session before falling back. Default 2. */
+  maxContinuations?: number
 }
 
 export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
@@ -117,6 +120,7 @@ export class Executor {
       return
     }
     const maxRetries = this.opts.maxRetriesPerModel ?? 1
+    const maxContinuations = this.opts.maxContinuations ?? 2
     let modelId = decision.primaryModelId
     let cause: Attempt["cause"] = "initial"
     const tried: string[] = []
@@ -125,8 +129,18 @@ export class Executor {
     while (!this.cancelled) {
       attemptNo += 1
       let retriesOnModel = 0
+      let continuations = 0
       let result = await this.attempt(subtask, modelId, attemptNo, cause)
-      while (!result.ok && result.retryable && retriesOnModel < maxRetries && !this.cancelled) {
+      // A timeout is not a failure of the model: resume the same session and let it finish.
+      while (!result.ok && result.timedOut && continuations < maxContinuations && !this.cancelled) {
+        const sessionId = subtask.attempts.at(-1)?.sessionId
+        if (!sessionId) break
+        continuations += 1
+        attemptNo += 1
+        this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: "timeout → continue session", at: this.now() })
+        result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId)
+      }
+      while (!result.ok && result.retryable && !result.timedOut && retriesOnModel < maxRetries && !this.cancelled) {
         retriesOnModel += 1
         attemptNo += 1
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: result.error ?? "failed", at: this.now() })
@@ -142,7 +156,7 @@ export class Executor {
       if (this.cancelled) return
       tried.push(modelId)
       const next = nextModel(decision, tried, this.run.modelPool, this.models.all())
-      if (!next || !result.retryable) {
+      if (!next || (!result.retryable && !result.timedOut)) {
         this.setState(subtask, "failed", subtask.progress, result.error)
         return
       }
@@ -152,8 +166,8 @@ export class Executor {
     }
   }
 
-  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"]) {
-    const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause }
+  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string) {
+    const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
     subtask.assignedModelId = modelId
     subtask.lastUpdate = this.now()
@@ -172,21 +186,28 @@ export class Executor {
         this.bus.emit({ type: "worker.file", runId: this.run.id, subtaskId: subtask.id, path, at: this.now() })
       },
       usage: (tokens, costUsd) => this.bus.emit({ type: "worker.usage", runId: this.run.id, subtaskId: subtask.id, tokens, costUsd, at: this.now() }),
+      session: (sessionId) => {
+        attempt.sessionId = sessionId
+      },
     }
+    const model = this.models.get(modelId)
     const job: WorkerJob = {
       runId: this.run.id,
       subtask: structuredClone(subtask),
       modelId,
       attempt: n,
-      brief: this.brief(subtask, modelId),
+      brief: resumeSessionId ? "You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it." : this.brief(subtask, modelId),
       repoPath: this.run.repoPath,
       sandbox: this.opts.sandbox ?? "workspace-write",
+      effort: subtask.effort ?? effortFor(subtask.kind, this.run.costMode, model?.tier),
+      timeoutSecs: subtask.timeoutSecs ?? timeoutFor(subtask.kind, subtask.weight),
+      resumeSessionId,
     }
     const worker = this.resolve(modelId, subtask.kind)
     const handle = worker.start(job, sink)
     this.handles.set(subtask.id, handle)
     return handle.done
-      .catch((e: unknown) => ({ ok: false, summary: "worker crashed", error: e instanceof Error ? e.message : String(e), retryable: true }))
+      .catch((e: unknown): WorkerResult => ({ ok: false, summary: "worker crashed", error: e instanceof Error ? e.message : String(e), retryable: true }))
       .then((r) => {
         this.handles.delete(subtask.id)
         attempt.finishedAt = this.now()

@@ -63,6 +63,29 @@ fn tier_from_name(id: &str, frontier_hint: bool) -> &'static str {
     }
 }
 
+/// Codex catalog tier: `priority == 1` or a "frontier"/"most demanding" description → frontier;
+/// "fast/affordable/efficient/lightweight/mini/nano" → fast; everything else → strong.
+fn tier_from_catalog(slug: &str, description: &str, priority: u64) -> &'static str {
+    let desc = description.to_ascii_lowercase();
+    if priority == 1 || desc.contains("frontier") || desc.contains("most demanding") {
+        return "frontier";
+    }
+    let lower = slug.to_ascii_lowercase();
+    const FAST: [&str; 6] = [
+        "fast",
+        "affordable",
+        "efficient",
+        "lightweight",
+        "mini",
+        "nano",
+    ];
+    if FAST.iter().any(|k| desc.contains(k) || lower.contains(k)) {
+        "fast"
+    } else {
+        "strong"
+    }
+}
+
 fn mark_default(models: &mut [ProviderModel], default_id: Option<&str>) {
     if let Some(default_id) = default_id {
         for m in models.iter_mut() {
@@ -103,12 +126,16 @@ pub fn codex_models() -> Vec<ProviderModel> {
                     .and_then(Value::as_str)
                     .unwrap_or(slug);
                 let priority = entry.get("priority").and_then(Value::as_u64).unwrap_or(99);
+                let description = entry
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let mut m = model(
                     ProviderId::Codex,
                     slug,
                     display,
                     "catalog",
-                    tier_from_name(slug, priority <= 1),
+                    tier_from_catalog(slug, description, priority),
                 );
                 let mut meta = std::collections::BTreeMap::new();
                 if let Some(desc) = entry.get("description").and_then(Value::as_str) {
@@ -365,6 +392,46 @@ pub async fn provider_models(provider_id: ProviderId) -> Result<Vec<ProviderMode
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_catalog_tiers_match_real_cache_shape() {
+        let sample = serde_json::json!({ "models": [
+            { "slug": "gpt-6-astra", "display_name": "GPT-6-Astra", "priority": 1, "visibility": "list", "description": "Frontier intelligence for the most demanding work." },
+            { "slug": "gpt-6-sol", "display_name": "GPT-6-Sol", "priority": 2, "visibility": "list", "description": "Workhorse model for coding and everyday work." },
+            { "slug": "gpt-6-luna", "display_name": "GPT-6-Luna", "priority": 3, "visibility": "list", "description": "Fast and affordable model for easier tasks." },
+            { "slug": "gpt-reserve", "display_name": "GPT-Reserve", "priority": 3, "visibility": "hide", "description": "Fast and affordable agentic coding model." },
+            { "slug": "gpt-5.6-sol", "display_name": "GPT-5.6-Sol", "priority": 4, "visibility": "list", "description": "Older coding model for complex work." },
+            { "slug": "gpt-5.6-terra", "display_name": "GPT-5.6-Terra", "priority": 7, "visibility": "list", "description": "Older balanced model for straightforward work." },
+            { "slug": "gpt-5.6-luna", "display_name": "GPT-5.6-Luna", "priority": 8, "visibility": "list", "description": "Older fast and efficient model." },
+            { "slug": "gpt-5.5", "display_name": "GPT-5.5", "priority": 12, "visibility": "list", "description": "Legacy coding model." }
+        ]});
+        let expected = [
+            ("gpt-6-astra", "frontier"),
+            ("gpt-6-sol", "strong"),
+            ("gpt-6-luna", "fast"),
+            ("gpt-5.6-sol", "strong"),
+            ("gpt-5.6-terra", "strong"),
+            ("gpt-5.6-luna", "fast"),
+            ("gpt-5.5", "strong"),
+        ];
+        let entries = sample["models"].as_array().unwrap();
+        for (slug, tier) in expected {
+            let e = entries.iter().find(|e| e["slug"] == slug).unwrap();
+            assert_eq!(
+                tier_from_catalog(
+                    slug,
+                    e["description"].as_str().unwrap(),
+                    e["priority"].as_u64().unwrap()
+                ),
+                tier,
+                "{slug}"
+            );
+        }
+        assert!(
+            entries.iter().any(|e| e["visibility"] == "hide"),
+            "sample keeps a hidden model to document the filter"
+        );
+    }
 
     #[test]
     fn tiers_and_defaults() {

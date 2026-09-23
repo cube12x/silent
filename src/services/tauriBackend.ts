@@ -228,12 +228,17 @@ export class TauriBackend implements Backend {
         const rows = await (await this.conn()).select<Row[]>("SELECT ts, stream, text FROM terminal_lines WHERE subtask_id = $1 ORDER BY id ASC", [subtaskId])
         return rows.map((r): TerminalLine => ({ ts: Number(r.ts), stream: r.stream as TerminalLine["stream"], text: String(r.text) }))
       },
-      append: async (runId, subtaskId, lines) => {
+      append: async (runId, subtaskId, lines, keep = 2000) => {
         if (!lines.length) return
         const db = await this.conn()
-        for (const l of lines) {
-          await db.execute("INSERT INTO terminal_lines (run_id, subtask_id, ts, stream, text) VALUES ($1,$2,$3,$4,$5)", [runId, subtaskId, l.ts, l.stream, l.text])
+        // One multi-row INSERT per batch (SQLite limit on bound params → chunks of 180 rows).
+        for (let i = 0; i < lines.length; i += 180) {
+          const chunk = lines.slice(i, i + 180)
+          const placeholders = chunk.map((_, j) => `($${j * 5 + 1},$${j * 5 + 2},$${j * 5 + 3},$${j * 5 + 4},$${j * 5 + 5})`).join(",")
+          const params = chunk.flatMap((l) => [runId, subtaskId, l.ts, l.stream, l.text])
+          await db.execute(`INSERT INTO terminal_lines (run_id, subtask_id, ts, stream, text) VALUES ${placeholders}`, params)
         }
+        await db.execute("DELETE FROM terminal_lines WHERE subtask_id = $1 AND id NOT IN (SELECT id FROM terminal_lines WHERE subtask_id = $1 ORDER BY id DESC LIMIT $2)", [subtaskId, keep])
       },
     },
     memory: {

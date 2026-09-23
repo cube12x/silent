@@ -104,7 +104,7 @@ pub async fn cli_run_start(
             .filter(|c| !c.is_empty())
             .map(Into::into);
     }
-    config.timeout = Duration::from_secs(30 * 60);
+    config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
     let run_id = request.run_id.clone();
     spawn_registered(
         &registry,

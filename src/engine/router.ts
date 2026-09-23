@@ -1,6 +1,6 @@
-import type { CostMode, ProviderModel, RoutingDecision, Subtask, SubtaskKind } from "@/domain"
+import type { CostMode, ModelTier, ProviderModel, RoutingDecision, Subtask, SubtaskKind } from "@/domain"
 import { modelRef } from "@/domain"
-import { ModelIndex, TIER_RANK, capabilityOf, priceProxy } from "./capabilities"
+import { ModelIndex, TIER_RANK, capabilityOf } from "./capabilities"
 
 export interface RouteInput {
   subtasks: Subtask[]
@@ -15,27 +15,33 @@ export interface RouteInput {
   preferredModelRef?: string
 }
 
+/**
+ * Target tier per kind and cost mode. Light work goes to fast models (Haiku, GPT-6-Luna…), building
+ * to strong ones (Sonnet, GPT-6-Sol…), architecture/algorithms/review to frontier.
+ */
+export const TARGET_TIER: Record<CostMode, Record<SubtaskKind, ModelTier>> = {
+  balanced: { architecture: "frontier", algorithm: "frontier", review: "frontier", backend: "strong", frontend: "strong", integration: "strong", tests: "fast", docs: "fast" },
+  economy: { architecture: "strong", algorithm: "strong", review: "strong", backend: "strong", frontend: "fast", integration: "fast", tests: "fast", docs: "fast" },
+  "max-quality": { architecture: "frontier", algorithm: "frontier", review: "frontier", backend: "frontier", frontend: "frontier", integration: "strong", tests: "strong", docs: "strong" },
+}
+
+/** Distance-weighted fit: exact tier 1.0, one tier off 0.6, two off 0.25. Never zero so an odd pool still routes. */
+function tierFit(target: ModelTier, actual: ModelTier): number {
+  const d = Math.abs(TIER_RANK[target] - TIER_RANK[actual])
+  return d === 0 ? 1 : d === 1 ? 0.6 : 0.25
+}
+
 export function scoreModel(model: ProviderModel, kind: SubtaskKind, costMode: CostMode): number {
   const cap = capabilityOf(model, kind)
-  const price = priceProxy(model)
-  const tier = TIER_RANK[model.tier] / 2
-  switch (costMode) {
-    case "economy":
-      return cap * 0.6 + (1 - price) * 0.4
-    case "balanced":
-      return cap * 0.8 + (1 - price) * 0.15 + tier * 0.05
-    case "max-quality":
-      return cap * 0.85 + tier * 0.15
-  }
+  const fit = tierFit(TARGET_TIER[costMode][kind], model.tier)
+  return fit * 0.7 + cap * 0.3
 }
 
 export function explainRoute(model: ProviderModel, kind: SubtaskKind, costMode: CostMode, override: boolean, lang: "tr" | "en" = "tr"): string {
   if (override) return lang === "tr" ? `${kind} için sabitlenmiş yönlendirme.` : `Pinned by routing override for ${kind}.`
-  const parts: string[] = []
-  parts.push(lang === "tr" ? `${model.displayName}: havuzdaki en yüksek ${kind} kapasitesi` : `${model.displayName}: best ${kind} capability in the pool`)
-  if (costMode === "economy") parts.push(lang === "tr" ? "maliyet ağırlıklı" : "cost-weighted")
-  if (costMode === "max-quality") parts.push(lang === "tr" ? "kalite ağırlıklı" : "quality-weighted")
-  return parts.join(" · ")
+  const target = TARGET_TIER[costMode][kind]
+  const fit = model.tier === target ? (lang === "tr" ? "hedef katman" : "target tier") : lang === "tr" ? `en yakın katman (${target} yok)` : `nearest tier (no ${target})`
+  return lang === "tr" ? `${model.displayName}: ${fit} · ${kind} kapasitesi` : `${model.displayName}: ${fit} · ${kind} capability`
 }
 
 export function routeSubtasks(input: RouteInput): RoutingDecision[] {
@@ -58,9 +64,7 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
       primary = ranked.find((r) => r.ref === override) ?? primary
       usedOverride = true
     }
-    if (!primary) {
-      return { subtaskId: subtask.id, kind: subtask.kind, primaryModelId: "", fallbackModelIds: [], reason: "no-model", score: 0 }
-    }
+    if (!primary) return { subtaskId: subtask.id, kind: subtask.kind, primaryModelId: "", fallbackModelIds: [], reason: "no-model", score: 0 }
     // Prefer a fallback on a *different* CLI first so a broken CLI does not take the whole chain down.
     const others = ranked.filter((r) => r.ref !== primary.ref)
     const diffCli = others.find((r) => r.model.providerId !== primary.model.providerId)

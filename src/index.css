@@ -113,7 +113,7 @@
     overscroll-behavior: none;
   }
   ::selection {
-    background: color-mix(in oklch, var(--cyan) 35%, transparent);
+    background: color-mix(in oklch, var(--text-1) 25%, transparent);
   }
   ::-webkit-scrollbar {
     width: 10px;
@@ -126,7 +126,7 @@
     border-radius: 8px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in oklch, var(--cyan) 40%, var(--line-strong));
+    background: var(--text-3);
     background-clip: padding-box;
     border: 3px solid transparent;
   }
@@ -143,35 +143,29 @@
 }
 
 @utility glass {
-  background: color-mix(in oklch, var(--ink-1) 72%, transparent);
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  background: var(--ink-1);
   border: 1px solid var(--line);
 }
 
 @utility panel {
-  background: linear-gradient(180deg, color-mix(in oklch, var(--ink-2) 92%, white 2%) 0%, var(--ink-1) 100%);
+  background: var(--ink-1);
   border: 1px solid var(--line);
-  box-shadow: var(--panel-shadow);
 }
 
 @utility glow-ring {
-  box-shadow: var(--glow);
+  box-shadow: 0 0 0 1px var(--line-strong);
 }
 
 @utility text-glow {
-  text-shadow: 0 0 18px color-mix(in oklch, var(--cyan) 55%, transparent);
+  text-shadow: none;
 }
 
 @utility grid-bg {
-  background-image:
-    linear-gradient(to right, color-mix(in oklch, var(--line) 55%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklch, var(--line) 55%, transparent) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background-image: none;
 }
 
 @utility shimmer-bar {
-  background: linear-gradient(90deg, transparent 0%, color-mix(in oklch, var(--cyan) 35%, transparent) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in oklch, var(--text-1) 18%, transparent) 50%, transparent 100%);
   background-size: 200% 100%;
   animation: var(--animate-shimmer);
 }

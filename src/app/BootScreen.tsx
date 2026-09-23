@@ -4,7 +4,7 @@ import { useT } from "@/i18n"
 export function BootScreen({ error }: { error?: string }) {
   const t = useT()
   return (
-    <div className="grid-bg flex h-screen w-screen items-center justify-center bg-ink-0">
+    <div className=" flex h-screen w-screen items-center justify-center bg-ink-0">
       <div className="flex flex-col items-center gap-4">
         <SilentMark size={64} glow mood="busy" />
         <div className="font-heading text-lg font-semibold tracking-[0.3em] text-text-1 uppercase">Silent</div>

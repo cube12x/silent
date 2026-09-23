@@ -94,6 +94,35 @@ describe("executor", () => {
     expect(exec.snapshot.find((s) => s.kind === "review")!.summary).toMatch(/upstream/)
   })
 
+  it("resumes the same session after a timeout instead of restarting, then falls back", async () => {
+    class TimeoutWorker implements Worker {
+      readonly id = "t"
+      calls: WorkerJob[] = []
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        this.calls.push(job)
+        sink.session(`sess-${job.modelId}`)
+        const timedOut = job.modelId === "codex:gpt-6-astra" && this.calls.filter((c) => c.modelId === job.modelId).length <= 3
+        return { done: Promise.resolve(timedOut ? { ok: false, summary: "timeout", error: "process exceeded limit", retryable: false, timedOut: true } : { ok: true, summary: "done" }), cancel: () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:sonnet"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => r.kind === "backend").map((r) => ({ ...r, primaryModelId: "codex:gpt-6-astra", fallbackModelIds: ["claude:sonnet"] }))
+    const worker = new TimeoutWorker()
+    const bus = new EventBus()
+    const exec = new Executor(run, () => worker, bus, { models: TEST_MODELS, maxContinuations: 2 })
+    expect(await exec.start()).toBe("completed")
+    const backend = exec.snapshot[0]
+    expect(backend.attempts.map((a) => a.cause)).toEqual(["initial", "continue", "continue", "fallback"])
+    expect(worker.calls[1].resumeSessionId).toBe("sess-codex:gpt-6-astra")
+    expect(worker.calls[1].brief).toMatch(/Continue exactly where you left off/)
+    expect(worker.calls[0].effort).toBe("medium")
+    expect(worker.calls[0].timeoutSecs).toBe(40 * 60)
+  })
+
   it("cancel stops everything", async () => {
     const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
     const bus = new EventBus()

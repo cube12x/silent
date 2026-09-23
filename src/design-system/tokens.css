@@ -1,39 +1,39 @@
-/* Silent "Obsidian" theme tokens. Dark-first; the app never renders a light theme. */
+/* Silent "Monolith" theme: black, white, grey. Sharp, matte, no glow. */
 :root,
 .dark {
-  --ink-0: #050607;
-  --ink-1: #0a0c0f;
-  --ink-2: #111418;
-  --ink-3: #171b21;
-  --ink-4: #1f242c;
-  --line: #1e242c;
-  --line-strong: #2a313b;
-  --text-1: #e6eaf0;
-  --text-2: #9aa4b2;
-  --text-3: #5c6675;
-  --cyan: #39d2ff;
-  --cyan-soft: #1aa3cc;
-  --blue: #3b82f6;
-  --violet: #8b5cf6;
-  --success: #22d3a0;
-  --warn: #f5b342;
-  --danger: #ff4d5e;
+  --ink-0: #000000;
+  --ink-1: #0a0a0a;
+  --ink-2: #111111;
+  --ink-3: #161616;
+  --ink-4: #1f1f1f;
+  --line: #262626;
+  --line-strong: #363636;
+  --text-1: #f5f5f5;
+  --text-2: #a3a3a3;
+  --text-3: #737373;
+  /* accent = white; "cyan" kept as a token name for compatibility but it is the accent (white). */
+  --cyan: #f5f5f5;
+  --cyan-soft: #d4d4d4;
+  --blue: #9db7d0;
+  --violet: #b8b8c8;
+  --success: #8fd19e;
+  --warn: #d8b25a;
+  --danger: #e06c75;
 
-  --glow: 0 0 0 1px color-mix(in oklch, var(--cyan) 30%, transparent), 0 0 24px color-mix(in oklch, var(--cyan) 18%, transparent);
-  --glow-strong: 0 0 0 1px color-mix(in oklch, var(--cyan) 55%, transparent), 0 0 40px color-mix(in oklch, var(--cyan) 30%, transparent);
-  --panel-shadow: 0 1px 0 0 color-mix(in oklch, white 4%, transparent) inset, 0 12px 40px -20px rgb(0 0 0 / 0.8);
+  --glow: 0 0 0 1px var(--line-strong);
+  --glow-strong: 0 0 0 1px var(--text-2);
+  --panel-shadow: none;
 
-  --radius: 0.625rem;
+  --radius: 0.3rem;
 
-  /* shadcn semantic mapping */
   --background: var(--ink-0);
   --foreground: var(--text-1);
   --card: var(--ink-1);
   --card-foreground: var(--text-1);
   --popover: var(--ink-2);
   --popover-foreground: var(--text-1);
-  --primary: var(--cyan);
-  --primary-foreground: #04131a;
+  --primary: var(--text-1);
+  --primary-foreground: #000000;
   --secondary: var(--ink-3);
   --secondary-foreground: var(--text-1);
   --muted: var(--ink-2);
@@ -43,27 +43,18 @@
   --destructive: var(--danger);
   --border: var(--line);
   --input: var(--line-strong);
-  --ring: var(--cyan);
-  --chart-1: var(--cyan);
-  --chart-2: var(--blue);
-  --chart-3: var(--violet);
+  --ring: var(--text-2);
+  --chart-1: var(--text-1);
+  --chart-2: var(--text-2);
+  --chart-3: var(--text-3);
   --chart-4: var(--success);
   --chart-5: var(--warn);
   --sidebar: var(--ink-1);
   --sidebar-foreground: var(--text-1);
-  --sidebar-primary: var(--cyan);
-  --sidebar-primary-foreground: #04131a;
+  --sidebar-primary: var(--text-1);
+  --sidebar-primary-foreground: #000000;
   --sidebar-accent: var(--ink-3);
   --sidebar-accent-foreground: var(--text-1);
   --sidebar-border: var(--line);
-  --sidebar-ring: var(--cyan);
-}
-
-.graphite {
-  --ink-0: #0b0c0e;
-  --ink-1: #101215;
-  --ink-2: #16191d;
-  --ink-3: #1c2025;
-  --ink-4: #242930;
-  --cyan: #7dd3fc;
+  --sidebar-ring: var(--text-2);
 }

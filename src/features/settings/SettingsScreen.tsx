@@ -7,6 +7,8 @@ import { useRunsStore } from "@/stores/runs"
 import { GlowCard, KeyValueList, ModelTag, NeonButton, PageHeader, PermissionToggle, ProviderLogo, SectionHeader, TacticalChip, TerminalView } from "@/design-system"
 import { COST_MODES, PROVIDER_IDS, modelRef, type PermissionKey, type ProviderId, type SubtaskKind } from "@/domain"
 import { PROVIDERS } from "@/providers/registry"
+import { TARGET_TIER } from "@/engine/router"
+import { effortFor, timeoutFor } from "@/engine/effort"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { getBackend } from "@/services"
@@ -90,7 +92,7 @@ export function SettingsScreen() {
       <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav className="flex flex-col gap-0.5 lg:sticky lg:top-6 lg:self-start">
           {SECTION_IDS.map((s) => (
-            <button key={s} type="button" onClick={() => setSection(s)} className={cn("flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors [&_svg]:size-4", section === s ? "bg-cyan/[0.08] text-text-1 shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--cyan)_30%,transparent)] [&_svg]:text-cyan" : "text-text-2 hover:bg-ink-3/60 [&_svg]:text-text-3")}>
+            <button key={s} type="button" onClick={() => setSection(s)} className={cn("flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors [&_svg]:size-4", section === s ? "bg-cyan/[0.08] text-text-1 shadow-[inset_0_0_0_1px_var(--line-strong)] [&_svg]:text-cyan" : "text-text-2 hover:bg-ink-3/60 [&_svg]:text-text-3")}>
               {ICONS[s]}{t(`settings.sections.${s}` as const)}
             </button>
           ))}
@@ -178,6 +180,17 @@ export function SettingsScreen() {
               <div>
                 <div className="mb-2 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("code.cost")}</div>
                 <div className="flex flex-wrap gap-2">{COST_MODES.map((c) => <button key={c} type="button" onClick={() => void update({ costMode: c })} className={cn("rounded-lg border px-3 py-1.5 text-sm", settings.costMode === c ? "border-violet/50 bg-violet/[0.08]" : "border-line")}>{t(`code.costModes.${c}` as const)}</button>)}</div>
+              </div>
+              <div>
+                <div className="mb-2 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("settings.policy")}</div>
+                <table className="w-full text-[11px]">
+                  <thead><tr className="text-left text-text-3"><th className="py-1 font-medium">{t("settings.kind")}</th><th className="py-1 font-medium">tier</th><th className="py-1 font-medium">{t("code.effort")}</th><th className="py-1 font-medium">{t("code.timeoutMin")}</th></tr></thead>
+                  <tbody>
+                    {KINDS.map((k) => (
+                      <tr key={k} className="border-t border-line"><td className="py-1 text-text-1">{t(`code.kinds.${k}` as const)}</td><td className="py-1 text-text-2">{TARGET_TIER[settings.costMode][k]}</td><td className="py-1 text-text-2">{effortFor(k, settings.costMode)}</td><td className="mono py-1 text-text-2">{Math.round(timeoutFor(k, 2) / 60)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
               <div>
                 <div className="mb-2 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("settings.overrides")}</div>

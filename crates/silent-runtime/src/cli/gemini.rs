@@ -203,7 +203,7 @@ mod tests {
             build_args(&r),
             [
                 "-p",
-                "Read-only task: do not modify any files. do the thing",
+                "Read-only task: do not create, modify or delete any files; only read and report. do the thing",
                 "--output-format",
                 "stream-json",
                 "--model",

@@ -20,7 +20,7 @@ export interface Repositories {
   messages: { listByChat(chatId: string): Promise<Message[]>; upsert(message: Message): Promise<void> }
   agents: { list(): Promise<RepoAgent[]>; upsert(agent: RepoAgent): Promise<void>; delete(id: string): Promise<void> }
   runs: { list(): Promise<SilentCodeRun[]>; upsert(run: SilentCodeRun): Promise<void>; delete(id: string): Promise<void> }
-  terminal: { listBySubtask(subtaskId: string): Promise<TerminalLine[]>; append(runId: string, subtaskId: string, lines: TerminalLine[]): Promise<void> }
+  terminal: { listBySubtask(subtaskId: string): Promise<TerminalLine[]>; /** Batched insert; keeps at most `keep` newest lines per subtask. */ append(runId: string, subtaskId: string, lines: TerminalLine[], keep?: number): Promise<void> }
   memory: { list(): Promise<MemoryEntry[]>; upsert(entry: MemoryEntry): Promise<void>; delete(id: string): Promise<void> }
 }
 

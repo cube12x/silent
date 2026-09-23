@@ -1,6 +1,6 @@
 import type { CliRunRequest, ProviderId, RuntimeEvent, SubtaskKind } from "@/domain"
 import { parseModelRef } from "@/domain"
-import type { Worker, WorkerHandle, WorkerJob, WorkerSink } from "./Worker"
+import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./Worker"
 
 /** Minimal seam the worker needs from the host; `Backend` satisfies it. */
 export interface CliRunner {
@@ -8,8 +8,8 @@ export interface CliRunner {
 }
 
 /**
- * The only worker: runs a subtask through a real CLI (`codex exec`, `claude -p`, `kimi -p`, …) and maps
- * the normalised RuntimeEvents onto the generic WorkerSink. Which CLI is used comes from the ModelRef.
+ * The only worker: runs a subtask through a real CLI and maps the normalised RuntimeEvents onto the
+ * generic WorkerSink. Sessions are persistent so a timed-out attempt can be resumed instead of restarted.
  */
 export class CliWorker implements Worker {
   readonly id = "cli"
@@ -28,9 +28,9 @@ export class CliWorker implements Worker {
     let handle: { cancel(): Promise<void> } | undefined
     let cancelled = false
     const messages: string[] = []
-    let failure: { message: string; retryable: boolean } | undefined
-    let resolveDone!: (r: { ok: boolean; summary: string; error?: string; retryable?: boolean }) => void
-    const done = new Promise<{ ok: boolean; summary: string; error?: string; retryable?: boolean }>((r) => (resolveDone = r))
+    let failure: { message: string; retryable: boolean; timedOut: boolean } | undefined
+    let resolveDone!: (r: WorkerResult) => void
+    const done = new Promise<WorkerResult>((r) => (resolveDone = r))
 
     const request: CliRunRequest = {
       runId: `${job.runId}:${job.subtask.id}:${job.attempt}`,
@@ -39,16 +39,20 @@ export class CliWorker implements Worker {
       prompt: job.brief,
       cwd: job.repoPath,
       sandbox: job.sandbox,
-      ephemeral: true,
+      ephemeral: false,
       review: job.subtask.kind === "review",
+      effort: job.effort,
+      timeoutSecs: job.timeoutSecs,
+      resumeSessionId: job.resumeSessionId,
     }
 
     sink.state("planning", 2)
-    sink.log(`▶ ${providerId}${modelId ? ` · ${modelId}` : ""} · ${request.sandbox}${request.cwd ? ` · ${request.cwd}` : ""}`, "system")
+    sink.log(`▶ ${providerId}${modelId ? ` · ${modelId}` : ""} · ${request.sandbox} · effort ${job.effort} · ${Math.round(job.timeoutSecs / 60)} min${job.resumeSessionId ? ` · resume ${job.resumeSessionId.slice(0, 8)}…` : ""}${request.cwd ? ` · ${request.cwd}` : ""}`, "system")
 
     const onEvent = (e: RuntimeEvent) => {
       switch (e.type) {
         case "sessionStarted":
+          sink.session(e.data.sessionId)
           sink.log(`session ${e.data.sessionId}`, "system")
           break
         case "turnStarted":
@@ -94,7 +98,7 @@ export class CliWorker implements Worker {
           sink.log(e.data.line)
           break
         case "failed":
-          if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable }
+          if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable, timedOut: e.data.code === "timeout" }
           sink.log(`${e.data.code}: ${e.data.message}`, "stderr")
           break
         case "turnCompleted":
@@ -102,7 +106,7 @@ export class CliWorker implements Worker {
           break
         case "exited": {
           if (cancelled) return resolveDone({ ok: false, summary: "cancelled", error: "cancelled", retryable: false })
-          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable })
+          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut })
           if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
           resolveDone({ ok: true, summary })
