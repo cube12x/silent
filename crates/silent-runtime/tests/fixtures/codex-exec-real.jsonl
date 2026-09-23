@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a0cf46-9bc2-73e3-9d04-5f5159a3452a"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll list the repository files."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc \"rg --files --hidden -g '\"'!.git'\"'\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc \"rg --files --hidden -g '\"'!.git'\"'\"","aggregated_output":"README.md\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"OK"}}
+{"type":"turn.completed","usage":{"input_tokens":35747,"cached_input_tokens":30080,"cache_write_input_tokens":0,"output_tokens":56,"reasoning_output_tokens":0}}

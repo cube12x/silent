@@ -10,6 +10,7 @@ import { COST_MODES, COST_MODE_LABELS, PERMISSION_LABELS, SUBTASK_KINDS, type Pe
 import { MODELS } from "@/engine/capabilities"
 import { KIND_LABEL } from "@/design-system"
 import { formatRelative } from "@/lib/format"
+import { Switch } from "@/components/ui/switch"
 
 const SECTIONS = [
   { id: "connectors", label: "Model connectors", icon: <Cpu /> },
@@ -88,7 +89,7 @@ export function SettingsScreen() {
                           <div className="mono truncate text-[10px] text-text-3">{d?.installed ? `${d.version} · ${d.path}` : p.cliBinary ? `${p.cliBinary}: not installed` : "API key not configured"}</div>
                         </div>
                         <TacticalChip size="xs" tone={p.status === "simulated" ? "violet" : p.status === "connected" ? "success" : "neutral"} dot>{p.status}</TacticalChip>
-                        <PermissionToggle label="" checked={p.enabled} onCheckedChange={(v) => void setEnabled(p.id, v)} className="border-0 bg-transparent p-0 hover:border-0" />
+                        <Switch checked={p.enabled} onCheckedChange={(v) => void setEnabled(p.id, v)} className={cn(p.enabled && "data-[state=checked]:bg-cyan")} aria-label={`Enable ${p.name}`} />
                       </div>
                     )
                   })}

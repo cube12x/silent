@@ -135,7 +135,8 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
             flush(true)
             break
           case "agentMessage":
-            text = e.data.text
+            // Codex emits one agent_message per assistant turn segment; keep them all.
+            text = text.trim() ? `${text.trim()}\n\n${e.data.text}` : e.data.text
             flush(true)
             break
           case "commandStarted": {

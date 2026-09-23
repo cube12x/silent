@@ -35,7 +35,7 @@ export function TerminalDrawer() {
 
   return (
     <Sheet open={!!drawer} onOpenChange={(o) => !o && close()}>
-      <SheetContent side="right" className="flex w-[min(880px,92vw)] flex-col gap-0 border-line bg-ink-1 p-0 sm:max-w-none">
+      <SheetContent side="right" className="flex flex-col gap-0 border-line bg-ink-1 p-0 data-[side=right]:w-[min(920px,92vw)] data-[side=right]:sm:max-w-none">
         {subtask && run ? (
           <>
             <SheetHeader className="border-b border-line px-5 py-4">
