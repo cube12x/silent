@@ -16,7 +16,18 @@ export function AppShell() {
   const setPalette = useUiStore((s) => s.setPalette)
   const openNewSession = useUiStore((s) => s.openNewSession)
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel)
+  const applyViewport = useUiStore((s) => s.applyViewport)
   const location = useLocation()
+
+  React.useEffect(() => {
+    let previous = window.innerWidth
+    const onResize = () => {
+      applyViewport(window.innerWidth, previous)
+      previous = window.innerWidth
+    }
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [applyViewport])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

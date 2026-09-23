@@ -4,6 +4,27 @@ mod bridge;
 mod commands;
 mod db;
 
+/// Shrink the main window so it always fits the current monitor (small laptop screens at 2x scale
+/// have a logical work area around 1200x750), then center it.
+fn fit_main_window_to_monitor(app: &tauri::App) {
+    use tauri::{LogicalSize, Manager};
+    let Some(window) = app.get_webview_window("main") else { return };
+    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    let scale = monitor.scale_factor();
+    let logical_w = monitor.size().width as f64 / scale;
+    let logical_h = monitor.size().height as f64 / scale;
+    // Leave room for the menu bar / dock and a small margin.
+    let max_w = (logical_w - 32.0).max(960.0);
+    let max_h = (logical_h - 96.0).max(600.0);
+    let Ok(current) = window.inner_size() else { return };
+    let cur_w = current.width as f64 / scale;
+    let cur_h = current.height as f64 / scale;
+    if cur_w > max_w || cur_h > max_h {
+        let _ = window.set_size(LogicalSize::new(cur_w.min(max_w), cur_h.min(max_h)));
+    }
+    let _ = window.center();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -23,6 +44,10 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::codex::RunRegistry::default())
+        .setup(|app| {
+            fit_main_window_to_monitor(app);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::providers::providers_detect,
