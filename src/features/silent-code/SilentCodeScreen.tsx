@@ -43,7 +43,8 @@ function Composer() {
   const start = useRunsStore((s) => s.start)
   const [prompt, setPrompt] = React.useState("")
   const [rawPool, setPool] = React.useState<string[] | null>(null)
-  const pool = React.useMemo(() => (rawPool ?? models.filter((m) => m.isDefault || m.tier !== "fast").map((m) => modelRef(m.providerId, m.id))).filter((ref) => modelLabels[ref]), [rawPool, models, modelLabels])
+  // Default pool = every model of every enabled CLI, so the tier policy can actually send light work to fast models.
+  const pool = React.useMemo(() => (rawPool ?? models.map((m) => modelRef(m.providerId, m.id))).filter((ref) => modelLabels[ref]), [rawPool, models, modelLabels])
   const [mode, setMode] = React.useState<ExecutionMode>("staged")
   const [costMode, setCostMode] = React.useState<CostMode>(settings.costMode)
   const [agentId, setAgentId] = React.useState<string | undefined>(params.get("agent") ?? undefined)
