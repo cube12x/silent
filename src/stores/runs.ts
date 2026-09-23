@@ -80,8 +80,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
   async load() {
     const backend = await getBackend()
     const runs = (await backend.db.runs.list()).map((r) =>
-      // Anything left "running" from a previous session is stale.
-      r.status === "running" ? { ...r, status: "failed" as const, plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const })) } : r,
+      // Anything left "running" from a previous session was interrupted by an app restart.
+      r.status === "running" ? { ...r, status: "cancelled" as const, finishedAt: r.finishedAt ?? Date.now(), plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const, summary: s.summary ?? "Interrupted by app restart." })) } : r,
     )
     set({ runs })
   },

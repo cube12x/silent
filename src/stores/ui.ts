@@ -1,6 +1,6 @@
 import { create } from "zustand"
 
-export type NewSessionPreset = { kind: "standard" | "repo-agent"; repoAgentId?: string } | null
+export type NewSessionPreset = { kind: "standard" | "repo-agent"; repoAgentId?: string; nonce: number } | null
 
 interface UiState {
   sidebarCollapsed: boolean
@@ -12,7 +12,7 @@ interface UiState {
   setRightPanel(open: boolean): void
   toggleRightPanel(): void
   setPalette(open: boolean): void
-  openNewSession(preset?: NewSessionPreset): void
+  openNewSession(preset?: { kind: "standard" | "repo-agent"; repoAgentId?: string }): void
   closeNewSession(): void
   openDrawer(runId: string, subtaskId: string): void
   closeDrawer(): void
@@ -28,7 +28,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   setRightPanel: (open) => set({ rightPanelOpen: open }),
   toggleRightPanel: () => set({ rightPanelOpen: !get().rightPanelOpen }),
   setPalette: (open) => set({ paletteOpen: open }),
-  openNewSession: (preset = { kind: "standard" }) => set({ newSession: preset }),
+  openNewSession: (preset = { kind: "standard" }) => set({ newSession: { ...preset, nonce: Date.now() } }),
   closeNewSession: () => set({ newSession: null }),
   openDrawer: (runId, subtaskId) => set({ drawer: { runId, subtaskId } }),
   closeDrawer: () => set({ drawer: null }),

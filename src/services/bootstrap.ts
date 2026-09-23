@@ -10,8 +10,15 @@ import { useSettingsStore } from "@/stores/settings"
 
 const SEED_KEY = "seeded.v1"
 
-/** Hydrate every store; on first launch seed the demo workspace so the app is never empty. */
-export async function bootstrap(): Promise<void> {
+let inflight: Promise<void> | undefined
+
+/** Hydrate every store; on first launch seed the demo workspace so the app is never empty. Idempotent (StrictMode double-invokes effects). */
+export function bootstrap(): Promise<void> {
+  inflight ??= run()
+  return inflight
+}
+
+async function run(): Promise<void> {
   const backend = await getBackend()
   const seeded = await backend.kv.get<boolean>(SEED_KEY)
   if (!seeded) {
@@ -35,4 +42,10 @@ export async function bootstrap(): Promise<void> {
     useActivityStore.getState().load(),
   ])
   void useProvidersStore.getState().load()
+  if (backend.kind === "fake" && !useRunsStore.getState().runs.some((r) => r.status === "running")) {
+    // Browser demo: keep the command center alive with a simulated run.
+    const agent = useAgentsStore.getState().agents[0]
+    const d = useRunsStore.getState().draft({ prompt: "Add a real-time notification system to the Reach repository with websocket fan-out and tests.", pool: ["claude-opus", "claude-sonnet", "codex", "gemini", "glm", "fable-ultracode"], executionMode: "staged", costMode: "balanced", repoAgentId: agent?.id })
+    void useRunsStore.getState().start(d)
+  }
 }

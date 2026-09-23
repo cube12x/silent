@@ -145,7 +145,7 @@ export class FakeBackend implements Backend {
     activity: {
       list: async (limit = 50) => [...this.activity].sort((a, b) => b.at - a.at).slice(0, limit),
       append: async (item) => {
-        this.activity.push(item)
+        this.activity = [...this.activity.filter((a) => a.id !== item.id), item]
       },
     },
   }
