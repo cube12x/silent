@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS chats (
   model_id TEXT NOT NULL,
   repo_agent_id TEXT,
   gateway TEXT,
+  gateway_profile_json TEXT,
   codex_thread_id TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -17,6 +19,8 @@ CREATE TABLE IF NOT EXISTS messages (
   content TEXT NOT NULL,
   blocks_json TEXT NOT NULL DEFAULT '[]',
   usage_json TEXT,
+  model_id TEXT,
+  error TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
@@ -30,12 +34,15 @@ CREATE TABLE IF NOT EXISTS repo_agents (
   gateway_profile_json TEXT NOT NULL DEFAULT '{}',
   permissions_json TEXT NOT NULL DEFAULT '{}',
   tools_json TEXT NOT NULL DEFAULT '[]',
+  memory_count INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'idle',
+  last_actions_json TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
   prompt TEXT NOT NULL,
   repo_agent_id TEXT,
   repo_path TEXT,
@@ -46,29 +53,15 @@ CREATE TABLE IF NOT EXISTS runs (
   plan_json TEXT NOT NULL DEFAULT '[]',
   routing_json TEXT NOT NULL DEFAULT '[]',
   estimate_json TEXT,
+  actual_json TEXT,
   started_at INTEGER,
   finished_at INTEGER,
   created_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS subtasks (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  depends_on_json TEXT NOT NULL DEFAULT '[]',
-  state TEXT NOT NULL,
-  assigned_model_id TEXT,
-  attempts_json TEXT NOT NULL DEFAULT '[]',
-  files_json TEXT NOT NULL DEFAULT '[]',
-  commands_json TEXT NOT NULL DEFAULT '[]',
-  summary TEXT,
-  position INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_subtasks_run ON subtasks(run_id, position);
 CREATE TABLE IF NOT EXISTS terminal_lines (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  subtask_id TEXT NOT NULL REFERENCES subtasks(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  subtask_id TEXT NOT NULL,
   ts INTEGER NOT NULL,
   stream TEXT NOT NULL,
   text TEXT NOT NULL
@@ -78,6 +71,7 @@ CREATE TABLE IF NOT EXISTS memory_entries (
   id TEXT PRIMARY KEY,
   layer TEXT NOT NULL,
   scope_id TEXT,
+  scope_label TEXT,
   tags_json TEXT NOT NULL DEFAULT '[]',
   title TEXT NOT NULL,
   body TEXT NOT NULL,
@@ -85,11 +79,17 @@ CREATE TABLE IF NOT EXISTS memory_entries (
   pinned INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS kv (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   detail TEXT,
   ref_id TEXT,
+  ref_route TEXT,
+  ok INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );

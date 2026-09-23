@@ -58,15 +58,14 @@ mod tests {
     fn masks_known_token_shapes() {
         let raw = "sk-abcdefghijklmnop ghp_ABCDEFGHIJKLMNOP github_pat_ABCDEFGHIJ xoxb-1234-5678-abcdef AKIAABCDEFGHIJKLMNOP AIzaSyABCDEFGHIJ";
         let out = redact_secrets(raw);
-        assert_eq!(
-            out,
-            "sk-a… ghp_… gith… xoxb… AKIA… AIza…"
-        );
+        assert_eq!(out, "sk-a… ghp_… gith… xoxb… AKIA… AIza…");
     }
 
     #[test]
     fn masks_bearer_and_assignments() {
-        let out = redact_secrets("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload OPENAI_API_KEY=supersecretvalue");
+        let out = redact_secrets(
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload OPENAI_API_KEY=supersecretvalue",
+        );
         assert!(out.contains("Bearer eyJh…"), "{out}");
         assert!(out.contains("OPENAI_API_KEY=supe…"), "{out}");
         assert!(!out.contains("supersecretvalue"));

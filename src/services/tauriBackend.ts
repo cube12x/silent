@@ -1,0 +1,277 @@
+import { Channel, invoke } from "@tauri-apps/api/core"
+import { open as openDialog } from "@tauri-apps/plugin-dialog"
+import { open as openShell } from "@tauri-apps/plugin-shell"
+import Database from "@tauri-apps/plugin-sql"
+import { Store } from "@tauri-apps/plugin-store"
+import type { Chat, CodexRunRequest, DetectedProvider, Message, MemoryEntry, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { ActivityItem } from "@/mocks/activity"
+import type { AppInfo, Backend, CodexRunHandle, KvStore, Repositories } from "./backend"
+
+type Row = Record<string, unknown>
+
+const str = (v: unknown) => (v == null ? undefined : String(v))
+const num = (v: unknown) => (v == null ? undefined : Number(v))
+const json = <T,>(v: unknown, fallback: T): T => {
+  if (typeof v !== "string" || !v) return fallback
+  try {
+    return JSON.parse(v) as T
+  } catch {
+    return fallback
+  }
+}
+
+/** Real host backend: Tauri commands + SQLite (tauri-plugin-sql) + JSON store (tauri-plugin-store). */
+export class TauriBackend implements Backend {
+  readonly kind = "tauri" as const
+  private dbPromise?: Promise<Database>
+  private storePromise?: Promise<Store>
+
+  private conn(): Promise<Database> {
+    this.dbPromise ??= Database.load("sqlite:silent.db")
+    return this.dbPromise
+  }
+
+  private store(): Promise<Store> {
+    this.storePromise ??= Store.load("settings.json", { autoSave: 300 })
+    return this.storePromise
+  }
+
+  appInfo(): Promise<AppInfo> {
+    return invoke<AppInfo>("app_info")
+  }
+
+  providersDetect(): Promise<DetectedProvider[]> {
+    return invoke<DetectedProvider[]>("providers_detect")
+  }
+
+  repoInspect(path: string): Promise<RepoInfo> {
+    return invoke<RepoInfo>("repo_inspect", { path })
+  }
+
+  async pickDirectory(): Promise<string | null> {
+    const picked = await openDialog({ directory: true, multiple: false, title: "Select repository" })
+    return typeof picked === "string" ? picked : null
+  }
+
+  async openExternal(url: string): Promise<void> {
+    await openShell(url)
+  }
+
+  async codexStart(request: CodexRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<CodexRunHandle> {
+    const channel = new Channel<RuntimeEvent>()
+    channel.onmessage = onEvent
+    await invoke<string>("codex_run_start", { request, onEvent: channel })
+    return {
+      cancel: () => invoke<void>("codex_run_cancel", { runId: request.runId }),
+    }
+  }
+
+  kv: KvStore = {
+    get: async <T,>(key: string) => (await this.store()).get<T>(key),
+    set: async (key, value) => {
+      const s = await this.store()
+      await s.set(key, value)
+    },
+  }
+
+  db: Repositories = {
+    chats: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM chats ORDER BY updated_at DESC")
+        return rows.map(
+          (r): Chat => ({
+            id: String(r.id),
+            title: String(r.title),
+            kind: r.kind as Chat["kind"],
+            modelId: String(r.model_id),
+            repoAgentId: str(r.repo_agent_id),
+            repoPath: str(r.repo_path),
+            gatewayPrompt: str(r.gateway),
+            gatewayProfile: json(r.gateway_profile_json, undefined),
+            codexThreadId: str(r.codex_thread_id),
+            pinned: Boolean(num(r.pinned)),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at),
+          }),
+        )
+      },
+      upsert: async (c) => {
+        await (await this.conn()).execute(
+          `INSERT INTO chats (id, title, kind, model_id, repo_agent_id, repo_path, gateway, gateway_profile_json, codex_thread_id, pinned, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT(id) DO UPDATE SET title=$2, kind=$3, model_id=$4, repo_agent_id=$5, repo_path=$6, gateway=$7, gateway_profile_json=$8, codex_thread_id=$9, pinned=$10, updated_at=$12`,
+          [c.id, c.title, c.kind, c.modelId, c.repoAgentId ?? null, c.repoPath ?? null, c.gatewayPrompt ?? null, JSON.stringify(c.gatewayProfile ?? null), c.codexThreadId ?? null, c.pinned ? 1 : 0, c.createdAt, c.updatedAt],
+        )
+      },
+      delete: async (id) => {
+        const db = await this.conn()
+        await db.execute("DELETE FROM messages WHERE chat_id = $1", [id])
+        await db.execute("DELETE FROM chats WHERE id = $1", [id])
+      },
+    },
+    messages: {
+      listByChat: async (chatId) => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC", [chatId])
+        return rows.map(
+          (r): Message => ({
+            id: String(r.id),
+            chatId: String(r.chat_id),
+            role: r.role as Message["role"],
+            content: String(r.content),
+            blocks: json(r.blocks_json, []),
+            usage: json(r.usage_json, undefined),
+            modelId: str(r.model_id),
+            error: str(r.error),
+            createdAt: Number(r.created_at),
+          }),
+        )
+      },
+      upsert: async (m) => {
+        await (await this.conn()).execute(
+          `INSERT INTO messages (id, chat_id, role, content, blocks_json, usage_json, model_id, error, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT(id) DO UPDATE SET content=$4, blocks_json=$5, usage_json=$6, model_id=$7, error=$8`,
+          [m.id, m.chatId, m.role, m.content, JSON.stringify(m.blocks), m.usage ? JSON.stringify(m.usage) : null, m.modelId ?? null, m.error ?? null, m.createdAt],
+        )
+      },
+    },
+    agents: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM repo_agents ORDER BY updated_at DESC")
+        return rows.map(
+          (r): RepoAgent => ({
+            id: String(r.id),
+            name: String(r.name),
+            repoPath: String(r.repo_path),
+            primaryModelId: String(r.primary_model_id),
+            fallbackModelIds: json(r.fallback_model_ids_json, []),
+            gatewayPrompt: String(r.gateway_prompt ?? ""),
+            gatewayProfile: json(r.gateway_profile_json, {} as RepoAgent["gatewayProfile"]),
+            permissions: json(r.permissions_json, {} as RepoAgent["permissions"]),
+            toolsEnabled: json(r.tools_json, []),
+            memoryCount: Number(r.memory_count ?? 0),
+            status: r.status as RepoAgent["status"],
+            lastActions: json(r.last_actions_json, []),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at),
+          }),
+        )
+      },
+      upsert: async (a) => {
+        await (await this.conn()).execute(
+          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, fallback_model_ids_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, fallback_model_ids_json=$5, gateway_prompt=$6, gateway_profile_json=$7, permissions_json=$8, tools_json=$9, memory_count=$10, status=$11, last_actions_json=$12, updated_at=$14`,
+          [a.id, a.name, a.repoPath, a.primaryModelId, JSON.stringify(a.fallbackModelIds), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt],
+        )
+      },
+      delete: async (id) => {
+        await (await this.conn()).execute("DELETE FROM repo_agents WHERE id = $1", [id])
+      },
+    },
+    runs: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM runs ORDER BY created_at DESC")
+        return rows.map(
+          (r): SilentCodeRun => ({
+            id: String(r.id),
+            title: String(r.title ?? r.prompt),
+            prompt: String(r.prompt),
+            repoAgentId: str(r.repo_agent_id),
+            repoPath: str(r.repo_path),
+            modelPool: json(r.model_pool_json, []),
+            executionMode: r.execution_mode as SilentCodeRun["executionMode"],
+            costMode: r.cost_mode as SilentCodeRun["costMode"],
+            status: r.status as SilentCodeRun["status"],
+            plan: json(r.plan_json, []),
+            routing: json(r.routing_json, []),
+            estimate: json(r.estimate_json, { tokens: 0, costUsd: 0, seconds: 0 }),
+            actual: json(r.actual_json, undefined),
+            startedAt: num(r.started_at),
+            finishedAt: num(r.finished_at),
+            createdAt: Number(r.created_at),
+          }),
+        )
+      },
+      upsert: async (run) => {
+        await (await this.conn()).execute(
+          `INSERT INTO runs (id, title, prompt, repo_agent_id, repo_path, model_pool_json, execution_mode, cost_mode, status, plan_json, routing_json, estimate_json, actual_json, started_at, finished_at, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           ON CONFLICT(id) DO UPDATE SET title=$2, status=$9, plan_json=$10, routing_json=$11, estimate_json=$12, actual_json=$13, started_at=$14, finished_at=$15`,
+          [run.id, run.title, run.prompt, run.repoAgentId ?? null, run.repoPath ?? null, JSON.stringify(run.modelPool), run.executionMode, run.costMode, run.status, JSON.stringify(run.plan), JSON.stringify(run.routing), JSON.stringify(run.estimate), run.actual ? JSON.stringify(run.actual) : null, run.startedAt ?? null, run.finishedAt ?? null, run.createdAt],
+        )
+      },
+      delete: async (id) => {
+        const db = await this.conn()
+        await db.execute("DELETE FROM terminal_lines WHERE run_id = $1", [id])
+        await db.execute("DELETE FROM runs WHERE id = $1", [id])
+      },
+    },
+    terminal: {
+      listBySubtask: async (subtaskId) => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT ts, stream, text FROM terminal_lines WHERE subtask_id = $1 ORDER BY id ASC", [subtaskId])
+        return rows.map((r): TerminalLine => ({ ts: Number(r.ts), stream: r.stream as TerminalLine["stream"], text: String(r.text) }))
+      },
+      append: async (runId, subtaskId, lines) => {
+        if (!lines.length) return
+        const db = await this.conn()
+        for (const l of lines) {
+          await db.execute("INSERT INTO terminal_lines (run_id, subtask_id, ts, stream, text) VALUES ($1,$2,$3,$4,$5)", [runId, subtaskId, l.ts, l.stream, l.text])
+        }
+      },
+    },
+    memory: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM memory_entries ORDER BY created_at DESC")
+        return rows.map(
+          (r): MemoryEntry => ({
+            id: String(r.id),
+            layer: r.layer as MemoryEntry["layer"],
+            scopeId: str(r.scope_id),
+            scopeLabel: str(r.scope_label),
+            tags: json(r.tags_json, []),
+            title: String(r.title),
+            body: String(r.body),
+            source: String(r.source ?? ""),
+            pinned: Boolean(num(r.pinned)),
+            createdAt: Number(r.created_at),
+          }),
+        )
+      },
+      upsert: async (e) => {
+        await (await this.conn()).execute(
+          `INSERT INTO memory_entries (id, layer, scope_id, scope_label, tags_json, title, body, source, pinned, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           ON CONFLICT(id) DO UPDATE SET layer=$2, scope_id=$3, scope_label=$4, tags_json=$5, title=$6, body=$7, source=$8, pinned=$9`,
+          [e.id, e.layer, e.scopeId ?? null, e.scopeLabel ?? null, JSON.stringify(e.tags), e.title, e.body, e.source, e.pinned ? 1 : 0, e.createdAt],
+        )
+      },
+      delete: async (id) => {
+        await (await this.conn()).execute("DELETE FROM memory_entries WHERE id = $1", [id])
+      },
+    },
+    activity: {
+      list: async (limit = 50) => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM activity ORDER BY created_at DESC LIMIT $1", [limit])
+        return rows.map(
+          (r): ActivityItem => ({
+            id: String(r.id),
+            kind: r.kind as ActivityItem["kind"],
+            title: String(r.title),
+            detail: str(r.detail),
+            refId: str(r.ref_id),
+            refRoute: str(r.ref_route),
+            ok: Boolean(num(r.ok)),
+            at: Number(r.created_at),
+          }),
+        )
+      },
+      append: async (item) => {
+        await (await this.conn()).execute(
+          "INSERT OR REPLACE INTO activity (id, kind, title, detail, ref_id, ref_route, ok, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+          [item.id, item.kind, item.title, item.detail ?? null, item.refId ?? null, item.refRoute ?? null, item.ok ? 1 : 0, item.at],
+        )
+      },
+    },
+  }
+}

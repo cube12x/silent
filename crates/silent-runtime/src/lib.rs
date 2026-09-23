@@ -6,5 +6,7 @@ pub mod error;
 pub mod redaction;
 pub mod spawn;
 
-pub use codex::events::RuntimeEvent;
-pub use error::RuntimeError;
+pub use codex::args::{build_args, CodexRunRequest, SandboxMode};
+pub use codex::events::{parse_jsonl_line, FileChangeKind, RuntimeEvent};
+pub use error::{RuntimeError, RuntimeResult};
+pub use spawn::{run_streaming, RunExit, RunHandle, SpawnConfig};

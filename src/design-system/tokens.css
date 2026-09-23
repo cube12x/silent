@@ -1,0 +1,69 @@
+/* Silent "Obsidian" theme tokens. Dark-first; the app never renders a light theme. */
+:root,
+.dark {
+  --ink-0: #050607;
+  --ink-1: #0a0c0f;
+  --ink-2: #111418;
+  --ink-3: #171b21;
+  --ink-4: #1f242c;
+  --line: #1e242c;
+  --line-strong: #2a313b;
+  --text-1: #e6eaf0;
+  --text-2: #9aa4b2;
+  --text-3: #5c6675;
+  --cyan: #39d2ff;
+  --cyan-soft: #1aa3cc;
+  --blue: #3b82f6;
+  --violet: #8b5cf6;
+  --success: #22d3a0;
+  --warn: #f5b342;
+  --danger: #ff4d5e;
+
+  --glow: 0 0 0 1px color-mix(in oklch, var(--cyan) 30%, transparent), 0 0 24px color-mix(in oklch, var(--cyan) 18%, transparent);
+  --glow-strong: 0 0 0 1px color-mix(in oklch, var(--cyan) 55%, transparent), 0 0 40px color-mix(in oklch, var(--cyan) 30%, transparent);
+  --panel-shadow: 0 1px 0 0 color-mix(in oklch, white 4%, transparent) inset, 0 12px 40px -20px rgb(0 0 0 / 0.8);
+
+  --radius: 0.625rem;
+
+  /* shadcn semantic mapping */
+  --background: var(--ink-0);
+  --foreground: var(--text-1);
+  --card: var(--ink-1);
+  --card-foreground: var(--text-1);
+  --popover: var(--ink-2);
+  --popover-foreground: var(--text-1);
+  --primary: var(--cyan);
+  --primary-foreground: #04131a;
+  --secondary: var(--ink-3);
+  --secondary-foreground: var(--text-1);
+  --muted: var(--ink-2);
+  --muted-foreground: var(--text-2);
+  --accent: var(--ink-3);
+  --accent-foreground: var(--text-1);
+  --destructive: var(--danger);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--cyan);
+  --chart-1: var(--cyan);
+  --chart-2: var(--blue);
+  --chart-3: var(--violet);
+  --chart-4: var(--success);
+  --chart-5: var(--warn);
+  --sidebar: var(--ink-1);
+  --sidebar-foreground: var(--text-1);
+  --sidebar-primary: var(--cyan);
+  --sidebar-primary-foreground: #04131a;
+  --sidebar-accent: var(--ink-3);
+  --sidebar-accent-foreground: var(--text-1);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--cyan);
+}
+
+.graphite {
+  --ink-0: #0b0c0e;
+  --ink-1: #101215;
+  --ink-2: #16191d;
+  --ink-3: #1c2025;
+  --ink-4: #242930;
+  --cyan: #7dd3fc;
+}

@@ -1,3 +1,4 @@
+pub mod binaries;
 pub mod codex;
 pub mod providers;
 pub mod repo;
