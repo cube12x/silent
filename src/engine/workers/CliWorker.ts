@@ -46,6 +46,7 @@ export class CliWorker implements Worker {
       prompt: job.brief,
       cwd: job.repoPath,
       sandbox: job.sandbox,
+      network: job.network,
       ephemeral: false,
       review: job.subtask.kind === "review",
       effort: job.effort,

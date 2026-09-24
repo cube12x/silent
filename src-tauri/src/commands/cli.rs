@@ -111,7 +111,20 @@ pub async fn cli_run_start(
                 adapter.binary()
             )
         })?;
-    let mut config = SpawnConfig::new(program, adapter.build_args(&request));
+    let args = adapter.build_args(&request);
+    // Argv without the prompt (the last positional) so runs can be reproduced from the log file.
+    log::info!(
+        "spawn {} {} [{}] cwd={:?}",
+        request.run_id,
+        program.display(),
+        args.iter()
+            .filter(|a| a.len() < 200)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" "),
+        request.cwd
+    );
+    let mut config = SpawnConfig::new(program, args);
     // Never run a CLI in whatever directory the app happened to start in (`/` for a Finder-launched
     // .app): fall back to the home directory when no working folder was given.
     config.cwd = request
