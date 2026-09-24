@@ -48,6 +48,8 @@ export interface Backend {
   pickDirectory(): Promise<string | null>
   /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */
   createProjectDir(name: string): Promise<string>
+  /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */
+  confirm(message: string, title?: string): Promise<boolean>
   /** Text of `root/rel` (capped), or null when missing. */
   readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
   openExternal(url: string): Promise<void>

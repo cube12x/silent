@@ -63,6 +63,8 @@ function Composer() {
   const [manual, setManual] = React.useState(false)
   const [approved, setApproved] = React.useState(false)
   const [starting, setStarting] = React.useState(false)
+  const [uiError, setUiError] = React.useState<string | null>(null)
+  const [newName, setNewName] = React.useState<string | null>(null)
   const agent = agents.find((a) => a.id === agentId)
   const repoPath = agent?.repoPath ?? folder
 
@@ -70,40 +72,60 @@ function Composer() {
   const unrouted = run?.routing.filter((r) => !r.primaryModelId).length ?? 0
   const openQuestions = (result?.run.questions ?? []).filter((q) => !answers[q.id] && answers[q.id] !== "")
 
-  const pickFolder = async () => {
-    const backend = await getBackend()
-    const p = await backend.pickDirectory()
-    if (p) {
-      setFolder(p)
-      setAgentId(undefined)
+  const guard = async (label: string, fn: () => Promise<void>) => {
+    setUiError(null)
+    try {
+      await fn()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[silent-code] ${label} failed:`, msg)
+      setUiError(`${label}: ${msg}`)
     }
   }
-  const newFolder = async () => {
-    const name = window.prompt(t("code.newFolderPrompt"), "")?.trim()
-    if (!name) return
-    const backend = await getBackend()
-    const p = await backend.createProjectDir(name)
-    setFolder(p)
-    setAgentId(undefined)
-  }
-  const makePlan = async (withAnswers = false) => {
-    setEdit(null)
-    setApproved(false)
-    const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
-    if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
-    const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa })
-    setResult(res)
-    if (!withAnswers) setAnswers({})
-    setStep("plan")
-  }
-  const launch = async () => {
-    if (!run || unrouted || !approved) return
-    setStarting(true)
-    const answered = (run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || q.answer }))
-    const promptWithAnswers = answered.some((q) => q.answer) ? `${run.prompt}\n\nClarifications:\n${answered.filter((q) => q.answer).map((q) => `- ${q.question} → ${q.answer}`).join("\n")}` : run.prompt
-    await start({ ...run, prompt: promptWithAnswers, questions: answered, manual })
-    navigate(`/code/${run.id}`)
-  }
+  const pickFolder = () =>
+    guard(t("common.browse"), async () => {
+      const backend = await getBackend()
+      const p = await backend.pickDirectory()
+      if (p) {
+        setFolder(p)
+        setAgentId(undefined)
+      }
+    })
+  const newFolder = () => setNewName((v) => (v === null ? "" : v))
+  const createFolder = () =>
+    guard(t("code.newFolder"), async () => {
+      const name = (newName ?? "").trim()
+      if (!name) return
+      const backend = await getBackend()
+      const p = await backend.createProjectDir(name)
+      setFolder(p)
+      setAgentId(undefined)
+      setNewName(null)
+    })
+  const makePlan = (withAnswers = false) =>
+    guard(t("code.makePlan"), async () => {
+      setEdit(null)
+      setApproved(false)
+      const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
+      if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
+      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa })
+      setResult(res)
+      if (!withAnswers) setAnswers({})
+      setStep("plan")
+    })
+  const launch = () =>
+    guard(t("code.startRun"), async () => {
+      if (!run || unrouted || !approved) return
+      setStarting(true)
+      try {
+        const answered = (run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || q.answer }))
+        const promptWithAnswers = answered.some((q) => q.answer) ? `${run.prompt}\n\nClarifications:\n${answered.filter((q) => q.answer).map((q) => `- ${q.question} → ${q.answer}`).join("\n")}` : run.prompt
+        await start({ ...run, prompt: promptWithAnswers, questions: answered, manual })
+        navigate(`/code/${run.id}`)
+      } finally {
+        setStarting(false)
+      }
+    })
 
   const stepChip = (s: Step, i: number) => <span key={s} className={cn("mono flex h-6 items-center gap-1 rounded-sm border px-2 text-[10px] uppercase", step === s ? "border-text-1 text-text-1" : "border-line text-text-3")}>{i + 1} {t(`code.steps.${s}` as const)}</span>
 
@@ -113,6 +135,21 @@ function Composer() {
 
       <div className={cn("grid gap-5", step === "task" ? "2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]" : "grid-cols-1")}>
         <div className={cn("flex flex-col gap-4", step !== "task" && "hidden")}>
+          {uiError && (
+            <div className="flex items-start gap-3 rounded-sm border border-danger/50 bg-danger/5 px-4 py-3 text-xs text-danger">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span className="mono flex-1 break-all">{uiError}</span>
+              <button type="button" onClick={() => setUiError(null)} className="text-text-3 hover:text-text-1">×</button>
+            </div>
+          )}
+          {newName !== null && (
+            <div className="flex flex-wrap items-center gap-2 rounded-sm border border-line bg-ink-2 px-4 py-3 text-xs">
+              <span className="text-text-2">{t("code.newFolderPrompt")}</span>
+              <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void createFolder(); if (e.key === "Escape") setNewName(null) }} placeholder="my-project" className="mono min-w-[200px] flex-1 rounded-sm border border-line bg-ink px-2 py-1 text-text-1 outline-none focus:border-text-2" />
+              <NeonButton size="sm" disabled={!newName.trim()} onClick={() => void createFolder()}><FolderGit2 />{t("common.create")}</NeonButton>
+              <button type="button" onClick={() => setNewName(null)} className="text-text-3 hover:text-text-1">{t("common.cancel")}</button>
+            </div>
+          )}
           {parent && !repoPath && (
             <div className="flex flex-wrap items-center gap-3 rounded-sm border border-warn/50 bg-warn/5 px-4 py-3 text-xs text-warn">
               <AlertTriangle className="size-4 shrink-0" />
@@ -175,6 +212,12 @@ function Composer() {
 
         {step !== "task" && run && result && (
           <div className="flex flex-col gap-4">
+            {result.source !== "ai" && (
+              <div className="flex items-start gap-3 rounded-sm border border-warn/50 bg-warn/5 px-4 py-3 text-xs text-warn">
+                <AlertTriangle className="size-4 shrink-0" />
+                <span className="flex-1">{t("code.planFallback", { error: result.error ?? "" })}</span>
+              </div>
+            )}
             <GlowCard className="flex flex-col gap-3">
               <SectionHeader
                 eyebrow={t("code.preview")}

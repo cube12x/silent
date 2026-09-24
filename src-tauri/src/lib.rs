@@ -56,6 +56,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::frontend_log,
             commands::providers::providers_detect,
             commands::models::provider_models,
             commands::repo::repo_inspect,

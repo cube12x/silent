@@ -42,6 +42,9 @@ export class TestBackend implements Backend {
     return null
   }
   projectFiles: Record<string, string> = {}
+  async confirm(message: string) {
+    return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(message) : true
+  }
   async readProjectFile(_root: string, rel: string) {
     return this.projectFiles[rel] ?? null
   }

@@ -1,3 +1,4 @@
+import { getBackend } from "@/services"
 import * as React from "react"
 import { useNavigate, useParams } from "react-router"
 import { cn } from "cn"
@@ -61,7 +62,7 @@ export function AgentDetailScreen() {
         description={<span className="mono flex items-center gap-1.5 text-xs"><FolderGit2 className="size-3.5" />{agent.repoPath}</span>}
         actions={
           <>
-            <NeonButton variant="outline" onClick={() => { if (confirm(t("agents.deleteConfirm"))) { void remove(agent.id); navigate("/agents") } }}><Trash2 />{t("common.delete")}</NeonButton>
+            <NeonButton variant="outline" onClick={() => { void (async () => { const b = await getBackend(); if (await b.confirm(t("agents.deleteConfirm"))) { void remove(agent.id); navigate("/agents") } })() }}><Trash2 />{t("common.delete")}</NeonButton>
             <NeonButton variant="outline" onClick={async () => { const c = await createChat({ kind: "repo-agent", providerId: agent.providerId, modelId: agent.modelId, repoAgentId: agent.id, repoPath: agent.repoPath, gatewayPrompt: agent.gatewayPrompt, title: agent.name }); navigate(`/chat/${c.id}`) }}><MessageSquare />{t("agents.openChat")}</NeonButton>
             <NeonButton onClick={() => navigate(`/code?agent=${agent.id}`)}><Zap />{t("agents.launchCode")}</NeonButton>
           </>

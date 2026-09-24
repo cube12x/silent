@@ -174,7 +174,7 @@ export function ChatScreen() {
           <button type="button" onClick={pickRepo} className="flex items-center gap-1 text-[11px] text-text-3 hover:text-cyan"><FolderOpen className="size-3" />{t("chat.attachRepo")}</button>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <button type="button" onClick={() => { if (confirm(t("chat.deleteConfirm"))) { void remove(chat.id); navigate("/") } }} className="flex size-7 items-center justify-center rounded-md text-text-3 hover:bg-danger/10 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-4" /></button>
+          <button type="button" onClick={() => { void (async () => { const b = await getBackend(); if (await b.confirm(t("chat.deleteConfirm"))) { void remove(chat.id); navigate("/") } })() }} className="flex size-7 items-center justify-center rounded-md text-text-3 hover:bg-danger/10 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-4" /></button>
         </div>
       </div>
 

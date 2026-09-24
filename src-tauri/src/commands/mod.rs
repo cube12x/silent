@@ -15,6 +15,16 @@ pub struct AppInfo {
     pub platform: &'static str,
 }
 
+/// Webview console → the app log file (plain command; independent of the log plugin's JS permissions).
+#[tauri::command]
+pub fn frontend_log(level: String, message: String) {
+    match level.as_str() {
+        "error" => log::error!(target: "webview", "{message}"),
+        "warn" => log::warn!(target: "webview", "{message}"),
+        _ => log::info!(target: "webview", "{message}"),
+    }
+}
+
 #[tauri::command]
 pub fn app_info() -> AppInfo {
     AppInfo {
