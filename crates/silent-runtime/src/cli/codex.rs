@@ -42,12 +42,6 @@ pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<S
         "-s".into(),
         req.sandbox.as_flag().into(),
     ];
-    // Package installs and fetches need the network; Codex's workspace-write sandbox blocks it by default
-    // (verified 2026-09-24: `curl registry.npmjs.org` → "Could not resolve host" without, HTTP 200 with).
-    if req.network && req.sandbox == SandboxMode::WorkspaceWrite {
-        args.push("-c".into());
-        args.push("sandbox_workspace_write.network_access=true".into());
-    }
     if let Some(cwd) = req.cwd() {
         args.push("-C".into());
         args.push(cwd.into());
@@ -62,6 +56,13 @@ pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<S
     if let Some(tier) = service_tier {
         args.push("-c".into());
         args.push(format!("service_tier=\"{tier}\""));
+    }
+    // Package installs and fetches need the network; Codex's workspace-write sandbox blocks it by default.
+    // The override MUST come after `exec` (a root-level `-c` before the subcommand is ignored — verified
+    // 2026-09-24: before → "Could not resolve host", after → HTTP 200 for registry.npmjs.org).
+    if req.network && req.sandbox == SandboxMode::WorkspaceWrite {
+        args.push("-c".into());
+        args.push("sandbox_workspace_write.network_access=true".into());
     }
     // Structured output: Codex wants a schema *file*. `build_args` writes it to a per-run temp
     // path (see `CliRunRequest::schema_file_path`); the host removes it after the process exits.
@@ -338,9 +339,18 @@ mod tests {
             .position(|a| a == "sandbox_workspace_write.network_access=true")
             .expect("network flag");
         assert_eq!(args[pos - 1], "-c");
+        let exec_pos = args.iter().position(|a| a == "exec").unwrap();
         assert!(
-            pos < args.iter().position(|a| a == "exec").unwrap(),
-            "must be a global -c before exec"
+            pos > exec_pos,
+            "must come AFTER exec: a root-level -c before the subcommand is ignored by Codex"
+        );
+        let ignore_pos = args
+            .iter()
+            .position(|a| a == "--ignore-user-config")
+            .unwrap();
+        assert!(
+            pos > ignore_pos,
+            "must come after --ignore-user-config so it is not dropped"
         );
         let ro = CliRunRequest {
             network: true,
