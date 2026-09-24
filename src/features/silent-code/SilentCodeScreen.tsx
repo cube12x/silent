@@ -78,6 +78,14 @@ function Composer() {
       setAgentId(undefined)
     }
   }
+  const newFolder = async () => {
+    const name = window.prompt(t("code.newFolderPrompt"), "")?.trim()
+    if (!name) return
+    const backend = await getBackend()
+    const p = await backend.createProjectDir(name)
+    setFolder(p)
+    setAgentId(undefined)
+  }
   const makePlan = async (withAnswers = false) => {
     setEdit(null)
     setApproved(false)
@@ -114,10 +122,11 @@ function Composer() {
                   {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 {!agent && <button type="button" onClick={pickFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderOpen className="size-3" />{t("common.browse")}</button>}
+                {!agent && <button type="button" onClick={newFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderGit2 className="size-3" />{t("code.newFolder")}</button>}
               </span>
             </div>
             <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} placeholder={t("code.promptPlaceholder")} className="mono min-h-[150px] resize-y border-0 bg-transparent px-4 text-[15px] leading-7 shadow-none focus-visible:ring-0" />
-            <div className="border-t border-line px-4 py-2 text-[11px] text-text-3">{repoPath ? <span className="mono flex items-center gap-1 text-text-2"><FolderGit2 className="size-3" />{repoPath}</span> : t("code.noAgent")}</div>
+            <div className={cn("border-t border-line px-4 py-2 text-[11px]", repoPath ? "text-text-3" : "text-warn")}>{repoPath ? <span className="mono flex items-center gap-1 text-text-2"><FolderGit2 className="size-3" />{repoPath}</span> : t("code.folderRequired")}</div>
           </GlowCard>
           <GlowCard className="flex flex-col gap-3">
             <SectionHeader eyebrow={t("code.pool")} title={`${pool.length} / ${models.length}`} description={models.length ? t("code.poolHint") : t("code.poolEmpty")} actions={<div className="flex gap-1 text-xs"><button type="button" onClick={() => setPool(models.map((m) => modelRef(m.providerId, m.id)))} className="text-text-2 hover:text-text-1">{t("code.all")}</button><span className="text-text-3">·</span><button type="button" onClick={() => setPool([])} className="text-text-2 hover:text-text-1">{t("code.noneSel")}</button></div>} />
@@ -148,7 +157,7 @@ function Composer() {
         {step === "task" && (
           <GlowCard className="flex h-fit flex-col gap-3">
             <SectionHeader eyebrow={t("code.steps.plan")} title={t("code.makePlan")} description={t("code.autoHint")} />
-            <NeonButton size="lg" disabled={prompt.trim().length < 8 || !pool.length || planning} onClick={() => void makePlan(false)} className="h-11 w-full text-base">{planning ? <Loader2 className="animate-spin" /> : <Sparkles />}{planning ? t("code.planning") : t("code.makePlan")}</NeonButton>
+            <NeonButton size="lg" disabled={prompt.trim().length < 8 || !pool.length || planning || !repoPath} onClick={() => void makePlan(false)} className="h-11 w-full text-base">{planning ? <Loader2 className="animate-spin" /> : <Sparkles />}{planning ? t("code.planning") : t("code.makePlan")}</NeonButton>
           </GlowCard>
         )}
 

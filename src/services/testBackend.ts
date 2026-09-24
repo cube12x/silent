@@ -41,6 +41,9 @@ export class TestBackend implements Backend {
   async pickDirectory() {
     return null
   }
+  async createProjectDir(name: string) {
+    return `/Users/cube/CubeCode/${name}`
+  }
   async openExternal() {}
   async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
     if (this.preview && _request.runId.startsWith("plan:")) {

@@ -101,7 +101,8 @@ export class CliWorker implements Worker {
           break
         }
         case "usage":
-          sink.usage(e.data.totalTokens, 0)
+          // Cached input is nearly free and inflates the number; show what actually costs.
+          sink.usage(Math.max(0, e.data.inputTokens - e.data.cachedInputTokens) + e.data.outputTokens, 0)
           break
         case "cost":
           sink.usage(0, e.data.usd)

@@ -2,6 +2,7 @@ pub mod binaries;
 pub mod cli;
 pub mod launcher;
 pub mod models;
+pub mod project;
 pub mod providers;
 pub mod repo;
 

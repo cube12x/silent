@@ -112,13 +112,14 @@ pub async fn cli_run_start(
             )
         })?;
     let mut config = SpawnConfig::new(program, adapter.build_args(&request));
-    if adapter.uses_process_cwd() {
-        config.cwd = request
-            .cwd
-            .as_ref()
-            .filter(|c| !c.is_empty())
-            .map(Into::into);
-    }
+    // Never run a CLI in whatever directory the app happened to start in (`/` for a Finder-launched
+    // .app): fall back to the home directory when no working folder was given.
+    config.cwd = request
+        .cwd
+        .as_ref()
+        .filter(|c| !c.is_empty())
+        .map(Into::into)
+        .or_else(binaries::home);
     config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
     let run_id = request.run_id.clone();
     // Codex's schema file was written by `build_args`; drop it once the run is over.

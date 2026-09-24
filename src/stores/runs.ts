@@ -8,6 +8,8 @@ import { routeSubtasks } from "@/engine/router"
 import { estimateRun } from "@/engine/estimate"
 import { renderGatewayBrief } from "@/engine/gateway"
 import { effectivePolicy } from "@/engine/policy"
+import { effortFor } from "@/engine/effort"
+import { TIER_RANK } from "@/engine/capabilities"
 import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/aiPlanner"
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
@@ -105,7 +107,12 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
   const policy = effectivePolicy(settings, input.costMode)
   const table = settings.routingPolicy.mode === "manual" ? settings.routingPolicy.table : {}
   const overrides = { ...settings.routingOverrides }
+  const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3 } as const
   for (const s of plan) {
+    // The AI planner may suggest a tier/effort, but never above the cost policy (max-quality lifts the ceiling).
+    if (s.tierHint && TIER_RANK[s.tierHint] > TIER_RANK[policy[s.kind]] && input.costMode !== "max-quality") s.tierHint = policy[s.kind]
+    const ceiling = effortFor(s.kind, input.costMode, s.tierHint)
+    if (s.effort && EFFORT_RANK[s.effort] > EFFORT_RANK[ceiling]) s.effort = ceiling
     const row = table[s.kind]
     if (row?.modelRef && input.pool.includes(row.modelRef)) overrides[s.kind] = row.modelRef
     if (row?.effort && !s.effort) s.effort = row.effort

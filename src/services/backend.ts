@@ -46,6 +46,8 @@ export interface Backend {
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
+  /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */
+  createProjectDir(name: string): Promise<string>
   openExternal(url: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore

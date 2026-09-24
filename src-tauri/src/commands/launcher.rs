@@ -17,14 +17,20 @@ fn app_path() -> PathBuf {
 /// Where the launcher goes: Homebrew's bin when writable (already on PATH), else ~/.local/bin.
 fn launcher_path() -> PathBuf {
     let brew = PathBuf::from("/opt/homebrew/bin");
-    if brew.is_dir() && std::fs::metadata(&brew).map(|m| !m.permissions().readonly()).unwrap_or(false) {
+    if brew.is_dir()
+        && std::fs::metadata(&brew)
+            .map(|m| !m.permissions().readonly())
+            .unwrap_or(false)
+    {
         if let Ok(probe) = std::fs::File::create(brew.join(".silent-write-test")) {
             drop(probe);
             let _ = std::fs::remove_file(brew.join(".silent-write-test"));
             return brew.join("silent");
         }
     }
-    binaries::home().unwrap_or_default().join(".local/bin/silent")
+    binaries::home()
+        .unwrap_or_default()
+        .join(".local/bin/silent")
 }
 
 #[derive(serde::Serialize)]
@@ -65,13 +71,17 @@ pub fn install_cli_launcher() -> Result<LauncherStatus, String> {
     let script = if app.extension().is_some_and(|e| e == "app") {
         format!("#!/bin/sh\n# Silent — opens the desktop app. Installed by Silent > Settings.\nexec open -a \"{}\" --args \"$@\"\n", app.display())
     } else {
-        format!("#!/bin/sh\n# Silent (dev build) — launches the app executable.\nexec \"{}\" \"$@\"\n", app.display())
+        format!(
+            "#!/bin/sh\n# Silent (dev build) — launches the app executable.\nexec \"{}\" \"$@\"\n",
+            app.display()
+        )
     };
     std::fs::write(&path, script).map_err(|e| format!("{}: {e}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
     }
     Ok(status())
 }

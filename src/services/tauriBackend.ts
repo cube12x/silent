@@ -75,6 +75,10 @@ export class TauriBackend implements Backend {
     return typeof picked === "string" ? picked : null
   }
 
+  createProjectDir(name: string): Promise<string> {
+    return invoke<string>("create_project_dir", { name })
+  }
+
   async openExternal(url: string): Promise<void> {
     await openShell(url)
   }
