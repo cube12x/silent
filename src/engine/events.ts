@@ -1,4 +1,4 @@
-import type { Attempt, RunReport, RunStatus, TerminalLine, WorkerState } from "@/domain"
+import type { Subtask, Attempt, RunReport, RunStatus, TerminalLine, WorkerState } from "@/domain"
 
 /** Everything the executor tells the outside world. Stores subscribe; UI never talks to workers directly. */
 export type RunEvent =
@@ -14,6 +14,7 @@ export type RunEvent =
   | { type: "subtask.deviations"; runId: string; subtaskId: string; deviations: string[]; at: number }
   | { type: "subtask.session"; runId: string; subtaskId: string; sessionId: string; at: number }
   | { type: "run.report"; runId: string; report: RunReport; at: number }
+  | { type: "subtask.added"; runId: string; subtask: Subtask; at: number }
   | { type: "worker.log"; runId: string; subtaskId: string; line: TerminalLine }
   | { type: "worker.command"; runId: string; subtaskId: string; command: string; at: number }
   | { type: "worker.file"; runId: string; subtaskId: string; path: string; at: number }

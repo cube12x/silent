@@ -24,6 +24,8 @@ export interface AiPlanQuestion {
 }
 
 export interface AiPlan {
+  /** English product spec: goal, success criteria, quality bar, non-goals. */
+  spec: string
   summary: string
   subtasks: AiPlanSubtask[]
   questions: AiPlanQuestion[]
@@ -34,8 +36,9 @@ export interface AiPlan {
 export const AI_PLAN_SCHEMA: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "subtasks", "questions", "assumptions", "excluded"],
+  required: ["summary", "spec", "subtasks", "questions", "assumptions", "excluded"],
   properties: {
+    spec: { type: "string" },
     summary: { type: "string" },
     subtasks: {
       type: "array",
@@ -98,6 +101,7 @@ export function parseAiPlan(text: string): AiPlan | null {
       if (!subtasks.length) continue
       return {
         summary: String(v.summary ?? ""),
+        spec: String(v.spec ?? ""),
         subtasks,
         questions: Array.isArray(v.questions) ? v.questions.filter((q) => q && typeof q.question === "string").map((q, i) => ({ id: String(q.id ?? `q${i + 1}`), question: q.question, why: String(q.why ?? ""), options: Array.isArray(q.options) ? q.options.map(String) : undefined })) : [],
         assumptions: Array.isArray(v.assumptions) ? v.assumptions.map(String) : [],

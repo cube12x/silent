@@ -132,4 +132,42 @@ describe("executor", () => {
     expect(await p).toBe("cancelled")
     expect(exec.snapshot.every((s) => s.state === "failed")).toBe(true)
   })
+
+  it("polish round: reviewer score below 9 spawns up to 3 fix tasks, score lands in the report", async () => {
+    class PolishWorker implements Worker {
+      readonly id = "p"
+      jobs: WorkerJob[] = []
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        this.jobs.push(job)
+        sink.state("coding", 50)
+        const summary = job.subtask.title === "Polish review"
+          ? "Strong loop, weak feedback.\nSILENT_SCORE: 6\nSILENT_FIXES:\n- Add hit-stop and screen shake on every hit\n- Fix the pause menu focus trap\n- Add tests for the save migration\n- A fourth one that must be ignored\nSILENT_DEVIATIONS: none"
+          : `done ${job.subtask.kind}`
+        return { done: Promise.resolve({ ok: true, summary }), cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId))
+    const bus = new EventBus()
+    const events = collect(bus)
+    const worker = new PolishWorker()
+    const exec = new Executor(run, () => worker, bus, { models: TEST_MODELS, polish: true, polishModelId: "claude:opus", spec: "SPEC TEXT", kitBrief: "KIT TEXT" })
+    expect(await exec.start()).toBe("completed")
+    const titles = exec.snapshot.map((s) => s.title)
+    expect(titles).toContain("Polish review")
+    expect(titles.filter((t) => t.startsWith("Fix:"))).toHaveLength(3)
+    expect(exec.snapshot.every((s) => s.state === "completed")).toBe(true)
+    const kinds = exec.snapshot.filter((s) => s.title.startsWith("Fix:")).map((s) => s.kind)
+    expect(kinds).toEqual(["frontend", "frontend", "tests"])
+    expect(events.filter((e) => e.type === "subtask.added")).toHaveLength(4)
+    const report = events.find((e) => e.type === "run.report")
+    expect(report && report.type === "run.report" ? report.report.polishScore : undefined).toBe(6)
+    // every worker brief carries the spec and the kit brief; fix tasks run on the polish model
+    expect(worker.jobs.every((j) => j.brief.includes("SPEC TEXT") && j.brief.includes("KIT TEXT"))).toBe(true)
+    expect(worker.jobs.filter((j) => j.subtask.title.startsWith("Fix:")).every((j) => j.modelId === "claude:opus")).toBe(true)
+  })
 })

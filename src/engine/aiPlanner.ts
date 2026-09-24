@@ -18,6 +18,8 @@ export interface AiPlanContext {
   previous?: { title: string; summaries: string[]; deviations: string[] }
   answers?: Array<{ question: string; answer: string }>
   language: "tr" | "en"
+  /** Expert kit brief (English) — the planner must plan to its quality bar. */
+  kitBrief?: string
 }
 
 export interface PlannerRunner {
@@ -36,6 +38,9 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
   const tiers = Array.from(new Set(ctx.models.map((m) => m.tier))).sort((a, b) => TIER_RANK[a] - TIER_RANK[b])
   const lines = [
     "You are Silent's planner. Turn the user's request into the SMALLEST set of subtasks that real coding CLIs will execute one by one in this repository.",
+    "- First write `spec` IN ENGLISH: a precise product spec the workers build against — goal, the user's explicit wishes verbatim (translated), success criteria, quality bar (production-grade, polished, complete — never a demo or scaffold), non-goals. Workers never see the raw request, only this spec: be complete.",
+    "- Write every subtask `description` IN ENGLISH (it is the worker's instruction): what to build, the exact acceptance criteria, what to verify and how. Write `title`, `summary`, `questions` and `assumptions` in the user's language.",
+    ...(ctx.kitBrief ? [`- An expert kit applies. Plan to its quality bar and checklist; tell workers to study the references first:\n${ctx.kitBrief}`] : []),
     "Rules:",
     "- Produce ONLY subtasks that are genuinely needed for this request. Never add an 'algorithm', 'docs' or any other subtask just because it is common. If the user excluded something, do not include it and list it under `excluded`.",
     "- Prefer FEW, LARGE subtasks (3–5 is typical, 7 is the maximum). Each CLI run costs minutes of startup and re-reading the repo, so do not split one coherent piece of work into several tasks.",
@@ -48,7 +53,7 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     `- Available tiers in the user's pool: ${tiers.join(", ") || "strong"}. Default policy kind→tier: ${Object.entries(ctx.policy).map(([k, v]) => `${k}=${v}`).join(", ")}. Follow it unless the task clearly needs otherwise; explain in rationale.`,
     "- If anything is ambiguous, or the request asks for something you cannot or should not do (legal, access, missing info), DO NOT decide silently: put it in `questions` (with why, and options when useful). Do not turn such things into `assumptions`.",
     "- `assumptions` only for harmless defaults. Keep `summary` to two sentences.",
-    `- Write titles/descriptions/questions in ${ctx.language === "tr" ? "Turkish" : "English"}.`,
+    `- Language: \`title\`, \`summary\`, \`questions\`, \`assumptions\`, \`excluded\` in ${ctx.language === "tr" ? "Turkish" : "English"}; \`spec\` and every \`description\` ALWAYS in English.`,
     "- Answer ONLY with the JSON object required by the schema.",
     "",
     `USER REQUEST:\n${ctx.prompt}`,

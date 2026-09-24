@@ -5,6 +5,7 @@ pub mod launcher;
 pub mod models;
 pub mod project;
 pub mod providers;
+pub mod refs;
 pub mod repo;
 
 #[derive(serde::Serialize)]

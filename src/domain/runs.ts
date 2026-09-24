@@ -93,6 +93,9 @@ export interface RunReport {
   deviations: string[]
   openQuestions: string[]
   finishedAt: number
+  /** Polish round: reviewer score 0–10 against the spec and kit checklist, and its notes. */
+  polishScore?: number
+  polishNotes?: string
 }
 
 export interface RunEstimate {
@@ -121,6 +124,14 @@ export interface SilentCodeRun {
   /** Run this one continues (develop mode). */
   parentRunId?: string
   report?: RunReport
+  /** English product spec written by the planner from the user's request; every worker gets it. */
+  spec?: string
+  /** Expert kit applied (see domain/kits). */
+  kitId?: string
+  /** Extra reference repositories (URLs) cloned into .silent/refs. */
+  refs?: string[]
+  /** Run a polish review + fix round after all subtasks complete. */
+  polish?: boolean
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

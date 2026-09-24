@@ -9,12 +9,14 @@ import { estimateRun } from "@/engine/estimate"
 import { renderGatewayBrief } from "@/engine/gateway"
 import { effectivePolicy } from "@/engine/policy"
 import { effortFor } from "@/engine/effort"
-import { TIER_RANK } from "@/engine/capabilities"
 import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/aiPlanner"
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
 import { getBackend } from "@/services"
 import { newId } from "@/lib/ids"
+import { TIER_RANK } from "@/engine/capabilities"
+import { kitById, renderKitBrief } from "@/domain/kits"
+import { providerInfo } from "@/providers/registry"
 import { useI18nStore } from "@/i18n"
 import { useAgentsStore } from "./agents"
 import { useProvidersStore } from "./providers"
@@ -32,6 +34,12 @@ export interface DraftInput {
   parentRunId?: string
   /** Planner questions with the user's answers (used on re-plan / start). */
   answers?: Array<{ id: string; question: string; why?: string; answer?: string }>
+  /** Expert kit id ("" = none). */
+  kitId?: string
+  /** Extra reference repository URLs. */
+  refs?: string[]
+  /** Polish review + fix round at the end (default true). */
+  polish?: boolean
 }
 
 export interface PlanResult {
@@ -76,6 +84,8 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       return { ...run, status: "cancelled", finishedAt: e.at }
     case "run.report":
       return { ...run, report: e.report }
+    case "subtask.added":
+      return { ...run, plan: [...run.plan, e.subtask] }
     case "subtask.state":
       return patch(e.subtaskId, (s) => ({ ...s, state: e.state, progress: e.progress ?? s.progress, lastUpdate: e.at }))
     case "subtask.assigned":
@@ -138,6 +148,9 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     createdAt: Date.now(),
     parentRunId: input.parentRunId,
     questions: input.answers,
+    kitId: input.kitId || undefined,
+    refs: input.refs?.filter(Boolean),
+    polish: input.polish ?? true,
   }
 }
 
@@ -203,6 +216,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         }
       }
       const parent = get().byId(input.parentRunId)
+      const kit = kitById(input.kitId)
       try {
         const res = await requestAiPlan(
           backend,
@@ -216,13 +230,14 @@ export const useRunsStore = create<RunsState>((set, get) => ({
             previous: parent ? { title: parent.title, summaries: parent.plan.map((s) => s.summary).filter((x): x is string => Boolean(x)), deviations: parent.plan.flatMap((s) => s.deviations) } : undefined,
             answers: input.answers?.filter((a) => a.answer).map((a) => ({ question: a.question, answer: a.answer! })),
             language: useI18nStore.getState().language,
+            kitBrief: kit ? renderKitBrief(kit) : undefined,
           },
           plannerModel,
         )
         const id = newId("run")
         const run = finishDraft(id, subtasksFromAiPlan(res.plan, id), input, agent)
         const questions = res.plan.questions.map((q) => ({ id: q.id, question: q.question, why: q.why, answer: input.answers?.find((a) => a.question === q.question)?.answer }))
-        return { run: { ...run, planSource: "ai", questions: questions.length ? questions : input.answers }, source: "ai", plan: res.plan, plannerModel: modelRef(plannerModel.providerId, plannerModel.id) }
+        return { run: { ...run, planSource: "ai", spec: res.plan.spec || undefined, questions: questions.length ? questions : input.answers }, source: "ai", plan: res.plan, plannerModel: modelRef(plannerModel.providerId, plannerModel.id) }
       } catch (err) {
         console.warn("AI planner failed, using heuristic plan", err)
         return { run: heuristic, source: "heuristic", error: err instanceof Error ? err.message : String(err), plannerModel: modelRef(plannerModel.providerId, plannerModel.id) }
@@ -239,7 +254,30 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const worker = new CliWorker(backend)
     const sandbox = agent && !agent.permissions.write ? "read-only" : "workspace-write"
     const network = sandbox === "workspace-write" && (agent ? agent.permissions.network : true)
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
+    // Expert kit: clone the reference repositories (host side, outside any CLI sandbox) and tell workers where they are.
+    const kit = kitById(run.kitId)
+    const refSpecs = [
+      ...(kit?.references.map((r) => ({ name: r.name, url: r.url, hint: r.hint })) ?? []),
+      ...(run.refs ?? []).map((url) => ({ name: url.replace(/\.git$/, "").split("/").filter(Boolean).slice(-1)[0] ?? "ref", url, hint: "user-provided reference" })),
+    ]
+    let kitBrief: string | undefined
+    if (run.repoPath && refSpecs.length) {
+      try {
+        const synced = await backend.syncReferences(run.repoPath, refSpecs.map(({ name, url }) => ({ name, url })))
+        const paths = synced.filter((r) => r.ok).map((r) => ({ name: r.name, path: r.path, hint: refSpecs.find((s) => s.name === r.name)?.hint ?? "" }))
+        const failed = synced.filter((r) => !r.ok)
+        if (failed.length) console.warn("reference clone failed", failed)
+        kitBrief = kit ? renderKitBrief(kit, paths) : paths.length ? `Reference implementations (read-only, study before designing):\n${paths.map((p) => `- ${p.path} — ${p.hint}`).join("\n")}` : undefined
+      } catch (err) {
+        console.warn("reference sync failed", err)
+        kitBrief = kit ? renderKitBrief(kit) : undefined
+      }
+    } else if (kit) {
+      kitBrief = renderKitBrief(kit)
+    }
+    const poolModels = useProvidersStore.getState().availableModels().filter((m) => run.modelPool.includes(modelRef(m.providerId, m.id)))
+    const polishModel = [...poolModels].sort((a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier] || Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser))[0]
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
     const loadContext = async () => {
@@ -300,7 +338,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
         persist(final)
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
-      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report") {
+      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
         persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") void loadContext()
       }

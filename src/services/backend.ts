@@ -46,6 +46,8 @@ export interface Backend {
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
+  /** Shallow-clone reference repositories into `<repo>/.silent/refs/<name>` (host side, no sandbox). */
+  syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>): Promise<Array<{ name: string; path: string; ok: boolean; error?: string }>>
   /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */
   createProjectDir(name: string): Promise<string>
   /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */

@@ -60,6 +60,12 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 
 "Plan oluştur" gerçek bir CLI modeline (havuzdaki güçlü katman) salt-okunur, yapılandırılmış JSON çıktı ile plan yaptırır: yalnız gerekli alt görevler, her biri için katman/effort önerisi, **sorular** (belirsiz veya yapılamayacak istekler için — sessizce varsayım yapmak yerine), varsayımlar ve dışlananlar. Sorular cevaplanır, plan editöründe modeller değiştirilir, plan onaylanır, sonra başlar. Çalışanlar da isteğin bir kısmını yapamıyorsa `SILENT_QUESTION:` ile durup sorar; cevap aynı oturuma gider. Bitişte `SILENT_DEVIATIONS:` rapora düşer. Tamamlanan run'dan "Projeye sor" (o projeyi bilen salt-okunur uzman ajan) ve "Geliştir" (aynı depo üzerinde artımlı yeni run) açılır.
 
+## Uzman kitleri, spec ve cila turu (v2.3)
+
+- **Spec:** planlayıcı isteği İngilizce, kalite çıtası olan bir ürün spec'ine çevirir; alt görev açıklamaları da İngilizcedir (worker talimatı). Başlık/soru/özet kullanıcı dilindedir. Her worker brief'inde spec vardır.
+- **Uzman kiti** (`src/domain/kits.ts`): alana özel brief + kontrol listesi + referans depolar (2D oyun, web uygulaması, backend API, Tauri masaüstü, ML). İstekten otomatik seçilir ya da elle. Başlatırken referanslar `<repo>/.silent/refs/<ad>` altına shallow clone edilir (`refs_sync` komutu, `.gitignore`'a eklenir); worker'lara "önce bunları incele, kanıtlanmış kalıpları kullan" denir. Ek depolar composer'dan URL olarak verilebilir.
+- **Cila turu:** tüm görevler bitince havuzdaki en güçlü (tarayıcı açabilen) model spec + kontrol listesine göre 0-10 puan verir (`SILENT_SCORE`), en etkili 3 düzeltmeyi (`SILENT_FIXES`) görev olarak koşar. Puan ve notlar rapora yazılır. Tek tur.
+
 ## Güvenlik
 
 - **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.

@@ -80,6 +80,10 @@ export class TauriBackend implements Backend {
     return ask(message, { title: title ?? "Silent", kind: "warning" })
   }
 
+  syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>) {
+    return invoke<Array<{ name: string; path: string; ok: boolean; error?: string }>>("refs_sync", { repoPath, refs })
+  }
+
   readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
   }
@@ -230,6 +234,7 @@ export class TauriBackend implements Backend {
             parentRunId: str(r.parent_run_id),
             report: json(r.report_json, undefined),
             questions: json(r.questions_json, undefined),
+            ...(json<Partial<SilentCodeRun>>(r.meta_json, {}) ?? {}),
             manual: Boolean(num(r.manual)),
             startedAt: num(r.started_at),
             finishedAt: num(r.finished_at),
@@ -239,10 +244,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (run) => {
         await (await this.conn()).execute(
-          `INSERT INTO runs (id, title, prompt, repo_agent_id, repo_path, model_pool_json, execution_mode, cost_mode, status, plan_json, routing_json, estimate_json, actual_json, started_at, finished_at, created_at, plan_source, parent_run_id, report_json, questions_json)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-           ON CONFLICT(id) DO UPDATE SET title=$2, status=$9, plan_json=$10, routing_json=$11, estimate_json=$12, actual_json=$13, started_at=$14, finished_at=$15, plan_source=$17, parent_run_id=$18, report_json=$19, questions_json=$20`,
-          [run.id, run.title, run.prompt, run.repoAgentId ?? null, run.repoPath ?? null, JSON.stringify(run.modelPool), run.executionMode, run.costMode, run.status, JSON.stringify(run.plan), JSON.stringify(run.routing), JSON.stringify(run.estimate), run.actual ? JSON.stringify(run.actual) : null, run.startedAt ?? null, run.finishedAt ?? null, run.createdAt, run.planSource ?? null, run.parentRunId ?? null, run.report ? JSON.stringify(run.report) : null, run.questions ? JSON.stringify(run.questions) : null],
+          `INSERT INTO runs (id, title, prompt, repo_agent_id, repo_path, model_pool_json, execution_mode, cost_mode, status, plan_json, routing_json, estimate_json, actual_json, started_at, finished_at, created_at, plan_source, parent_run_id, report_json, questions_json, meta_json)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+           ON CONFLICT(id) DO UPDATE SET title=$2, status=$9, plan_json=$10, routing_json=$11, estimate_json=$12, actual_json=$13, started_at=$14, finished_at=$15, plan_source=$17, parent_run_id=$18, report_json=$19, questions_json=$20, meta_json=$21`,
+          [run.id, run.title, run.prompt, run.repoAgentId ?? null, run.repoPath ?? null, JSON.stringify(run.modelPool), run.executionMode, run.costMode, run.status, JSON.stringify(run.plan), JSON.stringify(run.routing), JSON.stringify(run.estimate), run.actual ? JSON.stringify(run.actual) : null, run.startedAt ?? null, run.finishedAt ?? null, run.createdAt, run.planSource ?? null, run.parentRunId ?? null, run.report ? JSON.stringify(run.report) : null, run.questions ? JSON.stringify(run.questions) : null, JSON.stringify({ spec: run.spec, kitId: run.kitId, refs: run.refs, polish: run.polish })],
         )
       },
       delete: async (id) => {

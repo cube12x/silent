@@ -68,6 +68,7 @@ pub fn run() {
             commands::launcher::install_cli_launcher,
             commands::project::create_project_dir,
             commands::files::read_project_file,
+            commands::refs::refs_sync,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Silent");

@@ -17,7 +17,7 @@ export function RunReport({ report }: { report: Report }) {
   const none = t("code.reportNone")
   return (
     <GlowCard tone={report.deviations.length || report.openQuestions.length ? "warn" : "success"} className="flex flex-col gap-4">
-      <SectionHeader eyebrow={t("code.report")} title="" />
+      <SectionHeader eyebrow={t("code.report")} title={report.polishScore !== undefined ? `${t("code.reportPolish")}: ${report.polishScore}/10` : ""} description={report.polishNotes} />
       <Section icon={<CheckCircle2 className="size-3" />} title={t("code.reportDone")} items={report.done} tone="text-success" none={none} />
       <Section icon={<AlertTriangle className="size-3" />} title={t("code.reportDeviations")} items={report.deviations} tone="text-warn" none={none} />
       <Section icon={<HelpCircle className="size-3" />} title={t("code.reportOpen")} items={report.openQuestions} tone="text-text-2" none={none} />

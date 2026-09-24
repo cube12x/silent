@@ -27,6 +27,14 @@ export interface ExecutorOptions {
   maxQuestions?: number
   /** Shared project context (e.g. docs/ARCHITECTURE-BRIEF.md) prepended to every brief; updatable while running. */
   context?: string
+  /** English product spec from the planner; every worker builds against it. */
+  spec?: string
+  /** Expert kit brief (quality bar, checklist, reference paths). */
+  kitBrief?: string
+  /** After all subtasks complete: a review scores the result against spec + checklist and up to 3 fix tasks run. */
+  polish?: boolean
+  /** Model for the polish review and its fix tasks (strongest, browser-capable). */
+  polishModelId?: string
 }
 
 export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
@@ -41,6 +49,9 @@ export class Executor {
   private subtasks: Map<string, Subtask>
   private routing: Map<string, RoutingDecision>
   private summaries = new Map<string, string>()
+  private order: string[] = []
+  private polishScore?: number
+  private polishNotes?: string
   private waiters = new Map<string, (answer: string | null) => void>()
   private readonly now: () => number
   private readonly run: SilentCodeRun
@@ -56,12 +67,13 @@ export class Executor {
     this.opts = opts
     this.models = new ModelIndex(opts.models ?? [])
     this.subtasks = new Map(run.plan.map((s) => [s.id, structuredClone(s)]))
+    this.order = run.plan.map((s) => s.id)
     this.routing = new Map(run.routing.map((r) => [r.subtaskId, r]))
     this.now = opts.now ?? Date.now
   }
 
   get snapshot(): Subtask[] {
-    return this.run.plan.map((s) => this.subtasks.get(s.id)!)
+    return this.order.map((id) => this.subtasks.get(id)!)
   }
 
   cancel(): void {
@@ -103,6 +115,8 @@ export class Executor {
       deviations: all.flatMap((s) => s.deviations.map((d) => `${s.title}: ${d}`)),
       openQuestions: all.filter((s) => s.state === "blocked" && s.question).map((s) => `${s.title}: ${s.question}`),
       finishedAt: this.now(),
+      polishScore: this.polishScore,
+      polishNotes: this.polishNotes,
     }
   }
 
@@ -111,8 +125,16 @@ export class Executor {
     this.bus.emit({ type: "run.status", runId: this.run.id, status: "running", at: this.now() })
 
     const limit = this.run.executionMode === "sequential" ? 1 : (this.opts.maxConcurrency ?? (this.run.executionMode === "staged" ? 4 : 8))
-    const running = new Map<string, Promise<void>>()
+    await this.drain(limit)
+    if (!this.cancelled && this.opts.polish && this.opts.polishModelId && this.snapshot.every((s) => s.state === "completed")) {
+      await this.polishRound(limit)
+    }
+    return this.finish()
+  }
 
+  /** Schedule ready subtasks until every subtask is terminal (or the run is cancelled). */
+  private async drain(limit: number): Promise<void> {
+    const running = new Map<string, Promise<void>>()
     while (!this.cancelled) {
       const all = this.snapshot
       if (all.every((s) => isTerminalState(s.state))) break
@@ -138,7 +160,9 @@ export class Executor {
       if (running.size === 0) break
       await Promise.race(running.values())
     }
+  }
 
+  private finish(): "completed" | "failed" | "cancelled" {
     if (this.cancelled) return "cancelled"
     this.bus.emit({ type: "run.report", runId: this.run.id, report: this.report(), at: this.now() })
     const ok = this.snapshot.every((s) => s.state === "completed")
@@ -233,6 +257,68 @@ export class Executor {
     }
   }
 
+  private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2): Subtask {
+    const s: Subtask = {
+      id: `st_${this.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      runId: this.run.id,
+      kind,
+      title,
+      description,
+      dependsOn: [],
+      state: "waiting",
+      attempts: [],
+      files: [],
+      commands: [],
+      weight,
+      progress: 0,
+      lastUpdate: this.now(),
+      answers: [],
+      deviations: [],
+    }
+    this.subtasks.set(s.id, s)
+    this.order.push(s.id)
+    this.routing.set(s.id, { subtaskId: s.id, kind, primaryModelId: modelId, fallbackModelIds: [], reason: "polish", score: 1 })
+    this.bus.emit({ type: "subtask.added", runId: this.run.id, subtask: structuredClone(s), at: this.now() })
+    return s
+  }
+
+  /**
+   * Polish round: a frontier reviewer scores the repository against the spec and the kit checklist,
+   * then up to three concrete fix tasks run. One round only; the score is kept in the report.
+   */
+  private async polishRound(limit: number): Promise<void> {
+    const modelId = this.opts.polishModelId!
+    const review = this.addSubtask(
+      "review",
+      "Polish review",
+      [
+        "You are the POLISH REVIEWER. Do not change files. Compare the repository with the SPEC and the QUALITY CHECKLIST above.",
+        "Run the project's own checks (install, typecheck, tests, build) and exercise the product the way a demanding user would (start it; for web/game projects open the built app in a real browser if this environment allows it and play/click through the main flows).",
+        "Then reply with: (a) 5–10 lines of what is strong and what is weak, (b) one line `SILENT_SCORE: <0-10>` (10 = ship-ready, delightful; 6 = works but rough; 3 = demo quality), (c) `SILENT_FIXES:` followed by at most 3 bullet points — each a concrete, self-contained task a worker can finish in under 30 minutes with the largest impact on the score (or `SILENT_FIXES: none` when the score is 9 or above), (d) `SILENT_DEVIATIONS: none`.",
+      ].join(" "),
+      modelId,
+      2,
+    )
+    await this.drain(limit)
+    if (this.cancelled) return
+    const summary = this.summaries.get(review.id) ?? ""
+    const score = Number(/SILENT_SCORE:\s*(\d+(?:\.\d+)?)/i.exec(summary)?.[1])
+    this.polishScore = Number.isFinite(score) ? score : undefined
+    const fixesBlock = /SILENT_FIXES:\s*([\s\S]*?)(?:\n\s*\n|SILENT_DEVIATIONS:|$)/i.exec(summary)?.[1] ?? ""
+    const fixes = fixesBlock
+      .split("\n")
+      .map((l) => l.replace(/^\s*[-*•\d.)]+\s*/, "").trim())
+      .filter((l) => l && !/^none$/i.test(l))
+      .slice(0, 3)
+    this.polishNotes = summary.replace(/SILENT_(SCORE|FIXES|DEVIATIONS):[\s\S]*$/i, "").trim().slice(0, 1500)
+    if (review.state !== "completed" || !fixes.length || (this.polishScore ?? 0) >= 9) return
+    for (const fix of fixes) {
+      const kind: Subtask["kind"] = /test|spec|coverage/i.test(fix) ? "tests" : /ui|visual|render|css|layout|animation|screen|hud|menu|sprite|sound|audio|juice|feel/i.test(fix) ? "frontend" : "backend"
+      this.addSubtask(kind, `Fix: ${fix.slice(0, 70)}`, `Polish fix from the review (score ${this.polishScore ?? "?"}/10). ${fix} Verify it works end to end and keep every check green.`, modelId, 1)
+    }
+    await this.drain(limit)
+  }
+
   private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string) {
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
@@ -296,6 +382,8 @@ export class Executor {
     return [
       `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker in a Silent orchestration run.`,
       this.opts.gatewayBrief ?? "",
+      this.opts.spec ? `SPEC (build exactly this; the user judges the result against it):\n${this.opts.spec.slice(0, 6000)}` : "",
+      this.opts.kitBrief ?? "",
       this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 8000)}` : "",
       `Task: ${subtask.title}`,
       subtask.description,

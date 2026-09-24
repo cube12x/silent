@@ -12,8 +12,9 @@ import { AgentWorkerCard, CostMeter, GlowCard, ModelSelectorGrid, ModelTag, Neon
 import { COST_MODES, modelRef, type CostMode, type ExecutionMode, type SilentCodeRun, type SubtaskKind, type WorkerState, type RunStatus } from "@/domain"
 import { Textarea } from "@/components/ui/textarea"
 import { getBackend } from "@/services"
+import { BUILTIN_KITS, detectKit, kitById } from "@/domain/kits"
 import { formatDuration } from "@/lib/format"
-import { useT } from "@/i18n"
+import { useI18nStore, useT } from "@/i18n"
 import { PlanEditor, type PlanEdit } from "./PlanEditor"
 import { QuestionCard } from "./QuestionCard"
 import { RunReport } from "./RunReport"
@@ -35,6 +36,7 @@ type Step = "task" | "plan" | "start"
 /** Composer: Task → Plan (AI questions + editor + approve) → Start. */
 function Composer() {
   const t = useT()
+  const lang = useI18nStore((st) => st.language)
   const labels = useLabels()
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -66,6 +68,11 @@ function Composer() {
   const [uiError, setUiError] = React.useState<string | null>(null)
   const [newName, setNewName] = React.useState<string | null>(null)
   const [poolOpen, setPoolOpen] = React.useState(false)
+  const [kitSel, setKitSel] = React.useState<string>(parent?.kitId ?? "auto")
+  const [refsText, setRefsText] = React.useState((parent?.refs ?? []).join("\n"))
+  const [polish, setPolish] = React.useState(parent?.polish ?? true)
+  const detectedKit = React.useMemo(() => (kitSel === "auto" ? detectKit(prompt) : kitById(kitSel)), [kitSel, prompt])
+  const refs = React.useMemo(() => refsText.split(/\s+/).map((x) => x.trim()).filter((x) => /^(https:\/\/|git@)/.test(x)), [refsText])
   const agent = agents.find((a) => a.id === agentId)
   const repoPath = agent?.repoPath ?? folder
 
@@ -109,7 +116,7 @@ function Composer() {
       setApproved(false)
       const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
       if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
-      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa })
+      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa, kitId: detectedKit?.id ?? "", refs, polish })
       setResult(res)
       if (!withAnswers) setAnswers({})
       setStep("plan")
@@ -212,6 +219,31 @@ function Composer() {
               </button>
             )}
             {poolOpen && <button type="button" onClick={() => setPoolOpen(false)} className="self-end text-[11px] text-text-2 hover:text-text-1">{t("code.collapsePool")}</button>}
+          </GlowCard>
+          <GlowCard className="flex flex-col gap-3">
+            <SectionHeader eyebrow={t("code.kit")} title={detectedKit ? detectedKit.name[lang] : t("code.kitNone")} description={t("code.kitHint")} actions={
+              <select value={kitSel} onChange={(e) => setKitSel(e.target.value)} className="rounded-sm border border-line bg-ink-2 px-1.5 py-0.5 text-[11px] text-text-1 outline-none focus:border-text-2">
+                <option value="auto">{t("code.kitAuto")}{kitSel === "auto" && detectedKit ? ` · ${detectedKit.name[lang]}` : ""}</option>
+                <option value="">{t("code.kitNone")}</option>
+                {BUILTIN_KITS.map((k) => <option key={k.id} value={k.id}>{k.name[lang]}</option>)}
+              </select>
+            } />
+            {detectedKit && (
+              <div className="flex flex-wrap gap-1 text-[11px] text-text-2">
+                {detectedKit.references.map((r) => <span key={r.name} title={r.hint} className="mono rounded-sm border border-line px-1.5 py-0.5">{r.url.replace("https://github.com/", "")}</span>)}
+              </div>
+            )}
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="flex flex-col gap-1 text-[11px] text-text-2">
+                <span>{t("code.refs")}</span>
+                <textarea value={refsText} onChange={(e) => setRefsText(e.target.value)} rows={2} placeholder="https://github.com/org/repo" className="mono resize-y rounded-sm border border-line bg-ink px-2 py-1 text-[11px] text-text-1 outline-none focus:border-text-2" />
+                <span className="text-text-3">{t("code.refsHint")}</span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-text-1">
+                <input type="checkbox" checked={polish} onChange={(e) => setPolish(e.target.checked)} className="mt-0.5" />
+                <span><span className="block font-medium">{t("code.polish")}</span><span className="block text-[11px] text-text-3">{t("code.polishHint")}</span></span>
+              </label>
+            </div>
           </GlowCard>
           <div className="grid gap-4 md:grid-cols-2">
             <GlowCard className="flex flex-col gap-2">
@@ -328,6 +360,7 @@ function Composer() {
 /** Live view of one run: progress, worker questions, cards, graph, timeline, report, project chat, develop. */
 function RunView({ runId }: { runId: string }) {
   const t = useT()
+  const lang = useI18nStore((st) => st.language)
   const labels = useLabels()
   const navigate = useNavigate()
   const run = useRunsStore((s) => s.byId(runId))
@@ -415,6 +448,12 @@ function RunView({ runId }: { runId: string }) {
         </div>
         <ProgressBar value={pct} active={run.status === "running"} size="lg" tone={run.status === "failed" ? "danger" : run.status === "completed" ? "success" : "cyan"} />
       </GlowCard>
+      {run.spec && (
+        <details className="rounded-sm border border-line bg-ink-2 px-4 py-2 text-xs">
+          <summary className="cursor-pointer text-[10px] font-semibold tracking-[0.18em] text-text-2 uppercase">{t("code.spec")}{run.kitId ? ` · ${kitById(run.kitId)?.name[lang] ?? run.kitId}` : ""}</summary>
+          <pre className="mono mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap text-text-2">{run.spec}</pre>
+        </details>
+      )}
       {run.report && <RunReport report={run.report} />}
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-5">
