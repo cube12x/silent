@@ -221,6 +221,17 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const sandbox = agent && !agent.permissions.write ? "read-only" : "workspace-write"
     const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
 
+    // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
+    const loadContext = async () => {
+      if (!run.repoPath) return
+      try {
+        const brief = await backend.readProjectFile(run.repoPath, "docs/ARCHITECTURE-BRIEF.md", 32768)
+        executor.setContext(brief ? `docs/ARCHITECTURE-BRIEF.md:\n${brief}` : undefined)
+      } catch {
+        /* optional */
+      }
+    }
+    await loadContext()
     const started = { ...run, status: "running" as const, startedAt: Date.now() }
     set({ runs: [started, ...get().runs.filter((r) => r.id !== run.id)], executors: { ...get().executors, [run.id]: executor }, usage: { ...get().usage, [run.id]: { tokens: 0, costUsd: 0 } } })
     await backend.db.runs.upsert(started)
@@ -265,6 +276,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
       } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report") {
         void backend.db.runs.upsert(updated)
+        if (e.type === "subtask.state" && e.state === "completed") void loadContext()
       }
     })
     void executor.start()

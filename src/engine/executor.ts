@@ -21,6 +21,8 @@ export interface ExecutorOptions {
   maxContinuations?: number
   /** Questions a single subtask may ask before it is failed. Default 5. */
   maxQuestions?: number
+  /** Shared project context (e.g. docs/ARCHITECTURE-BRIEF.md) prepended to every brief; updatable while running. */
+  context?: string
 }
 
 export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
@@ -71,6 +73,11 @@ export class Executor {
     this.bus.emit({ type: "run.cancelled", runId: this.run.id, at: this.now() })
   }
 
+  /** Replace the shared project context for subsequent attempts (e.g. after the architecture task wrote the brief). */
+  setContext(text: string | undefined): void {
+    this.opts.context = text
+  }
+
   /** Deliver the user's answer to a blocked subtask; its session resumes with the answer. */
   answer(subtaskId: string, text: string): boolean {
     const w = this.waiters.get(subtaskId)
@@ -99,7 +106,7 @@ export class Executor {
     this.bus.emit({ type: "run.started", runId: this.run.id, at: this.now() })
     this.bus.emit({ type: "run.status", runId: this.run.id, status: "running", at: this.now() })
 
-    const limit = this.run.executionMode === "sequential" ? 1 : (this.opts.maxConcurrency ?? (this.run.executionMode === "staged" ? 3 : 6))
+    const limit = this.run.executionMode === "sequential" ? 1 : (this.opts.maxConcurrency ?? (this.run.executionMode === "staged" ? 4 : 8))
     const running = new Map<string, Promise<void>>()
 
     while (!this.cancelled) {
@@ -284,6 +291,7 @@ export class Executor {
     return [
       `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker in a Silent orchestration run.`,
       this.opts.gatewayBrief ?? "",
+      this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 8000)}` : "",
       `Task: ${subtask.title}`,
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",

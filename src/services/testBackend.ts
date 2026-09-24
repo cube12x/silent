@@ -41,6 +41,10 @@ export class TestBackend implements Backend {
   async pickDirectory() {
     return null
   }
+  projectFiles: Record<string, string> = {}
+  async readProjectFile(_root: string, rel: string) {
+    return this.projectFiles[rel] ?? null
+  }
   async createProjectDir(name: string) {
     return `/Users/cube/CubeCode/${name}`
   }

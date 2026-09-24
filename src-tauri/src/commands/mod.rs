@@ -1,5 +1,6 @@
 pub mod binaries;
 pub mod cli;
+pub mod files;
 pub mod launcher;
 pub mod models;
 pub mod project;

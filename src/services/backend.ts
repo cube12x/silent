@@ -48,6 +48,8 @@ export interface Backend {
   pickDirectory(): Promise<string | null>
   /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */
   createProjectDir(name: string): Promise<string>
+  /** Text of `root/rel` (capped), or null when missing. */
+  readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
   openExternal(url: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore

@@ -75,6 +75,10 @@ export class TauriBackend implements Backend {
     return typeof picked === "string" ? picked : null
   }
 
+  readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
+    return invoke<string | null>("read_project_file", { root, rel, maxBytes })
+  }
+
   createProjectDir(name: string): Promise<string> {
     return invoke<string>("create_project_dir", { name })
   }
