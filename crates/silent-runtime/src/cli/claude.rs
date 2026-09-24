@@ -25,9 +25,9 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         "--verbose".into(),
         "--include-partial-messages".into(),
         // Isolate the worker from the user's interactive setup: no hooks/plugins/LSP/auto-memory/CLAUDE.md
-        // discovery (`--bare`) and no user MCP servers (`--strict-mcp-config`). They slowed every worker
-        // start by minutes and burned quota (observer sessions, tool-heavy context).
-        "--bare".into(),
+        // (`--safe-mode`; `--bare` would also drop OAuth/keychain auth) and no user MCP servers
+        // (`--strict-mcp-config`). Verified 2026-09-24: auth intact, 0 hooks, startup 6 s → 3 s.
+        "--safe-mode".into(),
         "--strict-mcp-config".into(),
         "--permission-prompts".into(),
         "none".into(),
@@ -292,7 +292,7 @@ mod tests {
                 "stream-json",
                 "--verbose",
                 "--include-partial-messages",
-                "--bare",
+                "--safe-mode",
                 "--strict-mcp-config",
                 "--permission-prompts",
                 "none",
@@ -324,7 +324,7 @@ mod tests {
                 "stream-json",
                 "--verbose",
                 "--include-partial-messages",
-                "--bare",
+                "--safe-mode",
                 "--strict-mcp-config",
                 "--permission-prompts",
                 "none",
