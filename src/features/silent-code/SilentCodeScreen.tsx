@@ -65,6 +65,7 @@ function Composer() {
   const [starting, setStarting] = React.useState(false)
   const [uiError, setUiError] = React.useState<string | null>(null)
   const [newName, setNewName] = React.useState<string | null>(null)
+  const [poolOpen, setPoolOpen] = React.useState(false)
   const agent = agents.find((a) => a.id === agentId)
   const repoPath = agent?.repoPath ?? folder
 
@@ -150,6 +151,22 @@ function Composer() {
               <button type="button" onClick={() => setNewName(null)} className="text-text-3 hover:text-text-1">{t("common.cancel")}</button>
             </div>
           )}
+          {parent && (
+            <div className="flex flex-col gap-2 rounded-sm border border-line bg-ink-2 px-4 py-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <GitBranch className="size-3 text-text-3" />
+                <span className="font-medium text-text-1">{t("code.continuesRun", { title: parent.title })}</span>
+                <RunStatusBadge status={parent.status} label={labels.runStatus[parent.status]} />
+                <button type="button" onClick={() => navigate(`/code/${parent.id}`)} className="ml-auto text-text-2 underline-offset-2 hover:text-text-1 hover:underline">{t("code.openParent")}</button>
+              </div>
+              <ul className="flex flex-col gap-0.5 text-text-2">
+                {parent.plan.map((s) => (
+                  <li key={s.id} className="flex gap-2"><span className={cn("mono shrink-0", s.state === "completed" ? "text-text-3" : "text-warn")}>{s.state === "completed" ? "✓" : "•"}</span><span className="truncate">{s.title}{s.deviations.length ? ` · ${t("code.deviationsCount", { n: s.deviations.length })}` : ""}</span></li>
+                ))}
+              </ul>
+              <div className="text-text-3">{t("code.developHint")}</div>
+            </div>
+          )}
           {parent && !repoPath && (
             <div className="flex flex-wrap items-center gap-3 rounded-sm border border-warn/50 bg-warn/5 px-4 py-3 text-xs text-warn">
               <AlertTriangle className="size-4 shrink-0" />
@@ -171,11 +188,30 @@ function Composer() {
               </span>
             </div>
             <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} placeholder={t("code.promptPlaceholder")} className="mono min-h-[150px] resize-y border-0 bg-transparent px-4 text-[15px] leading-7 shadow-none focus-visible:ring-0" />
-            <div className={cn("border-t border-line px-4 py-2 text-[11px]", repoPath ? "text-text-3" : "text-warn")}>{repoPath ? <span className="mono flex items-center gap-1 text-text-2"><FolderGit2 className="size-3" />{repoPath}</span> : t("code.folderRequired")}</div>
+            <div className={cn("flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[11px]", repoPath ? "text-text-3" : "text-warn")}>
+              {repoPath ? <span className="mono flex min-w-0 items-center gap-1 truncate text-text-2"><FolderGit2 className="size-3 shrink-0" />{repoPath}</span> : <span>{t("code.folderRequired")}</span>}
+              <span className="ml-auto flex items-center gap-2">
+                {prompt.trim().length < 8 && repoPath && <span className="text-text-3">{t("code.promptTooShort")}</span>}
+                {!repoPath ? (
+                  <NeonButton size="sm" variant="outline" onClick={pickFolder}><FolderOpen />{t("code.pickFolderFirst")}</NeonButton>
+                ) : (
+                  <NeonButton size="sm" disabled={prompt.trim().length < 8 || !pool.length || planning} onClick={() => void makePlan(false)}>{planning ? <Loader2 className="animate-spin" /> : <Sparkles />}{planning ? t("code.planning") : t("code.makePlan")}</NeonButton>
+                )}
+              </span>
+            </div>
           </GlowCard>
           <GlowCard className="flex flex-col gap-3">
             <SectionHeader eyebrow={t("code.pool")} title={`${pool.length} / ${models.length}`} description={models.length ? t("code.poolHint") : t("code.poolEmpty")} actions={<div className="flex gap-1 text-xs"><button type="button" onClick={() => setPool(models.map((m) => modelRef(m.providerId, m.id)))} className="text-text-2 hover:text-text-1">{t("code.all")}</button><span className="text-text-3">·</span><button type="button" onClick={() => setPool([])} className="text-text-2 hover:text-text-1">{t("code.noneSel")}</button></div>} />
-            <ModelSelectorGrid compact models={models} selected={pool} onToggle={(ref) => setPool(pool.includes(ref) ? pool.filter((x) => x !== ref) : [...pool, ref])} />
+            {poolOpen ? (
+              <ModelSelectorGrid compact models={models} selected={pool} onToggle={(ref) => setPool(pool.includes(ref) ? pool.filter((x) => x !== ref) : [...pool, ref])} />
+            ) : (
+              <button type="button" onClick={() => setPoolOpen(true)} className="flex flex-wrap items-center gap-1 text-left text-[11px] text-text-2 hover:text-text-1">
+                {pool.slice(0, 8).map((ref) => <span key={ref} className="mono rounded-sm border border-line px-1.5 py-0.5">{modelLabels[ref] ?? ref}</span>)}
+                {pool.length > 8 && <span className="mono px-1">+{pool.length - 8}</span>}
+                <span className="ml-1 underline-offset-2 hover:underline">{t("code.editPool")}</span>
+              </button>
+            )}
+            {poolOpen && <button type="button" onClick={() => setPoolOpen(false)} className="self-end text-[11px] text-text-2 hover:text-text-1">{t("code.collapsePool")}</button>}
           </GlowCard>
           <div className="grid gap-4 md:grid-cols-2">
             <GlowCard className="flex flex-col gap-2">
