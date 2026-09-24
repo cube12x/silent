@@ -66,10 +66,15 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true },
     parserMaturity: "verified",
     staticModels: [
+      // Aliases resolve to the newest model of each line (verified 2026-09-24: opus → claude-opus-5-5).
       { id: "fable", displayName: "Claude Fable (latest)", tier: "frontier" },
       { id: "opus", displayName: "Claude Opus (latest)", tier: "frontier" },
       { id: "sonnet", displayName: "Claude Sonnet (latest)", tier: "strong" },
       { id: "haiku", displayName: "Claude Haiku (latest)", tier: "fast" },
+      { id: "claude-opus-5-5", displayName: "Claude Opus 5.5", tier: "frontier" },
+      { id: "claude-opus-5", displayName: "Claude Opus 5", tier: "frontier" },
+      { id: "claude-sonnet-5", displayName: "Claude Sonnet 5", tier: "strong" },
+      { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", tier: "fast" },
     ],
     color: "#e8b98a",
     note: "Runs with --permission-mode acceptEdits; read-only tasks are enforced by the brief.",
