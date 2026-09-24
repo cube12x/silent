@@ -45,7 +45,7 @@ export const BUILTIN_KITS: ExpertKit[] = [
     references: [
       { name: "littlejs", url: "https://github.com/KilledByAPixel/LittleJS", hint: "Tiny, complete 2D engine: game loop, input, particles, sound, tile collision. Read engine/ and examples/." },
       { name: "kaplay", url: "https://github.com/kaplayjs/kaplay", hint: "Component-based 2D engine; scenes, sprites, physics helpers, examples/ has dozens of small complete games." },
-      { name: "excalibur", url: "https://github.com/excaliburjs/Excalibur", hint: "TypeScript 2D engine: actors, scenes, fixed update, collision, camera. Study src/engine/ structure." },
+      { name: "pixijs", url: "https://github.com/pixijs/pixijs", hint: "WebGL/Canvas renderer: ticker, sprites, containers, batching, textures. Study src/ticker, src/scene and examples for render-loop and asset patterns." },
     ],
   },
   {
