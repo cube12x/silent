@@ -149,11 +149,20 @@ export const useRunsStore = create<RunsState>((set, get) => ({
 
   async load() {
     const backend = await getBackend()
-    const runs = (await backend.db.runs.list()).map((r) =>
-      r.status === "running"
-        ? { ...r, status: "cancelled" as const, finishedAt: r.finishedAt ?? Date.now(), plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const, summary: s.summary ?? "interrupted" })) }
-        : r,
-    )
+    const runs = (await backend.db.runs.list()).map((r) => {
+      if (r.status !== "running") return r
+      // A run left "running" in the DB has no executor after a restart: either it finished and only the
+      // final status write was lost, or the app was closed mid-run.
+      const done = r.plan.length > 0 && r.plan.every((s) => s.state === "completed")
+      const last = Math.max(0, ...r.plan.map((s) => s.lastUpdate ?? 0))
+      if (done) return { ...r, status: "completed" as const, finishedAt: r.finishedAt ?? (last || Date.now()) }
+      return {
+        ...r,
+        status: "cancelled" as const,
+        finishedAt: r.finishedAt ?? Date.now(),
+        plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const, attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "cancelled" as const, error: "app closed" } : a)) })),
+      }
+    })
     set({ runs: runs.map((r) => ({ ...r, plan: r.plan.map((s) => ({ ...s, answers: s.answers ?? [], deviations: s.deviations ?? [] })) })).sort((a, b) => b.createdAt - a.createdAt) })
   },
 
@@ -246,6 +255,12 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const started = { ...run, status: "running" as const, startedAt: Date.now() }
     set({ runs: [started, ...get().runs.filter((r) => r.id !== run.id)], executors: { ...get().executors, [run.id]: executor }, usage: { ...get().usage, [run.id]: { tokens: 0, costUsd: 0 } } })
     await backend.db.runs.upsert(started)
+    // DB writes for one run are serialized: the report upsert (large JSON) and the final status upsert used to
+    // race on the connection pool and could leave the run "running" forever (seen 2026-09-24).
+    let chain: Promise<void> = Promise.resolve()
+    const persist = (r: SilentCodeRun) => {
+      chain = chain.then(() => backend.db.runs.upsert(r)).catch((err: unknown) => console.error("run upsert failed", err))
+    }
     if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true })
 
     const pending: Record<string, TerminalLine[]> = {}
@@ -283,10 +298,10 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         const executors = { ...get().executors }
         delete executors[run.id]
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
-        void backend.db.runs.upsert(final)
+        persist(final)
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
       } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report") {
-        void backend.db.runs.upsert(updated)
+        persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") void loadContext()
       }
     })
