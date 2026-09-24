@@ -53,6 +53,18 @@ fn spawn_registered(
     parser: silent_runtime::LineParser,
     on_event: Channel<RuntimeEvent>,
 ) -> Result<String, String> {
+    spawn_registered_with_cleanup(registry, run_id, config, parser, on_event, Vec::new())
+}
+
+/// Like `spawn_registered`, additionally deleting `temp_files` (best effort) once the process ends.
+fn spawn_registered_with_cleanup(
+    registry: &RunRegistry,
+    run_id: String,
+    config: SpawnConfig,
+    parser: silent_runtime::LineParser,
+    on_event: Channel<RuntimeEvent>,
+    temp_files: Vec<std::path::PathBuf>,
+) -> Result<String, String> {
     let (handle, cancel_rx) = RunHandle::new();
     registry.insert(&run_id, handle.cancel.clone())?;
     let registry_inner = Arc::clone(&registry.0);
@@ -63,6 +75,9 @@ fn spawn_registered(
         };
         if let Err(error) = run_streaming(config, parser, sink, cancel_rx).await {
             log::warn!("run {task_run_id} ended with error: {error}");
+        }
+        for file in temp_files {
+            let _ = std::fs::remove_file(file);
         }
         if let Ok(mut map) = registry_inner.lock() {
             map.remove(&task_run_id);
@@ -106,12 +121,19 @@ pub async fn cli_run_start(
     }
     config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
     let run_id = request.run_id.clone();
-    spawn_registered(
+    // Codex's schema file was written by `build_args`; drop it once the run is over.
+    let temp_files = if request.provider_id == ProviderId::Codex && request.schema().is_some() {
+        vec![request.schema_file_path()]
+    } else {
+        Vec::new()
+    };
+    spawn_registered_with_cleanup(
         &registry,
         run_id,
         config,
         line_parser(request.provider_id),
         on_event,
+        temp_files,
     )
 }
 

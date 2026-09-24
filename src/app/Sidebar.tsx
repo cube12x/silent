@@ -1,7 +1,7 @@
 import * as React from "react"
 import { NavLink } from "react-router"
 import { cn } from "cn"
-import { Bot, ChevronsLeft, ChevronsRight, Cpu, MessageSquare, Plus, Search, Settings2, Zap, Languages } from "lucide-react"
+import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages } from "lucide-react"
 import { SilentMark } from "./SilentMark"
 import { Kbd } from "@/components/ui/kbd"
 import { useUiStore } from "@/stores/ui"
@@ -102,8 +102,8 @@ export function Sidebar() {
 
         <Section title={t("nav.silentCode")} count={runs.length} collapsed={collapsed} action={<NavLink to="/code" className="text-text-3 hover:text-cyan"><Plus className="size-3" /></NavLink>}>
           <Item to="/code" end icon={<Zap />} label={t("code.newRun")} collapsed={collapsed} meta={running || undefined} />
-          {runs.slice(0, collapsed ? 3 : 6).map((r) => (
-            <Item key={r.id} to={`/code/${r.id}`} icon={<Cpu />} label={r.title} collapsed={collapsed} badge={!collapsed ? <RunStatusBadge status={r.status} size="xs" label={runLabel(r.status)} /> : undefined} />
+          {runs.slice(0, collapsed ? 3 : 8).map((r) => (
+            <Item key={r.id} to={`/code/${r.id}`} icon={r.parentRunId ? <GitBranch /> : <Cpu />} label={`${r.parentRunId ? "↳ " : ""}${r.title}`} collapsed={collapsed} badge={!collapsed ? <RunStatusBadge status={r.status} size="xs" label={runLabel(r.status)} /> : undefined} />
           ))}
         </Section>
 
@@ -121,7 +121,7 @@ export function Sidebar() {
           <Languages className="size-4" />
           {!collapsed && <span>{language === "tr" ? "Türkçe → English" : "English → Türkçe"}</span>}
         </button>
-        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />v0.2.1 · CLI-native</div>}
+        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />v0.2.2 · CLI-native</div>}
       </div>
     </div>
   )

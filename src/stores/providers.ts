@@ -28,7 +28,10 @@ interface ProvidersState {
   login(id: ProviderId): Promise<void>
   addCustomModel(id: ProviderId, modelId: string, label?: string): Promise<void>
   removeCustomModel(id: ProviderId, modelId: string): Promise<void>
-  /** Models of installed + enabled CLIs (catalog + static + custom), deduplicated. */
+  /** ModelRefs a CLI rejected at runtime (e.g. not included in the account's plan). Cleared by a re-scan. */
+  unavailable: string[]
+  markUnavailable(ref: string, reason: string): void
+  /** Models of installed + enabled CLIs (catalog + static + custom), deduplicated, minus unavailable ones. */
   availableModels(): ProviderModel[]
   modelByRef(ref: string): ProviderModel | undefined
 }
@@ -52,6 +55,12 @@ function mergeModels(id: ProviderId, fromCli: ProviderModel[]): ProviderModel[] 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
   providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, emptyState(id)])) as Record<ProviderId, ProviderState>,
   detecting: false,
+  unavailable: [],
+  markUnavailable(ref, reason) {
+    if (get().unavailable.includes(ref)) return
+    console.warn(`model unavailable: ${ref} — ${reason}`)
+    set({ unavailable: [...get().unavailable, ref] })
+  },
   async load() {
     const enabled = useSettingsStore.getState().settings.enabledProviders
     set({ providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { ...get().providers[id], enabled: enabled[id] ?? true }])) as Record<ProviderId, ProviderState> })
@@ -78,7 +87,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
           next[id] = { ...next[id], detected: d, installed, models: mergeModels(id, models) }
         }),
       )
-      set({ providers: next, lastDetectedAt: Date.now() })
+      set({ providers: next, lastDetectedAt: Date.now(), unavailable: [] })
       // First real detection: pick a sensible default model if none is set.
       const settings = useSettingsStore.getState().settings
       const available = get().availableModels()
@@ -140,9 +149,10 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     set({ providers: { ...get().providers, [id]: { ...get().providers[id], models: mergeModels(id, get().providers[id].models.filter((m) => m.source !== "custom")) } } })
   },
   availableModels() {
+    const blocked = new Set(get().unavailable)
     return PROVIDER_IDS.flatMap((id) => {
       const p = get().providers[id]
-      return p.installed && p.enabled ? p.models : []
+      return p.installed && p.enabled ? p.models.filter((m) => !blocked.has(modelRef(m.providerId, m.id))) : []
     })
   },
   modelByRef(ref) {
@@ -154,6 +164,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 }))
 
 /** Pure helper so components can memoise on the providers map only. */
-export function selectAvailableModels(providers: Record<ProviderId, ProviderState>): ProviderModel[] {
-  return PROVIDER_IDS.flatMap((id) => (providers[id].installed && providers[id].enabled ? providers[id].models : []))
+export function selectAvailableModels(providers: Record<ProviderId, ProviderState>, unavailable: string[] = []): ProviderModel[] {
+  const blocked = new Set(unavailable)
+  return PROVIDER_IDS.flatMap((id) => (providers[id].installed && providers[id].enabled ? providers[id].models.filter((m) => !blocked.has(modelRef(m.providerId, m.id))) : []))
 }

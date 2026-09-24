@@ -135,6 +135,8 @@ export function planSubtasks(input: PlanInput, runId = "draft"): Subtask[] {
       weight,
       progress: 0,
       lastUpdate: now + index,
+      answers: [],
+      deviations: [],
     }
   })
 }

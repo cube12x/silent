@@ -13,6 +13,8 @@ export interface RouteInput {
   overrides?: Partial<Record<SubtaskKind, string>>
   /** Agent's primary model gets a small affinity bonus. */
   preferredModelRef?: string
+  /** kind → tier table replacing TARGET_TIER[costMode] (manual policy). */
+  policy?: Record<SubtaskKind, ModelTier>
 }
 
 /**
@@ -31,9 +33,9 @@ function tierFit(target: ModelTier, actual: ModelTier): number {
   return d === 0 ? 1 : d === 1 ? 0.6 : 0.25
 }
 
-export function scoreModel(model: ProviderModel, kind: SubtaskKind, costMode: CostMode): number {
+export function scoreModel(model: ProviderModel, kind: SubtaskKind, costMode: CostMode, target?: ModelTier): number {
   const cap = capabilityOf(model, kind)
-  const fit = tierFit(TARGET_TIER[costMode][kind], model.tier)
+  const fit = tierFit(target ?? TARGET_TIER[costMode][kind], model.tier)
   return fit * 0.7 + cap * 0.3
 }
 
@@ -52,7 +54,7 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
     const ranked = poolModels
       .map((model) => {
         const ref = modelRef(model.providerId, model.id)
-        let score = scoreModel(model, subtask.kind, input.costMode)
+        let score = scoreModel(model, subtask.kind, input.costMode, subtask.tierHint ?? input.policy?.[subtask.kind])
         if (input.preferredModelRef === ref) score += 0.03
         return { model, ref, score }
       })

@@ -92,6 +92,8 @@ export interface RepoAgent {
   permissions: AgentPermissions
   toolsEnabled: AgentTool[]
   memoryCount: number
+  /** Created automatically as the expert of a finished run. */
+  sourceRunId?: string
   status: AgentStatus
   lastActions: AgentAction[]
   createdAt: number

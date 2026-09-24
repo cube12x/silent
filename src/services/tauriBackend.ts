@@ -102,6 +102,7 @@ export class TauriBackend implements Backend {
             gatewayPrompt: str(r.gateway),
             gatewayProfile: json(r.gateway_profile_json, undefined),
             sessionId: str(r.session_id) ?? str(r.codex_thread_id),
+            runId: str(r.run_id),
             pinned: Boolean(num(r.pinned)),
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at),
@@ -110,10 +111,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (c) => {
         await (await this.conn()).execute(
-          `INSERT INTO chats (id, title, kind, provider_id, model_id, repo_agent_id, repo_path, gateway, gateway_profile_json, session_id, pinned, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT(id) DO UPDATE SET title=$2, kind=$3, provider_id=$4, model_id=$5, repo_agent_id=$6, repo_path=$7, gateway=$8, gateway_profile_json=$9, session_id=$10, pinned=$11, updated_at=$13`,
-          [c.id, c.title, c.kind, c.providerId, c.modelId, c.repoAgentId ?? null, c.repoPath ?? null, c.gatewayPrompt ?? null, JSON.stringify(c.gatewayProfile ?? null), c.sessionId ?? null, c.pinned ? 1 : 0, c.createdAt, c.updatedAt],
+          `INSERT INTO chats (id, title, kind, provider_id, model_id, repo_agent_id, repo_path, gateway, gateway_profile_json, session_id, pinned, created_at, updated_at, run_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           ON CONFLICT(id) DO UPDATE SET title=$2, kind=$3, provider_id=$4, model_id=$5, repo_agent_id=$6, repo_path=$7, gateway=$8, gateway_profile_json=$9, session_id=$10, pinned=$11, updated_at=$13, run_id=$14`,
+          [c.id, c.title, c.kind, c.providerId, c.modelId, c.repoAgentId ?? null, c.repoPath ?? null, c.gatewayPrompt ?? null, JSON.stringify(c.gatewayProfile ?? null), c.sessionId ?? null, c.pinned ? 1 : 0, c.createdAt, c.updatedAt, c.runId ?? null],
         )
       },
       delete: async (id) => {
@@ -166,6 +167,7 @@ export class TauriBackend implements Backend {
             permissions: json(r.permissions_json, {} as RepoAgent["permissions"]),
             toolsEnabled: json(r.tools_json, []),
             memoryCount: Number(r.memory_count ?? 0),
+            sourceRunId: str(r.source_run_id),
             status: r.status as RepoAgent["status"],
             lastActions: json(r.last_actions_json, []),
             createdAt: Number(r.created_at),
@@ -175,10 +177,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (a) => {
         await (await this.conn()).execute(
-          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, provider_id, model_id, fallback_model_refs_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, provider_id=$5, model_id=$6, fallback_model_refs_json=$7, gateway_prompt=$8, gateway_profile_json=$9, permissions_json=$10, tools_json=$11, memory_count=$12, status=$13, last_actions_json=$14, updated_at=$16`,
-          [a.id, a.name, a.repoPath, `${a.providerId}:${a.modelId}`, a.providerId, a.modelId, JSON.stringify(a.fallbackModelRefs), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt],
+          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, provider_id, model_id, fallback_model_refs_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at, source_run_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, provider_id=$5, model_id=$6, fallback_model_refs_json=$7, gateway_prompt=$8, gateway_profile_json=$9, permissions_json=$10, tools_json=$11, memory_count=$12, status=$13, last_actions_json=$14, updated_at=$16, source_run_id=$17`,
+          [a.id, a.name, a.repoPath, `${a.providerId}:${a.modelId}`, a.providerId, a.modelId, JSON.stringify(a.fallbackModelRefs), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt, a.sourceRunId ?? null],
         )
       },
       delete: async (id) => {
@@ -203,6 +205,11 @@ export class TauriBackend implements Backend {
             routing: json(r.routing_json, []),
             estimate: json(r.estimate_json, { tokens: 0, seconds: 0 }),
             actual: json(r.actual_json, undefined),
+            planSource: str(r.plan_source) as SilentCodeRun["planSource"],
+            parentRunId: str(r.parent_run_id),
+            report: json(r.report_json, undefined),
+            questions: json(r.questions_json, undefined),
+            manual: Boolean(num(r.manual)),
             startedAt: num(r.started_at),
             finishedAt: num(r.finished_at),
             createdAt: Number(r.created_at),
@@ -211,10 +218,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (run) => {
         await (await this.conn()).execute(
-          `INSERT INTO runs (id, title, prompt, repo_agent_id, repo_path, model_pool_json, execution_mode, cost_mode, status, plan_json, routing_json, estimate_json, actual_json, started_at, finished_at, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-           ON CONFLICT(id) DO UPDATE SET title=$2, status=$9, plan_json=$10, routing_json=$11, estimate_json=$12, actual_json=$13, started_at=$14, finished_at=$15`,
-          [run.id, run.title, run.prompt, run.repoAgentId ?? null, run.repoPath ?? null, JSON.stringify(run.modelPool), run.executionMode, run.costMode, run.status, JSON.stringify(run.plan), JSON.stringify(run.routing), JSON.stringify(run.estimate), run.actual ? JSON.stringify(run.actual) : null, run.startedAt ?? null, run.finishedAt ?? null, run.createdAt],
+          `INSERT INTO runs (id, title, prompt, repo_agent_id, repo_path, model_pool_json, execution_mode, cost_mode, status, plan_json, routing_json, estimate_json, actual_json, started_at, finished_at, created_at, plan_source, parent_run_id, report_json, questions_json)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+           ON CONFLICT(id) DO UPDATE SET title=$2, status=$9, plan_json=$10, routing_json=$11, estimate_json=$12, actual_json=$13, started_at=$14, finished_at=$15, plan_source=$17, parent_run_id=$18, report_json=$19, questions_json=$20`,
+          [run.id, run.title, run.prompt, run.repoAgentId ?? null, run.repoPath ?? null, JSON.stringify(run.modelPool), run.executionMode, run.costMode, run.status, JSON.stringify(run.plan), JSON.stringify(run.routing), JSON.stringify(run.estimate), run.actual ? JSON.stringify(run.actual) : null, run.startedAt ?? null, run.finishedAt ?? null, run.createdAt, run.planSource ?? null, run.parentRunId ?? null, run.report ? JSON.stringify(run.report) : null, run.questions ? JSON.stringify(run.questions) : null],
         )
       },
       delete: async (id) => {

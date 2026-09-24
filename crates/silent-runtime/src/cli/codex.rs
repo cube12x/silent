@@ -28,6 +28,16 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     args.push("--json".into());
     args.push("--color".into());
     args.push("never".into());
+    // Structured output: Codex wants a schema *file*. `build_args` writes it to a per-run temp
+    // path (see `CliRunRequest::schema_file_path`); the host removes it after the process exits.
+    if let Some(schema) = req.schema() {
+        let path = req.schema_file_path();
+        if let Ok(text) = serde_json::to_string(schema) {
+            let _ = std::fs::write(&path, text);
+        }
+        args.push("--output-schema".into());
+        args.push(path.to_string_lossy().into_owned());
+    }
     let resuming = req.resume();
     if req.ephemeral && resuming.is_none() {
         args.push("--ephemeral".into());
@@ -440,5 +450,38 @@ mod tests {
             vec![RuntimeEvent::stdout(r#"{"type":"something.new"}"#)]
         );
         assert!(parse_jsonl_line("   ").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+    use crate::cli::req;
+    use serde_json::json;
+
+    #[test]
+    fn output_schema_writes_a_file_and_passes_it_after_exec() {
+        let mut r = req(crate::cli::ProviderId::Codex);
+        r.run_id = "run/with:odd chars".into();
+        r.output_schema = Some(json!({"type":"object","properties":{"ok":{"type":"boolean"}}}));
+        let args = build_args(&r);
+        let exec = args.iter().position(|a| a == "exec").unwrap();
+        let flag = args.iter().position(|a| a == "--output-schema").unwrap();
+        assert!(flag > exec);
+        let path = &args[flag + 1];
+        assert!(path.ends_with(".json"), "{path}");
+        assert!(
+            !path.contains('/')
+                || path.starts_with(std::env::temp_dir().to_string_lossy().as_ref())
+        );
+        let written = std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&written).unwrap(),
+            r.output_schema.clone().unwrap()
+        );
+        let _ = std::fs::remove_file(path);
+        // no schema → no flag
+        let plain = build_args(&req(crate::cli::ProviderId::Codex));
+        assert!(!plain.iter().any(|a| a == "--output-schema"));
     }
 }

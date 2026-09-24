@@ -1,4 +1,4 @@
-import type { Attempt, ProviderModel, RoutingDecision, SilentCodeRun, Subtask, WorkerState } from "@/domain"
+import type { Attempt, ProviderModel, RoutingDecision, RunReport, SilentCodeRun, Subtask, WorkerState } from "@/domain"
 import { isTerminalState } from "@/domain"
 import { EventBus } from "./events"
 import { nextModel } from "./router"
@@ -19,6 +19,8 @@ export interface ExecutorOptions {
   models?: ProviderModel[]
   /** Continuations of a timed-out session before falling back. Default 2. */
   maxContinuations?: number
+  /** Questions a single subtask may ask before it is failed. Default 5. */
+  maxQuestions?: number
 }
 
 export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
@@ -33,6 +35,7 @@ export class Executor {
   private subtasks: Map<string, Subtask>
   private routing: Map<string, RoutingDecision>
   private summaries = new Map<string, string>()
+  private waiters = new Map<string, (answer: string | null) => void>()
   private readonly now: () => number
   private readonly run: SilentCodeRun
   private readonly resolve: WorkerResolver
@@ -60,10 +63,36 @@ export class Executor {
     this.cancelled = true
     for (const h of this.handles.values()) h.cancel()
     this.handles.clear()
+    for (const w of this.waiters.values()) w(null)
+    this.waiters.clear()
     for (const s of this.subtasks.values()) {
       if (!isTerminalState(s.state)) this.setState(s, "failed", s.progress, "cancelled")
     }
     this.bus.emit({ type: "run.cancelled", runId: this.run.id, at: this.now() })
+  }
+
+  /** Deliver the user's answer to a blocked subtask; its session resumes with the answer. */
+  answer(subtaskId: string, text: string): boolean {
+    const w = this.waiters.get(subtaskId)
+    if (!w) return false
+    this.waiters.delete(subtaskId)
+    w(text)
+    return true
+  }
+
+  /** Subtasks currently waiting for an answer. */
+  pendingQuestions(): Array<{ subtaskId: string; question: string }> {
+    return Array.from(this.waiters.keys()).map((id) => ({ subtaskId: id, question: this.subtasks.get(id)?.question ?? "" }))
+  }
+
+  private report(): RunReport {
+    const all = this.snapshot
+    return {
+      done: all.filter((s) => s.state === "completed" && s.summary).map((s) => `${s.title}: ${s.summary}`),
+      deviations: all.flatMap((s) => s.deviations.map((d) => `${s.title}: ${d}`)),
+      openQuestions: all.filter((s) => s.state === "blocked" && s.question).map((s) => `${s.title}: ${s.question}`),
+      finishedAt: this.now(),
+    }
   }
 
   async start(): Promise<"completed" | "failed" | "cancelled"> {
@@ -100,6 +129,7 @@ export class Executor {
     }
 
     if (this.cancelled) return "cancelled"
+    this.bus.emit({ type: "run.report", runId: this.run.id, report: this.report(), at: this.now() })
     const ok = this.snapshot.every((s) => s.state === "completed")
     if (ok) {
       this.bus.emit({ type: "run.status", runId: this.run.id, status: "completed", at: this.now() })
@@ -131,6 +161,23 @@ export class Executor {
       let retriesOnModel = 0
       let continuations = 0
       let result = await this.attempt(subtask, modelId, attemptNo, cause)
+      // The worker asked the user something: block, wait for the answer, resume the same session.
+      let questions = 0
+      while (!result.ok && result.blocked && !this.cancelled) {
+        const sessionId = subtask.attempts.at(-1)?.sessionId
+        questions += 1
+        if (!sessionId || questions > (this.opts.maxQuestions ?? 5)) break
+        subtask.question = result.question
+        this.setState(subtask, "blocked", subtask.progress)
+        this.bus.emit({ type: "subtask.question", runId: this.run.id, subtaskId, question: result.question ?? "", at: this.now() })
+        const answer = await new Promise<string | null>((resolve) => this.waiters.set(subtaskId, resolve))
+        if (answer === null) return
+        subtask.answers.push(answer)
+        subtask.question = undefined
+        this.bus.emit({ type: "subtask.answered", runId: this.run.id, subtaskId, answer, at: this.now() })
+        attemptNo += 1
+        result = await this.attempt(subtask, modelId, attemptNo, "answer", sessionId, answer)
+      }
       // A timeout is not a failure of the model: resume the same session and let it finish.
       while (!result.ok && result.timedOut && continuations < maxContinuations && !this.cancelled) {
         const sessionId = subtask.attempts.at(-1)?.sessionId
@@ -146,6 +193,10 @@ export class Executor {
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: result.error ?? "failed", at: this.now() })
         result = await this.attempt(subtask, modelId, attemptNo, "retry")
       }
+      if (result.deviations?.length) {
+        subtask.deviations.push(...result.deviations)
+        this.bus.emit({ type: "subtask.deviations", runId: this.run.id, subtaskId, deviations: [...subtask.deviations], at: this.now() })
+      }
       if (result.ok) {
         subtask.summary = result.summary
         this.summaries.set(subtaskId, result.summary)
@@ -156,6 +207,11 @@ export class Executor {
       if (this.cancelled) return
       tried.push(modelId)
       const next = nextModel(decision, tried, this.run.modelPool, this.models.all())
+      if (result.blocked) {
+        // Unanswered after the question budget: leave it blocked so the user can still answer later.
+        this.setState(subtask, "failed", subtask.progress, result.question)
+        return
+      }
       if (!next || (!result.retryable && !result.timedOut)) {
         this.setState(subtask, "failed", subtask.progress, result.error)
         return
@@ -166,7 +222,7 @@ export class Executor {
     }
   }
 
-  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string) {
+  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string) {
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
     subtask.assignedModelId = modelId
@@ -188,6 +244,7 @@ export class Executor {
       usage: (tokens, costUsd) => this.bus.emit({ type: "worker.usage", runId: this.run.id, subtaskId: subtask.id, tokens, costUsd, at: this.now() }),
       session: (sessionId) => {
         attempt.sessionId = sessionId
+        this.bus.emit({ type: "subtask.session", runId: this.run.id, subtaskId: subtask.id, sessionId, at: this.now() })
       },
     }
     const model = this.models.get(modelId)
@@ -196,7 +253,11 @@ export class Executor {
       subtask: structuredClone(subtask),
       modelId,
       attempt: n,
-      brief: resumeSessionId ? "You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it." : this.brief(subtask, modelId),
+      brief: answer !== undefined
+        ? `The user answered your question: ${answer}\n\nContinue the task with this answer. When done, reply with a concise summary, then a "SILENT_DEVIATIONS:" list (or "SILENT_DEVIATIONS: none").`
+        : resumeSessionId
+          ? "You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it, followed by a \"SILENT_DEVIATIONS:\" list (or \"SILENT_DEVIATIONS: none\")."
+          : this.brief(subtask, modelId),
       repoPath: this.run.repoPath,
       sandbox: this.opts.sandbox ?? "workspace-write",
       effort: subtask.effort ?? effortFor(subtask.kind, this.run.costMode, model?.tier),
@@ -226,7 +287,7 @@ export class Executor {
       `Task: ${subtask.title}`,
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
-      "Report a concise summary of what you changed and how you verified it.",
+      "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing every point where you deviated from the request (or `SILENT_DEVIATIONS: none`).",
     ]
       .filter(Boolean)
       .join("\n\n")

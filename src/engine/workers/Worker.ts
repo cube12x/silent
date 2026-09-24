@@ -33,6 +33,11 @@ export interface WorkerResult {
   retryable?: boolean
   /** Set when the process hit its wall-clock limit; the executor may resume the same session. */
   timedOut?: boolean
+  /** The worker stopped to ask the user something (SILENT_QUESTION). */
+  blocked?: boolean
+  question?: string
+  /** Things the worker reported doing differently from the request (SILENT_DEVIATIONS). */
+  deviations?: string[]
 }
 
 export interface WorkerHandle {

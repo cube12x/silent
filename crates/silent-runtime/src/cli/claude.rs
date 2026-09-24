@@ -19,7 +19,7 @@ pub struct Claude;
 pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "-p".into(),
-        req.prompt_with_brief(false),
+        req.prompt_with_brief_schema(false, true),
         "--output-format".into(),
         "stream-json".into(),
         "--verbose".into(),
@@ -36,6 +36,10 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     if let Some(effort) = req.effort() {
         args.push("--effort".into());
         args.push(effort.into());
+    }
+    if let Some(schema) = req.schema() {
+        args.push("--json-schema".into());
+        args.push(serde_json::to_string(schema).unwrap_or_else(|_| "{}".into()));
     }
     if let Some(id) = req.resume() {
         args.push("--resume".into());
@@ -390,5 +394,33 @@ mod tests {
         );
         assert!(matches!(&ev[1], RuntimeEvent::Failed { message, .. } if message == "boom"));
         assert_eq!(ev.last(), Some(&RuntimeEvent::TurnCompleted {}));
+    }
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+    use crate::cli::req;
+    use serde_json::json;
+
+    #[test]
+    fn json_schema_flag_carries_the_serialised_schema_and_prompt_stays_clean() {
+        let mut r = req(crate::cli::ProviderId::Claude);
+        let schema =
+            json!({"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]});
+        r.output_schema = Some(schema.clone());
+        let args = build_args(&r);
+        let i = args.iter().position(|a| a == "--json-schema").unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&args[i + 1]).unwrap(),
+            schema
+        );
+        assert_eq!(
+            args[1], "do the thing",
+            "native schema must not be prepended to the prompt"
+        );
+        assert!(!build_args(&req(crate::cli::ProviderId::Claude))
+            .iter()
+            .any(|a| a == "--json-schema"));
     }
 }

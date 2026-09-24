@@ -60,6 +60,8 @@ export interface Chat {
   gatewayProfile?: GatewayProfile
   /** CLI session to resume (Codex thread id, Claude/Kimi/Gemini session id). */
   sessionId?: string
+  /** Project chat bound to a Silent Code run. */
+  runId?: string
   pinned?: boolean
   createdAt: number
   updatedAt: number

@@ -13,6 +13,7 @@ export interface CreateChatInput {
   repoAgentId?: string
   repoPath?: string
   gatewayPrompt?: string
+  runId?: string
 }
 
 interface ChatsState {
@@ -62,6 +63,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       repoPath: input.repoPath,
       gatewayPrompt: input.gatewayPrompt,
       gatewayProfile: input.gatewayPrompt ? interpretGateway(input.gatewayPrompt) : undefined,
+      runId: input.runId,
       createdAt: now,
       updatedAt: now,
     }

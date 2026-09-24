@@ -43,7 +43,7 @@ export interface Attempt {
   outcome: "success" | "failure" | "cancelled" | "running"
   error?: string
   /** Why this attempt happened: first try, retry after failure, continuation of a timed-out session, or fallback to another model. */
-  cause: "initial" | "retry" | "continue" | "fallback" | "escalation"
+  cause: "initial" | "retry" | "continue" | "answer" | "fallback" | "escalation"
   /** CLI session id, kept so a timed-out attempt can be resumed. */
   sessionId?: string
 }
@@ -74,9 +74,24 @@ export interface Subtask {
   /** Manual overrides from the plan editor. */
   effort?: Effort
   timeoutSecs?: number
+  /** AI planner hints. */
+  tierHint?: "fast" | "strong" | "frontier"
+  rationale?: string
+  /** Worker asked the user something and is waiting (state = blocked). */
+  question?: string
+  answers: string[]
+  /** Things the worker reported it did differently from the request. */
+  deviations: string[]
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh"
+
+export interface RunReport {
+  done: string[]
+  deviations: string[]
+  openQuestions: string[]
+  finishedAt: number
+}
 
 export interface RunEstimate {
   tokens: number
@@ -98,6 +113,12 @@ export interface SilentCodeRun {
   estimate: RunEstimate
   /** True when the user edited the plan/assignments by hand. */
   manual?: boolean
+  planSource?: "ai" | "heuristic"
+  /** Clarifying questions the planner asked and the answers given before start. */
+  questions?: Array<{ id: string; question: string; why?: string; answer?: string }>
+  /** Run this one continues (develop mode). */
+  parentRunId?: string
+  report?: RunReport
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

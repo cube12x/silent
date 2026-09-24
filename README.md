@@ -2,6 +2,7 @@
 
 **Masaüstü, CLI-native çoklu-AI orkestrasyon istasyonu.** Tek istek yazarsın; Silent onu alt görevlere böler, her birini makinendeki gerçek AI CLI'larından en uygun modele yönlendirir, terminalde çalıştırır ve canlı izler. API anahtarı yok, simülasyon yok: yalnızca kurulu CLI'lar.
 
+> v2.2 (2026-09-24): planlama artık gerçek CLI'daki AI ile (Codex `--output-schema` / Claude `--json-schema`), Görev → Plan (sorular + editör + onay) → Başlat akışı, çalışanlar yapamadıklarını `SILENT_QUESTION` ile sorup bekler ve sapmaları raporlar, "Projeye sor" (uzman proje sohbeti) ve "Geliştir" (artımlı devam), manuel katman politikası, hesabın reddettiği modeller otomatik yedeğe düşer.
 > v2.1 (2026-09-24): monokrom "Monolith" tema, arcade hayalet logo, plan editörü (manuel görev atama, effort, süre limiti), tür→katman yönlendirme politikası, timeout'ta oturumu devam ettirme, olumsuzlama anlayan planner ("algoritma yazma"), toplu terminal yazımı.
 
 ## Desteklenen CLI'lar
@@ -54,6 +55,10 @@ src-tauri           komutlar: providers_detect · provider_models · provider_in
 ## Yönlendirme politikası
 
 Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızlı (Haiku, GPT-6-Luna…), backend/frontend/entegrasyon → güçlü (Sonnet, GPT-6-Sol…), mimari/algoritma/inceleme → en güçlü (Opus/Fable, GPT-6-Astra, K3). Ekonomik mod bir katman aşağı iner; En yüksek kalite yapım türlerini de en güçlüye çıkarır. Effort de tür bazlıdır (docs/tests low, yapım medium, mimari high; xhigh yalnız En yüksek kalite + mimari/algoritma) — kullanıcının global CLI ayarı (ör. Codex `model_reasoning_effort = "xhigh"`) hiçbir zaman hafif görevlere sızmaz. Süre limiti dolan görev **aynı oturumdan devam ettirilir** (en fazla 2 kez), sıfırdan başlatılmaz. Plan editöründe bunların hepsi görev başına elle değiştirilebilir.
+
+## Planlama ve sorular
+
+"Plan oluştur" gerçek bir CLI modeline (havuzdaki güçlü katman) salt-okunur, yapılandırılmış JSON çıktı ile plan yaptırır: yalnız gerekli alt görevler, her biri için katman/effort önerisi, **sorular** (belirsiz veya yapılamayacak istekler için — sessizce varsayım yapmak yerine), varsayımlar ve dışlananlar. Sorular cevaplanır, plan editöründe modeller değiştirilir, plan onaylanır, sonra başlar. Çalışanlar da isteğin bir kısmını yapamıyorsa `SILENT_QUESTION:` ile durup sorar; cevap aynı oturuma gider. Bitişte `SILENT_DEVIATIONS:` rapora düşer. Tamamlanan run'dan "Projeye sor" (o projeyi bilen salt-okunur uzman ajan) ve "Geliştir" (aynı depo üzerinde artımlı yeni run) açılır.
 
 ## Güvenlik
 

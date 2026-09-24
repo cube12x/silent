@@ -125,6 +125,10 @@ pub struct CliRunRequest {
     /// Wall-clock limit for this run; the host clamps and applies it (default 40 min).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// JSON Schema the final answer must match. Codex gets `--output-schema <file>`, Claude
+    /// `--json-schema <json>`; other CLIs get the schema prepended to the prompt.
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
 }
 
 impl CliRunRequest {
@@ -148,10 +152,54 @@ impl CliRunRequest {
     pub fn effort(&self) -> Option<&str> {
         self.effort.as_deref().filter(|e| !e.trim().is_empty())
     }
+    pub fn schema(&self) -> Option<&serde_json::Value> {
+        self.output_schema.as_ref().filter(|v| v.is_object())
+    }
 
-    /// Prompt with the soft guardrails a CLI cannot enforce natively (read-only, review).
+    /// Where the Codex `--output-schema` file for this run lives (deterministic per run id).
+    pub fn schema_file_path(&self) -> std::path::PathBuf {
+        let safe: String = self
+            .run_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        std::env::temp_dir().join(format!("silent-schema-{safe}.json"))
+    }
+
+    /// Prompt prefix for CLIs without native structured output.
+    fn schema_prefix(&self) -> Option<String> {
+        self.schema().map(|s| {
+            format!(
+                "Answer ONLY with a JSON object matching this schema:\n{}\n",
+                serde_json::to_string(s).unwrap_or_default()
+            )
+        })
+    }
+
+    /// Prompt with the soft guardrails a CLI cannot enforce natively (read-only, review) and,
+    /// for CLIs without a native schema flag, the output-schema instruction.
     pub fn prompt_with_brief(&self, has_read_only_flag: bool) -> String {
+        self.prompt_with_brief_schema(has_read_only_flag, false)
+    }
+
+    /// Same as `prompt_with_brief`; `native_schema` = the adapter passes the schema as a flag.
+    pub fn prompt_with_brief_schema(
+        &self,
+        has_read_only_flag: bool,
+        native_schema: bool,
+    ) -> String {
         let mut out = String::new();
+        if !native_schema {
+            if let Some(prefix) = self.schema_prefix() {
+                out.push_str(&prefix);
+            }
+        }
         if self.is_review() {
             out.push_str("Review the current changes in this repository. Do not modify files. ");
         }
@@ -267,6 +315,7 @@ pub(crate) fn req(provider: ProviderId) -> CliRunRequest {
         review: None,
         effort: None,
         timeout_secs: None,
+        output_schema: None,
     }
 }
 

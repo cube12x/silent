@@ -13,6 +13,7 @@ export interface CreateAgentInput {
   fallbackModelRefs?: string[]
   gatewayPrompt: string
   permissions?: Partial<AgentPermissions>
+  sourceRunId?: string
 }
 
 interface AgentsState {
@@ -47,6 +48,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
       permissions: { ...DEFAULT_PERMISSIONS, ...profile.permissions, ...input.permissions, gitPush: false },
       toolsEnabled: ["shell", "git", "tests", "file-edit", "search"],
       memoryCount: 0,
+      sourceRunId: input.sourceRunId,
       status: "idle",
       lastActions: [],
       createdAt: now,

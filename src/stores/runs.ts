@@ -1,15 +1,19 @@
 import { create } from "zustand"
-import type { CostMode, ExecutionMode, RunStatus, SilentCodeRun, Subtask, TerminalLine } from "@/domain"
+import type { CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine } from "@/domain"
+import { modelRef } from "@/domain"
 import { EventBus, type RunEvent } from "@/engine/events"
 import { Executor } from "@/engine/executor"
 import { planSubtasks } from "@/engine/planner"
 import { routeSubtasks } from "@/engine/router"
 import { estimateRun } from "@/engine/estimate"
 import { renderGatewayBrief } from "@/engine/gateway"
-import { CliWorker } from "@/engine/workers/CliWorker"
+import { effectivePolicy } from "@/engine/policy"
+import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/aiPlanner"
+import type { AiPlan } from "@/engine/planSchema"
+import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
 import { getBackend } from "@/services"
 import { newId } from "@/lib/ids"
-import { modelRef } from "@/domain"
+import { useI18nStore } from "@/i18n"
 import { useAgentsStore } from "./agents"
 import { useProvidersStore } from "./providers"
 import { useSettingsStore } from "./settings"
@@ -22,20 +26,39 @@ export interface DraftInput {
   costMode: CostMode
   repoAgentId?: string
   repoPath?: string
+  /** Develop mode: the run being continued. */
+  parentRunId?: string
+  /** Planner questions with the user's answers (used on re-plan / start). */
+  answers?: Array<{ id: string; question: string; why?: string; answer?: string }>
+}
+
+export interface PlanResult {
+  run: SilentCodeRun
+  source: "ai" | "heuristic"
+  plan?: AiPlan
+  plannerModel?: string
+  error?: string
 }
 
 interface RunsState {
   runs: SilentCodeRun[]
   usage: Record<string, { tokens: number; costUsd: number }>
   executors: Record<string, Executor>
+  planning: boolean
   load(): Promise<void>
+  /** Heuristic plan (instant, used as fallback and for tests). */
   draft(input: DraftInput): SilentCodeRun
+  /** AI plan through a real CLI (read-only); falls back to the heuristic plan. */
+  plan(input: DraftInput): Promise<PlanResult>
   start(run: SilentCodeRun): Promise<void>
+  /** Answer a blocked subtask's question; its CLI session resumes. */
+  answer(runId: string, subtaskId: string, text: string): boolean
   cancel(runId: string): void
   remove(runId: string): Promise<void>
   loadTerminal(runId: string, subtaskId: string): Promise<void>
   byId(id: string | undefined): SilentCodeRun | undefined
   activeCount(): number
+  pendingQuestions(): Array<{ runId: string; subtaskId: string; question: string }>
 }
 
 function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
@@ -47,6 +70,8 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       return { ...run, status: e.status as RunStatus, finishedAt: e.status === "completed" || e.status === "failed" ? e.at : run.finishedAt }
     case "run.cancelled":
       return { ...run, status: "cancelled", finishedAt: e.at }
+    case "run.report":
+      return { ...run, report: e.report }
     case "subtask.state":
       return patch(e.subtaskId, (s) => ({ ...s, state: e.state, progress: e.progress ?? s.progress, lastUpdate: e.at }))
     case "subtask.assigned":
@@ -56,6 +81,14 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       return patch(e.subtaskId, (s) => ({ ...s, attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "failure", finishedAt: e.at, error: e.reason } : a)) }))
     case "subtask.summary":
       return patch(e.subtaskId, (s) => ({ ...s, summary: e.summary, attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "success", finishedAt: e.at } : a)) }))
+    case "subtask.question":
+      return patch(e.subtaskId, (s) => ({ ...s, question: e.question, state: "blocked", attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "failure", finishedAt: e.at, error: `question: ${e.question}` } : a)) }))
+    case "subtask.answered":
+      return patch(e.subtaskId, (s) => ({ ...s, question: undefined, answers: [...s.answers, e.answer] }))
+    case "subtask.deviations":
+      return patch(e.subtaskId, (s) => ({ ...s, deviations: e.deviations }))
+    case "subtask.session":
+      return patch(e.subtaskId, (s) => ({ ...s, attempts: s.attempts.map((a, i) => (i === s.attempts.length - 1 ? { ...a, sessionId: e.sessionId } : a)) }))
     case "worker.command":
       return patch(e.subtaskId, (s) => ({ ...s, commands: [...s.commands, e.command] }))
     case "worker.file":
@@ -65,41 +98,114 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
   }
 }
 
+/** Route a plan and wrap it into a run; applies manual policy pins (model/effort/timeout per kind). */
+function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: RepoAgent | undefined): SilentCodeRun {
+  const settings = useSettingsStore.getState().settings
+  const models = useProvidersStore.getState().availableModels()
+  const policy = effectivePolicy(settings, input.costMode)
+  const table = settings.routingPolicy.mode === "manual" ? settings.routingPolicy.table : {}
+  const overrides = { ...settings.routingOverrides }
+  for (const s of plan) {
+    const row = table[s.kind]
+    if (row?.modelRef && input.pool.includes(row.modelRef)) overrides[s.kind] = row.modelRef
+    if (row?.effort && !s.effort) s.effort = row.effort
+    if (row?.timeoutMin && !s.timeoutSecs) s.timeoutSecs = row.timeoutMin * 60
+  }
+  const routing = routeSubtasks({ subtasks: plan, pool: input.pool, models, costMode: input.costMode, overrides, policy, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined })
+  const title = plan[0]?.title.replace(/^Architecture & task decomposition for /, "") ?? input.prompt
+  return {
+    id,
+    title: title.charAt(0).toUpperCase() + title.slice(1),
+    prompt: input.prompt,
+    repoAgentId: agent?.id,
+    repoPath: input.repoPath ?? agent?.repoPath,
+    modelPool: input.pool,
+    executionMode: input.executionMode,
+    costMode: input.costMode,
+    plan,
+    routing,
+    status: "planned",
+    estimate: estimateRun(plan, routing, input.executionMode),
+    createdAt: Date.now(),
+    parentRunId: input.parentRunId,
+    questions: input.answers,
+  }
+}
+
 export const useRunsStore = create<RunsState>((set, get) => ({
   runs: [],
   usage: {},
   executors: {},
+  planning: false,
+
   async load() {
     const backend = await getBackend()
     const runs = (await backend.db.runs.list()).map((r) =>
-      r.status === "running" ? { ...r, status: "cancelled" as const, finishedAt: r.finishedAt ?? Date.now(), plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const, summary: s.summary ?? "interrupted" })) } : r,
+      r.status === "running"
+        ? { ...r, status: "cancelled" as const, finishedAt: r.finishedAt ?? Date.now(), plan: r.plan.map((s) => (s.state === "completed" || s.state === "failed" ? s : { ...s, state: "failed" as const, summary: s.summary ?? "interrupted" })) }
+        : r,
     )
-    set({ runs: runs.sort((a, b) => b.createdAt - a.createdAt) })
+    set({ runs: runs.map((r) => ({ ...r, plan: r.plan.map((s) => ({ ...s, answers: s.answers ?? [], deviations: s.deviations ?? [] })) })).sort((a, b) => b.createdAt - a.createdAt) })
   },
+
   draft(input) {
     const agent = useAgentsStore.getState().byId(input.repoAgentId)
     const id = newId("run")
     const plan = planSubtasks({ prompt: input.prompt, repoPath: input.repoPath ?? agent?.repoPath, focusKinds: agent?.gatewayProfile.focusKinds }, id)
-    const settings = useSettingsStore.getState().settings
-    const models = useProvidersStore.getState().availableModels()
-    const routing = routeSubtasks({ subtasks: plan, pool: input.pool, models, costMode: input.costMode, overrides: settings.routingOverrides, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined })
-    const title = plan[0]?.title.replace(/^Architecture & task decomposition for /, "") ?? input.prompt
-    return {
-      id,
-      title: title.charAt(0).toUpperCase() + title.slice(1),
-      prompt: input.prompt,
-      repoAgentId: agent?.id,
-      repoPath: input.repoPath ?? agent?.repoPath,
-      modelPool: input.pool,
-      executionMode: input.executionMode,
-      costMode: input.costMode,
-      plan,
-      routing,
-      status: "planned",
-      estimate: estimateRun(plan, routing, input.executionMode),
-      createdAt: Date.now(),
+    return { ...finishDraft(id, plan, input, agent), planSource: "heuristic" }
+  },
+
+  async plan(input) {
+    set({ planning: true })
+    try {
+      const backend = await getBackend()
+      const agent = useAgentsStore.getState().byId(input.repoAgentId)
+      const settings = useSettingsStore.getState().settings
+      const all = useProvidersStore.getState().availableModels()
+      const models = all.filter((m) => input.pool.includes(modelRef(m.providerId, m.id)))
+      const plannerModel = pickPlannerModel(models.length ? models : all)
+      const heuristic = get().draft(input)
+      if (!plannerModel) return { run: heuristic, source: "heuristic", error: "no model" }
+      const repoPath = input.repoPath ?? agent?.repoPath
+      let repoSummary: string | undefined
+      if (repoPath) {
+        try {
+          const info = await backend.repoInspect(repoPath)
+          repoSummary = `${info.name} at ${info.path}${info.isGitRepo ? ` (git, branch ${info.branch ?? "?"})` : " (not a git repo)"}, ${info.fileCount ?? "?"} files, languages: ${info.languages.join(", ") || "unknown"}. You may read files there.`
+        } catch {
+          repoSummary = `${repoPath} (could not inspect)`
+        }
+      }
+      const parent = get().byId(input.parentRunId)
+      try {
+        const res = await requestAiPlan(
+          backend,
+          {
+            prompt: input.prompt,
+            repoPath,
+            repoSummary,
+            gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined,
+            models,
+            policy: effectivePolicy(settings, input.costMode),
+            previous: parent ? { title: parent.title, summaries: parent.plan.map((s) => s.summary).filter((x): x is string => Boolean(x)), deviations: parent.plan.flatMap((s) => s.deviations) } : undefined,
+            answers: input.answers?.filter((a) => a.answer).map((a) => ({ question: a.question, answer: a.answer! })),
+            language: useI18nStore.getState().language,
+          },
+          plannerModel,
+        )
+        const id = newId("run")
+        const run = finishDraft(id, subtasksFromAiPlan(res.plan, id), input, agent)
+        const questions = res.plan.questions.map((q) => ({ id: q.id, question: q.question, why: q.why, answer: input.answers?.find((a) => a.question === q.question)?.answer }))
+        return { run: { ...run, planSource: "ai", questions: questions.length ? questions : input.answers }, source: "ai", plan: res.plan, plannerModel: modelRef(plannerModel.providerId, plannerModel.id) }
+      } catch (err) {
+        console.warn("AI planner failed, using heuristic plan", err)
+        return { run: heuristic, source: "heuristic", error: err instanceof Error ? err.message : String(err), plannerModel: modelRef(plannerModel.providerId, plannerModel.id) }
+      }
+    } finally {
+      set({ planning: false })
     }
   },
+
   async start(run) {
     const backend = await getBackend()
     const agent = useAgentsStore.getState().byId(run.repoAgentId)
@@ -113,7 +219,6 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     await backend.db.runs.upsert(started)
     if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true })
 
-    // Terminal lines: in-memory via the throttled terminal store; to SQLite in one batched insert every 3 s.
     const pending: Record<string, TerminalLine[]> = {}
     const keep = useSettingsStore.getState().settings.logs.keepTerminalLines || 2000
     const flush = () => {
@@ -136,6 +241,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ usage: { ...get().usage, [run.id]: { tokens: u.tokens + e.tokens, costUsd: u.costUsd + e.costUsd } } })
         return
       }
+      if (e.type === "subtask.fallback" && isModelRejected(e.reason)) useProvidersStore.getState().markUnavailable(e.fromModelId, e.reason)
       const current = get().runs.find((r) => r.id === run.id)
       if (!current) return
       const updated = applyEvent(current, e)
@@ -150,11 +256,15 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
         void backend.db.runs.upsert(final)
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
-      } else if (e.type === "subtask.state" && (e.state === "completed" || e.state === "failed")) {
+      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report") {
         void backend.db.runs.upsert(updated)
       }
     })
     void executor.start()
+  },
+
+  answer(runId, subtaskId, text) {
+    return get().executors[runId]?.answer(subtaskId, text) ?? false
   },
   cancel(runId) {
     get().executors[runId]?.cancel()
@@ -176,5 +286,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
   },
   activeCount() {
     return get().runs.filter((r) => r.status === "running").reduce((n, r) => n + r.plan.filter((s) => !["waiting", "completed", "failed", "blocked"].includes(s.state)).length, 0)
+  },
+  pendingQuestions() {
+    return Object.entries(get().executors).flatMap(([runId, ex]) => ex.pendingQuestions().map((q) => ({ runId, ...q })))
   },
 }))

@@ -1,5 +1,6 @@
 import type { SubtaskKind } from "./models"
-import type { CostMode } from "./runs"
+import type { CostMode, Effort } from "./runs"
+import type { ModelTier } from "./runtime"
 import type { AgentPermissions } from "./agents"
 import { DEFAULT_PERMISSIONS } from "./agents"
 import type { ProviderId } from "./runtime"
@@ -18,6 +19,8 @@ export interface Settings {
   fallbackModelRef: string
   costMode: CostMode
   routingOverrides: Partial<Record<SubtaskKind, string>>
+  /** Manual tier policy: when mode is "manual" the table replaces the built-in TARGET_TIER for routing and planning. */
+  routingPolicy: { mode: "auto" | "manual"; table: Partial<Record<SubtaskKind, { tier: ModelTier; modelRef?: string; effort?: Effort; timeoutMin?: number }>> }
   /** User-added model ids per CLI (e.g. a new Codex slug or a full Claude model name). */
   customModels: Partial<Record<ProviderId, CustomModel[]>>
   enabledProviders: Partial<Record<ProviderId, boolean>>
@@ -40,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fallbackModelRef: "",
   costMode: "balanced",
   routingOverrides: {},
+  routingPolicy: { mode: "auto", table: {} },
   customModels: {},
   enabledProviders: {},
   reducedMotion: false,

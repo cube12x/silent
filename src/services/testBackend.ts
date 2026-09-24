@@ -37,6 +37,15 @@ export class TestBackend implements Backend {
   }
   async openExternal() {}
   async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
+    if (this.preview && _request.runId.startsWith("plan:")) {
+      // Dev preview only: a canned planner reply so the Task→Plan→Start UI can be reviewed without a CLI.
+      const plan = { summary: "Preview plan", subtasks: [{ key: "a", kind: "backend", title: "Backend API", description: "Implement the endpoints.", dependsOn: [], weight: 2, tier: "strong", effort: "medium", rationale: "core work" }, { key: "b", kind: "frontend", title: "UI", description: "Build the screens.", dependsOn: ["a"], weight: 2, tier: "strong", effort: "medium", rationale: "depends on API" }, { key: "c", kind: "tests", title: "Tests", description: "Cover the API.", dependsOn: ["a"], weight: 1, tier: "fast", effort: "low", rationale: "mechanical" }], questions: [{ id: "q1", question: "Which content sources may be used?", why: "Licensing matters", options: ["Licensed only", "Any source"] }], assumptions: ["pnpm workspace"], excluded: ["algorithm"] }
+      queueMicrotask(() => {
+        onEvent({ type: "agentMessage", data: { text: JSON.stringify(plan) } })
+        onEvent({ type: "exited", data: { code: 0 } })
+      })
+      return { cancel: async () => {} }
+    }
     if (this.preview) throw new Error("Browser preview: CLIs only run inside the Silent desktop app.")
     let cancelled = false
     queueMicrotask(() => {

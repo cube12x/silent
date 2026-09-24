@@ -9,6 +9,7 @@ import { COST_MODES, PROVIDER_IDS, modelRef, type PermissionKey, type ProviderId
 import { PROVIDERS } from "@/providers/registry"
 import { TARGET_TIER } from "@/engine/router"
 import { effortFor, timeoutFor } from "@/engine/effort"
+import type { ModelTier, Effort } from "@/domain"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { getBackend } from "@/services"
@@ -182,13 +183,32 @@ export function SettingsScreen() {
                 <div className="flex flex-wrap gap-2">{COST_MODES.map((c) => <button key={c} type="button" onClick={() => void update({ costMode: c })} className={cn("rounded-lg border px-3 py-1.5 text-sm", settings.costMode === c ? "border-violet/50 bg-violet/[0.08]" : "border-line")}>{t(`code.costModes.${c}` as const)}</button>)}</div>
               </div>
               <div>
-                <div className="mb-2 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("settings.policy")}</div>
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">
+                  {t("settings.policy")}
+                  <div className="ml-auto flex rounded-sm border border-line text-[11px] normal-case tracking-normal">
+                    <button type="button" onClick={() => void update((s) => ({ ...s, routingPolicy: { ...s.routingPolicy, mode: "auto" } }))} className={cn("px-2 py-0.5", settings.routingPolicy.mode === "auto" ? "bg-text-1 text-black" : "text-text-2")}>{t("settings.policyAuto")}</button>
+                    <button type="button" onClick={() => void update((s) => ({ ...s, routingPolicy: { ...s.routingPolicy, mode: "manual" } }))} className={cn("px-2 py-0.5", settings.routingPolicy.mode === "manual" ? "bg-text-1 text-black" : "text-text-2")}>{t("settings.policyManual")}</button>
+                  </div>
+                </div>
+                {settings.routingPolicy.mode === "manual" && <div className="mb-2 text-[11px] text-text-3">{t("settings.policyManualHint")}</div>}
                 <table className="w-full text-[11px]">
-                  <thead><tr className="text-left text-text-3"><th className="py-1 font-medium">{t("settings.kind")}</th><th className="py-1 font-medium">tier</th><th className="py-1 font-medium">{t("code.effort")}</th><th className="py-1 font-medium">{t("code.timeoutMin")}</th></tr></thead>
+                  <thead><tr className="text-left text-text-3"><th className="py-1 font-medium">{t("settings.kind")}</th><th className="py-1 font-medium">tier</th><th className="py-1 font-medium">{t("settings.pinnedModel")}</th><th className="py-1 font-medium">{t("code.effort")}</th><th className="py-1 font-medium">{t("code.timeoutMin")}</th></tr></thead>
                   <tbody>
-                    {KINDS.map((k) => (
-                      <tr key={k} className="border-t border-line"><td className="py-1 text-text-1">{t(`code.kinds.${k}` as const)}</td><td className="py-1 text-text-2">{TARGET_TIER[settings.costMode][k]}</td><td className="py-1 text-text-2">{effortFor(k, settings.costMode)}</td><td className="mono py-1 text-text-2">{Math.round(timeoutFor(k, 2) / 60)}</td></tr>
-                    ))}
+                    {KINDS.map((k) => {
+                      const manual = settings.routingPolicy.mode === "manual"
+                      const row: { tier?: ModelTier; modelRef?: string; effort?: Effort; timeoutMin?: number } = settings.routingPolicy.table[k] ?? {}
+                      const tier = row.tier ?? TARGET_TIER[settings.costMode][k]
+                      const setRow = (patch: Partial<{ tier: ModelTier; modelRef?: string; effort?: Effort; timeoutMin?: number }>) => void update((s) => ({ ...s, routingPolicy: { ...s.routingPolicy, table: { ...s.routingPolicy.table, [k]: { tier, ...s.routingPolicy.table[k], ...patch } } } }))
+                      return (
+                        <tr key={k} className="border-t border-line">
+                          <td className="py-1 text-text-1">{t(`code.kinds.${k}` as const)}</td>
+                          <td className="py-1 text-text-2">{manual ? <Select value={tier} options={[{ value: "fast", label: "fast" }, { value: "strong", label: "strong" }, { value: "frontier", label: "frontier" }]} onChange={(v) => setRow({ tier: v })} className="h-7" /> : tier}</td>
+                          <td className="py-1 text-text-2">{manual ? <Select value={row.modelRef ?? ""} options={[{ value: "", label: t("settings.auto") }, ...modelOptions]} onChange={(v) => setRow({ modelRef: v || undefined })} className="h-7 max-w-[220px]" /> : "—"}</td>
+                          <td className="py-1 text-text-2">{manual ? <Select value={row.effort ?? effortFor(k, settings.costMode)} options={(["low", "medium", "high", "xhigh"] as Effort[]).map((e) => ({ value: e, label: e }))} onChange={(v) => setRow({ effort: v })} className="h-7" /> : effortFor(k, settings.costMode)}</td>
+                          <td className="mono py-1 text-text-2">{manual ? <input type="number" min={2} max={120} value={row.timeoutMin ?? Math.round(timeoutFor(k, 2) / 60)} onChange={(e) => setRow({ timeoutMin: Number(e.target.value) })} className="mono h-7 w-16 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px]" /> : Math.round(timeoutFor(k, 2) / 60)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

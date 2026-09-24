@@ -228,3 +228,28 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+    use crate::cli::req;
+    use serde_json::json;
+
+    #[test]
+    fn schema_is_prepended_to_the_prompt_when_no_native_flag() {
+        let mut r = req(crate::cli::ProviderId::Kimi);
+        r.output_schema = Some(json!({"type":"object"}));
+        let args = build_args(&r);
+        assert!(
+            args[1].starts_with(
+                "Answer ONLY with a JSON object matching this schema:\n{\"type\":\"object\"}\n"
+            ),
+            "{}",
+            args[1]
+        );
+        assert!(args[1].ends_with("do the thing"));
+        assert!(!args
+            .iter()
+            .any(|a| a.contains("--output-schema") || a.contains("--json-schema")));
+    }
+}

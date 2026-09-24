@@ -34,7 +34,7 @@ export function PlanEditor({ plan, routing, models, pool, costMode, manual, onCh
   const add = (kind: SubtaskKind) => {
     const id = newId("st")
     const last = plan.at(-1)
-    const s: Subtask = { id, runId: plan[0]?.runId ?? "draft", kind, title: `${kindLabels[kind]}`, description: "", dependsOn: last ? [last.id] : [], state: "waiting", attempts: [], files: [], commands: [], weight: 2, progress: 0, lastUpdate: 0 }
+    const s: Subtask = { id, runId: plan[0]?.runId ?? "draft", kind, title: `${kindLabels[kind]}`, description: "", dependsOn: last ? [last.id] : [], state: "waiting", attempts: [], files: [], commands: [], weight: 2, progress: 0, lastUpdate: 0, answers: [], deviations: [] }
     const first = poolModels[0]
     onChange({ plan: [...plan, s], routing: [...routing, { subtaskId: id, kind, primaryModelId: first ? modelRef(first.providerId, first.id) : "", fallbackModelIds: [], reason: "manual", score: 0 }] })
   }

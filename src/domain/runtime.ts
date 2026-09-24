@@ -41,6 +41,8 @@ export interface CliRunRequest {
   effort?: "low" | "medium" | "high" | "xhigh" | "max"
   /** Wall-clock limit for this CLI process; the runtime kills it and emits failed{code:"timeout"}. */
   timeoutSecs?: number
+  /** JSON Schema the final answer must satisfy (Codex --output-schema, Claude --json-schema). */
+  outputSchema?: Record<string, unknown>
 }
 
 export type ProviderId = "codex" | "claude" | "kimi" | "grok" | "gemini" | "qwen" | "opencode" | "copilot" | "cursor" | "amp"
