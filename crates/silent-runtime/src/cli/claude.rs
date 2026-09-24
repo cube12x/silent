@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::{generic, CliAdapter, CliRunRequest, ParseState, ProviderId};
+use super::{generic, CliAdapter, CliRunRequest, ParseState, ProviderId, SandboxMode};
 use crate::events::{
     classify_error, compact_call, content_text, str_field, tail, u64_at, FileChangeKind,
     RuntimeEvent, OUTPUT_TAIL_CHARS,
@@ -12,7 +12,7 @@ use crate::events::{
 pub struct Claude;
 
 /// `claude -p <prompt> --output-format stream-json --verbose --include-partial-messages
-/// --permission-prompts none --permission-mode acceptEdits [--model m] [--effort e]
+/// --permission-prompts none --permission-mode acceptEdits [--allowedTools Bash (workspace-write)] [--model m] [--effort e]
 /// [--resume id] [--add-dir cwd] [--no-session-persistence]`. Process cwd = req.cwd.
 /// Read-only is enforced by a prompt brief, never by `--permission-mode plan`: plan mode
 /// kept Claude reading the repository for the whole 30-minute budget in real runs.
@@ -34,6 +34,13 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         "--permission-mode".into(),
         "acceptEdits".into(),
     ];
+    // `acceptEdits` auto-approves file edits only; with `--permission-prompts none` every shell
+    // command would be DENIED (workers reported "all install and execution commands were denied",
+    // 2026-09-24). Writable tasks therefore pre-allow the Bash tool. Read-only tasks keep the default.
+    if req.sandbox == SandboxMode::WorkspaceWrite {
+        args.push("--allowedTools".into());
+        args.push("Bash".into());
+    }
     if let Some(model) = req.model() {
         args.push("--model".into());
         args.push(model.into());
@@ -298,6 +305,8 @@ mod tests {
                 "none",
                 "--permission-mode",
                 "acceptEdits",
+                "--allowedTools",
+                "Bash",
                 "--add-dir",
                 "/repo"
             ]

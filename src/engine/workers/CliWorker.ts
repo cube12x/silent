@@ -93,7 +93,7 @@ export class CliWorker implements Worker {
           const dev = text.match(/SILENT_DEVIATIONS:\s*([\s\S]*?)(?:\n\s*\n|$)/)
           if (dev) for (const line of dev[1].split("\n")) {
             const item = line.replace(/^\s*[-*•]\s*/, "").trim()
-            if (item && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) deviations.push(item)
+            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) deviations.push(item)
           }
           messages.push(text.replace(/SILENT_DEVIATIONS:[\s\S]*$/, "").replace(/SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)
