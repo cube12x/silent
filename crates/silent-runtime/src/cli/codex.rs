@@ -13,7 +13,29 @@ pub struct Codex;
 /// [-c model_reasoning_effort="e"] --skip-git-repo-check (resume <id> <prompt> | review [prompt] | <prompt>)`.
 /// Global flags precede `exec`; `exec` options precede its subcommand so clap attributes them to `exec`.
 /// `--ephemeral` is skipped when resuming because a resumed thread must persist.
+/// `service_tier = "..."` from the user's `~/.codex/config.toml`, if any. Workers ignore the rest of
+/// that file (plugins, MCP servers, notify hooks) but must keep the paid speed tier.
+pub fn user_service_tier() -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    let text =
+        std::fs::read_to_string(std::path::Path::new(&home).join(".codex/config.toml")).ok()?;
+    text.lines().find_map(|l| {
+        let l = l.trim();
+        let rest = l
+            .strip_prefix("service_tier")?
+            .trim_start()
+            .strip_prefix('=')?
+            .trim();
+        Some(rest.trim_matches('"').to_string()).filter(|v| !v.is_empty())
+    })
+}
+
 pub fn build_args(req: &CliRunRequest) -> Vec<String> {
+    build_args_with(req, user_service_tier().as_deref())
+}
+
+/// `service_tier` is injected so tests do not depend on the machine's config.
+pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "-a".into(),
         "never".into(),
@@ -28,6 +50,13 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     args.push("--json".into());
     args.push("--color".into());
     args.push("never".into());
+    // Isolate workers from the interactive setup: the user's plugins, MCP servers and notify hooks
+    // add ~4k tokens and seconds to every run (measured 2026-09-24). Auth still comes from CODEX_HOME.
+    args.push("--ignore-user-config".into());
+    if let Some(tier) = service_tier {
+        args.push("-c".into());
+        args.push(format!("service_tier=\"{tier}\""));
+    }
     // Structured output: Codex wants a schema *file*. `build_args` writes it to a per-run temp
     // path (see `CliRunRequest::schema_file_path`); the host removes it after the process exits.
     if let Some(schema) = req.schema() {
@@ -242,7 +271,7 @@ mod tests {
     #[test]
     fn new_chat_turn() {
         assert_eq!(
-            build_args(&req(ProviderId::Codex)),
+            build_args_with(&req(ProviderId::Codex), None),
             [
                 "-a",
                 "never",
@@ -254,6 +283,7 @@ mod tests {
                 "--json",
                 "--color",
                 "never",
+                "--ignore-user-config",
                 "--skip-git-repo-check",
                 "do the thing"
             ]
@@ -268,7 +298,7 @@ mod tests {
             ..req(ProviderId::Codex)
         };
         assert_eq!(
-            build_args(&r),
+            build_args_with(&r, None),
             [
                 "-a",
                 "never",
@@ -280,6 +310,7 @@ mod tests {
                 "--json",
                 "--color",
                 "never",
+                "--ignore-user-config",
                 "--skip-git-repo-check",
                 "resume",
                 "t-123",
@@ -299,7 +330,7 @@ mod tests {
             ..req(ProviderId::Codex)
         };
         assert_eq!(
-            build_args(&r),
+            build_args_with(&r, None),
             [
                 "-a",
                 "never",
@@ -309,6 +340,7 @@ mod tests {
                 "--json",
                 "--color",
                 "never",
+                "--ignore-user-config",
                 "--ephemeral",
                 "-m",
                 "gpt-6-astra",
@@ -326,14 +358,17 @@ mod tests {
             review: Some(true),
             ..req(ProviderId::Codex)
         };
-        let args = build_args(&r);
+        let args = build_args_with(&r, None);
         assert_eq!(&args[args.len() - 2..], ["review", "do the thing"]);
         let r = CliRunRequest {
             review: Some(true),
             prompt: "  ".into(),
             ..req(ProviderId::Codex)
         };
-        assert_eq!(build_args(&r).last().map(String::as_str), Some("review"));
+        assert_eq!(
+            build_args_with(&r, None).last().map(String::as_str),
+            Some("review")
+        );
     }
 
     #[test]
@@ -464,7 +499,7 @@ mod schema_tests {
         let mut r = req(crate::cli::ProviderId::Codex);
         r.run_id = "run/with:odd chars".into();
         r.output_schema = Some(json!({"type":"object","properties":{"ok":{"type":"boolean"}}}));
-        let args = build_args(&r);
+        let args = build_args_with(&r, None);
         let exec = args.iter().position(|a| a == "exec").unwrap();
         let flag = args.iter().position(|a| a == "--output-schema").unwrap();
         assert!(flag > exec);
