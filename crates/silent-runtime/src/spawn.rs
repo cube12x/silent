@@ -23,7 +23,12 @@ pub struct SpawnConfig {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
+    /// Soft wall-clock limit: once exceeded, the process is stopped at the next quiet moment (no output for 90 s).
     pub timeout: Duration,
+    /// Kill regardless of activity when no output arrived for this long (hung CLI / stuck command).
+    pub idle_timeout: Duration,
+    /// Kill regardless of activity at `timeout * hard_factor` (a worker that never goes quiet).
+    pub hard_factor: u32,
     pub shutdown_grace: Duration,
     pub max_line_bytes: usize,
 }
@@ -35,6 +40,8 @@ impl SpawnConfig {
             args,
             cwd: None,
             timeout: Duration::from_secs(30 * 60),
+            idle_timeout: Duration::from_secs(15 * 60),
+            hard_factor: 2,
             shutdown_grace: Duration::from_secs(3),
             max_line_bytes: 4 * 1024 * 1024,
         }
@@ -209,13 +216,20 @@ where
     // Track whether the CLI already reported a structured failure, and remember the last
     // error-looking stderr line so a silent non-zero exit can still be explained.
     let failed_emitted = Arc::new(AtomicBool::new(false));
+    let started = std::time::Instant::now();
+    // Millis since `started` of the last stdout/stderr line: a worker that is still talking is not killed
+    // at the soft limit (2026-09-24: a 40-min limit cut a Claude worker mid-command; the session resumed
+    // but the in-flight work was lost).
+    let last_output = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let last_error_line: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let out_sink = Arc::clone(&sink);
     let out_failed = Arc::clone(&failed_emitted);
+    let out_last = Arc::clone(&last_output);
     let max_line = config.max_line_bytes;
     let stdout_task = tokio::spawn(async move {
         pump_lines(stdout, max_line, |line| {
+            out_last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             for event in parser(&line) {
                 if matches!(event, RuntimeEvent::Failed { .. }) {
                     out_failed.store(true, Ordering::Relaxed);
@@ -227,8 +241,10 @@ where
     });
     let err_sink = Arc::clone(&sink);
     let err_last = Arc::clone(&last_error_line);
+    let err_last_out = Arc::clone(&last_output);
     let stderr_task = tokio::spawn(async move {
         pump_lines(stderr, max_line, |line| {
+            err_last_out.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             if !line.trim().is_empty() {
                 let lower = line.to_ascii_lowercase();
                 if lower.contains("error") || lower.contains("failed") || lower.contains("invalid")
@@ -243,22 +259,48 @@ where
         .await
     });
 
+    let hard = config.timeout.saturating_mul(config.hard_factor.max(1));
+    let quiet = Duration::from_secs(90).min(config.timeout / 2);
+    let tick = Duration::from_secs(5)
+        .min(config.timeout / 4)
+        .max(Duration::from_millis(50));
+    let watch_last = Arc::clone(&last_output);
+    let deadline = async move {
+        loop {
+            tokio::time::sleep(tick).await;
+            let elapsed = started.elapsed();
+            let idle =
+                elapsed.saturating_sub(Duration::from_millis(watch_last.load(Ordering::Relaxed)));
+            if idle >= config.idle_timeout {
+                return format!("no output for {} s", idle.as_secs());
+            }
+            if elapsed >= hard {
+                return format!("hard limit {} s", hard.as_secs());
+            }
+            if elapsed >= config.timeout && idle >= quiet {
+                return format!(
+                    "{} s limit reached, stopped at a quiet moment",
+                    config.timeout.as_secs()
+                );
+            }
+        }
+    };
     let exit = tokio::select! {
-        status = tokio::time::timeout(config.timeout, child.wait()) => match status {
-            Ok(Ok(status)) => RunExit::Exited(status.code()),
-            Ok(Err(error)) => {
+        status = child.wait() => match status {
+            Ok(status) => RunExit::Exited(status.code()),
+            Err(error) => {
                 sink(RuntimeEvent::Failed { code: "wait_failed".into(), message: error.to_string(), retryable: false });
                 RunExit::Exited(None)
             }
-            Err(_) => {
-                terminate(&mut child, config.shutdown_grace).await;
-                sink(RuntimeEvent::Failed {
-                    code: "timeout".into(),
-                    message: format!("process exceeded {} s timeout", config.timeout.as_secs()),
-                    retryable: false,
-                });
-                RunExit::TimedOut
-            }
+        },
+        reason = deadline => {
+            terminate(&mut child, config.shutdown_grace).await;
+            sink(RuntimeEvent::Failed {
+                code: "timeout".into(),
+                message: format!("process exceeded {} s timeout ({reason})", config.timeout.as_secs()),
+                retryable: false,
+            });
+            RunExit::TimedOut
         },
         _ = wait_for_cancel(&mut cancel) => {
             terminate(&mut child, config.shutdown_grace).await;
@@ -391,6 +433,36 @@ mod tests {
             matches!(events.iter().find(|e| matches!(e, RuntimeEvent::Failed { .. })), Some(RuntimeEvent::Failed { code, .. }) if code == "cancelled")
         );
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
+    }
+
+    #[tokio::test]
+    async fn active_process_outlives_soft_limit_until_hard_limit() {
+        let (events, sink) = collector();
+        let (_handle, rx) = RunHandle::new();
+        // Prints every 50 ms: never quiet, so the soft limit (400 ms) must not kill it; the hard limit (800 ms) must.
+        let mut config = SpawnConfig::new(
+            "/bin/sh",
+            vec![
+                "-c".into(),
+                "while true; do echo tick; sleep 0.05; done".into(),
+            ],
+        );
+        config.timeout = Duration::from_millis(400);
+        config.hard_factor = 2;
+        config.idle_timeout = Duration::from_secs(60);
+        config.shutdown_grace = Duration::from_secs(2);
+        let started = Instant::now();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx)
+            .await
+            .unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(exit, RunExit::TimedOut);
+        assert!(
+            elapsed >= Duration::from_millis(750),
+            "killed too early: {elapsed:?}"
+        );
+        let events = events.lock().unwrap().clone();
+        assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, .. } if code == "timeout" && message.contains("hard limit"))), "{events:?}");
     }
 
     #[tokio::test]
