@@ -12,6 +12,8 @@ export interface AiPlanSubtask {
   tier: ModelTier
   effort: Effort
   rationale: string
+  /** Must drive a real browser (Playwright, visual QA): routed to a CLI whose sandbox can launch one. */
+  needsBrowser: boolean
 }
 
 export interface AiPlanQuestion {
@@ -40,7 +42,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale"],
+        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale", "needsBrowser"],
         properties: {
           key: { type: "string" },
           kind: { type: "string", enum: [...SUBTASK_KINDS] },
@@ -51,6 +53,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
           tier: { type: "string", enum: ["fast", "strong", "frontier"] },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
           rationale: { type: "string" },
+          needsBrowser: { type: "boolean" },
         },
       },
     },
@@ -90,6 +93,7 @@ export function parseAiPlan(text: string): AiPlan | null {
           tier: (["fast", "strong", "frontier"].includes(String(s.tier)) ? s.tier : "strong") as ModelTier,
           effort: (["low", "medium", "high", "xhigh"].includes(String(s.effort)) ? s.effort : "medium") as Effort,
           rationale: String(s.rationale ?? ""),
+          needsBrowser: s.needsBrowser === true,
         }))
       if (!subtasks.length) continue
       return {

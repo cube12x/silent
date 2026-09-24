@@ -9,6 +9,8 @@ export interface ProviderCapabilities {
   readOnlySandbox: boolean
   /** Accepts a model flag. */
   modelFlag: boolean
+  /** Worker shell can launch a real browser (Playwright/Chromium). False for CLIs whose sandbox forbids it (Codex: mach-port check-in denied, verified 2026-09-24). */
+  browser: boolean
   /** Accepts an effort/reasoning flag. */
   effort: boolean
 }
@@ -48,7 +50,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "npm install -g @openai/codex",
     loginCommand: "codex login",
     docsUrl: "https://developers.openai.com/codex/cli",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: true, modelFlag: true, effort: true },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: true, modelFlag: true, effort: true, browser: false },
     parserMaturity: "verified",
     staticModels: [],
     color: "#39d2ff",
@@ -63,7 +65,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installNpm: "npm install -g @anthropic-ai/claude-code",
     loginCommand: "claude",
     docsUrl: "https://code.claude.com/docs/en/cli-reference",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true },
     parserMaturity: "verified",
     staticModels: [
       // Aliases resolve to the newest model of each line (verified 2026-09-24: opus → claude-opus-5-5).
@@ -89,7 +91,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installNpm: "npm install -g @kimi-code/cli",
     loginCommand: "kimi login",
     docsUrl: "https://moonshotai.github.io/kimi-code/",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "verified",
     staticModels: [],
     color: "#7cf0c8",
@@ -105,7 +107,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installNpm: "npm install -g @xai-official/grok",
     loginCommand: "grok",
     docsUrl: "https://docs.x.ai/build/overview",
-    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [{ id: "grok-4.7", displayName: "Grok 4.7", tier: "frontier", isDefault: true }],
     color: "#e6eaf0",
@@ -121,7 +123,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "npm install -g @google/gemini-cli",
     loginCommand: "gemini",
     docsUrl: "https://github.com/google-gemini/gemini-cli",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [
       { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", tier: "frontier", isDefault: true },
@@ -139,7 +141,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "npm install -g @qwen-code/qwen-code",
     loginCommand: "qwen",
     docsUrl: "https://qwenlm.github.io/qwen-code-docs/",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [{ id: "qwen3-coder-plus", displayName: "Qwen3 Coder Plus", tier: "strong", isDefault: true }],
     color: "#b58cff",
@@ -154,7 +156,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "curl -fsSL https://opencode.ai/install | bash",
     loginCommand: "opencode auth login",
     docsUrl: "https://opencode.ai/docs/cli/",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [],
     color: "#f5b342",
@@ -170,7 +172,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "npm install -g @github/copilot",
     loginCommand: "copilot",
     docsUrl: "https://docs.github.com/en/copilot/reference/cli-command-reference",
-    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [],
     color: "#8bd5ff",
@@ -184,7 +186,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "curl https://cursor.com/install -fsS | bash",
     loginCommand: "agent login",
     docsUrl: "https://cursor.com/docs/cli/headless",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [],
     color: "#ff9ecb",
@@ -199,7 +201,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "npm install -g @ampcode/cli",
     loginCommand: "amp login",
     docsUrl: "https://ampcode.com/manual",
-    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: false, effort: false },
+    capabilities: { streamJson: true, resume: false, readOnlySandbox: false, modelFlag: false, effort: false, browser: true },
     parserMaturity: "beta",
     staticModels: [],
     color: "#ff6b6b",

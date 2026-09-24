@@ -26,6 +26,19 @@ describe("router (CLI models)", () => {
     }
   })
 
+  it("keeps browser-driving tasks off CLIs whose sandbox cannot launch a browser (Codex)", () => {
+    const tests = plan.filter((s) => s.kind === "tests").map((s) => ({ ...s, needsBrowser: true }))
+    expect(tests.length).toBeGreaterThan(0)
+    const routes = routeSubtasks({ subtasks: tests, pool: TEST_POOL, models: TEST_MODELS, costMode: "balanced" })
+    for (const r of routes) {
+      expect(r.primaryModelId.split(":")[0]).not.toBe("codex")
+      r.fallbackModelIds.forEach((f) => expect(f.split(":")[0]).not.toBe("codex"))
+    }
+    // Without the flag Codex stays eligible.
+    const plain = routeSubtasks({ subtasks: plan.filter((s) => s.kind === "tests"), pool: ["codex:gpt-5.5-mini"], models: TEST_MODELS, costMode: "balanced" })
+    expect(plain[0].primaryModelId).toBe("codex:gpt-5.5-mini")
+  })
+
   it("economy mode avoids frontier tiers when a cheaper capable model exists", () => {
     const routes = routeSubtasks({ subtasks: plan, pool: TEST_POOL, models: TEST_MODELS, costMode: "economy" })
     const docs = routes.find((r) => r.kind === "docs")

@@ -1,6 +1,7 @@
 import type { CostMode, ModelTier, ProviderModel, RoutingDecision, Subtask, SubtaskKind } from "@/domain"
 import { modelRef } from "@/domain"
 import { ModelIndex, TIER_RANK, capabilityOf } from "./capabilities"
+import { providerInfo } from "@/providers/registry"
 
 export interface RouteInput {
   subtasks: Subtask[]
@@ -51,7 +52,10 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
   const poolModels = input.pool.map((ref) => index.get(ref)).filter((m): m is ProviderModel => Boolean(m))
   return input.subtasks.map((subtask) => {
     const override = input.overrides?.[subtask.kind]
-    const ranked = poolModels
+    // A task that must drive a real browser cannot run inside a sandbox that forbids launching one.
+    const browserOk = poolModels.filter((m) => providerInfo(m.providerId).capabilities.browser)
+    const candidates = subtask.needsBrowser && browserOk.length ? browserOk : poolModels
+    const ranked = candidates
       .map((model) => {
         const ref = modelRef(model.providerId, model.id)
         let score = scoreModel(model, subtask.kind, input.costMode, subtask.tierHint ?? input.policy?.[subtask.kind])

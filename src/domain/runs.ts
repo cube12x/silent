@@ -77,6 +77,8 @@ export interface Subtask {
   /** AI planner hints. */
   tierHint?: "fast" | "strong" | "frontier"
   rationale?: string
+  /** Needs a real browser; the router avoids sandboxed CLIs that cannot launch one. */
+  needsBrowser?: boolean
   /** Worker asked the user something and is waiting (state = blocked). */
   question?: string
   answers: string[]
