@@ -38,6 +38,8 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "You are Silent's planner. Turn the user's request into the SMALLEST set of subtasks that real coding CLIs will execute one by one in this repository.",
     "Rules:",
     "- Produce ONLY subtasks that are genuinely needed for this request. Never add an 'algorithm', 'docs' or any other subtask just because it is common. If the user excluded something, do not include it and list it under `excluded`.",
+    "- Prefer FEW, LARGE subtasks (3–5 is typical, 7 is the maximum). Each CLI run costs minutes of startup and re-reading the repo, so do not split one coherent piece of work into several tasks.",
+    "- Set `dependsOn` ONLY when a task truly needs another task's output. Independent tasks run IN PARALLEL on different models — a long serial chain is the slowest possible plan.",
     "- Kinds: architecture (only for larger multi-part work), backend, frontend, algorithm, tests, review, integration, docs.",
     "- Each subtask: a concrete title, a precise description another engineer could execute, dependencies by key, weight 1-3, the model tier it deserves (fast for light/mechanical work, strong for normal implementation, frontier only for hard design/algorithms/critical review), and effort.",
     `- Available tiers in the user's pool: ${tiers.join(", ") || "strong"}. Default policy kind→tier: ${Object.entries(ctx.policy).map(([k, v]) => `${k}=${v}`).join(", ")}. Follow it unless the task clearly needs otherwise; explain in rationale.`,

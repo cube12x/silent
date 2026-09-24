@@ -24,6 +24,11 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         "stream-json".into(),
         "--verbose".into(),
         "--include-partial-messages".into(),
+        // Isolate the worker from the user's interactive setup: no hooks/plugins/LSP/auto-memory/CLAUDE.md
+        // discovery (`--bare`) and no user MCP servers (`--strict-mcp-config`). They slowed every worker
+        // start by minutes and burned quota (observer sessions, tool-heavy context).
+        "--bare".into(),
+        "--strict-mcp-config".into(),
         "--permission-prompts".into(),
         "none".into(),
         "--permission-mode".into(),
@@ -287,6 +292,8 @@ mod tests {
                 "stream-json",
                 "--verbose",
                 "--include-partial-messages",
+                "--bare",
+                "--strict-mcp-config",
                 "--permission-prompts",
                 "none",
                 "--permission-mode",
@@ -317,6 +324,8 @@ mod tests {
                 "stream-json",
                 "--verbose",
                 "--include-partial-messages",
+                "--bare",
+                "--strict-mcp-config",
                 "--permission-prompts",
                 "none",
                 "--permission-mode",
