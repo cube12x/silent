@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router"
 import { cn } from "cn"
-import { Bot, Check, FolderGit2, FolderOpen, MessageSquare, Play, Route, Sparkles, Square, Workflow, Zap, RotateCcw, Wallet, GitBranch, Loader2 } from "lucide-react"
+import { AlertTriangle, Bot, Check, FolderGit2, FolderOpen, MessageSquare, Play, Route, Sparkles, Square, Workflow, Zap, RotateCcw, Wallet, GitBranch, Loader2 } from "lucide-react"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useAgentsStore } from "@/stores/agents"
 import { useSettingsStore } from "@/stores/settings"
@@ -90,6 +90,7 @@ function Composer() {
     setEdit(null)
     setApproved(false)
     const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
+    if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
     const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa })
     setResult(res)
     if (!withAnswers) setAnswers({})
@@ -112,6 +113,13 @@ function Composer() {
 
       <div className={cn("grid gap-5", step === "task" ? "2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]" : "grid-cols-1")}>
         <div className={cn("flex flex-col gap-4", step !== "task" && "hidden")}>
+          {parent && !repoPath && (
+            <div className="flex flex-wrap items-center gap-3 rounded-sm border border-warn/50 bg-warn/5 px-4 py-3 text-xs text-warn">
+              <AlertTriangle className="size-4 shrink-0" />
+              <span className="flex-1">{t("code.parentNoFolder")}</span>
+              <button type="button" onClick={pickFolder} className="flex items-center gap-1 rounded-sm border border-warn/50 px-2 py-1 text-[11px] hover:bg-warn/10"><FolderOpen className="size-3" />{t("common.browse")}</button>
+            </div>
+          )}
           <GlowCard tone="cyan" className="flex flex-col gap-0 p-0">
             <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5 text-[10px] font-semibold tracking-[0.18em] text-text-2 uppercase">
               <Zap className="size-3" />{t("code.prompt")}
@@ -157,7 +165,11 @@ function Composer() {
         {step === "task" && (
           <GlowCard className="flex h-fit flex-col gap-3">
             <SectionHeader eyebrow={t("code.steps.plan")} title={t("code.makePlan")} description={t("code.autoHint")} />
-            <NeonButton size="lg" disabled={prompt.trim().length < 8 || !pool.length || planning || !repoPath} onClick={() => void makePlan(false)} className="h-11 w-full text-base">{planning ? <Loader2 className="animate-spin" /> : <Sparkles />}{planning ? t("code.planning") : t("code.makePlan")}</NeonButton>
+            {!repoPath ? (
+              <NeonButton size="lg" variant="outline" onClick={pickFolder} className="h-11 w-full text-base"><FolderOpen />{t("code.pickFolderFirst")}</NeonButton>
+            ) : (
+              <NeonButton size="lg" disabled={prompt.trim().length < 8 || !pool.length || planning} onClick={() => void makePlan(false)} className="h-11 w-full text-base">{planning ? <Loader2 className="animate-spin" /> : <Sparkles />}{planning ? t("code.planning") : t("code.makePlan")}</NeonButton>
+            )}
           </GlowCard>
         )}
 
@@ -265,6 +277,16 @@ function RunView({ runId }: { runId: string }) {
   const questions = run.plan.filter((s) => s.state === "blocked" && s.question)
   const existingChat = chats.find((c) => c.runId === run.id)
 
+  const attachFolder = async () => {
+
+    const backend = await getBackend()
+
+    const p = await backend.pickDirectory()
+
+    if (p) await useRunsStore.getState().attachRepo(run.id, p)
+
+  }
+
   const askProject = async () => {
     if (existingChat) return navigate(`/chat/${existingChat.id}`)
     const usedRefs = run.plan.map((s) => s.assignedModelId).filter((x): x is string => Boolean(x))
@@ -290,6 +312,7 @@ function RunView({ runId }: { runId: string }) {
             <NeonButton variant="outline" onClick={() => cancel(run.id)} className="border-danger/40 text-danger hover:border-danger hover:text-danger"><Square />{t("code.cancelRun")}</NeonButton>
           ) : (
             <>
+              {!run.repoPath && <NeonButton variant="outline" onClick={attachFolder} className="border-warn/50 text-warn hover:border-warn"><FolderOpen />{t("code.attachFolder")}</NeonButton>}
               <NeonButton variant="outline" onClick={askProject}><MessageSquare />{t("code.askProject")}</NeonButton>
               <NeonButton onClick={() => navigate(`/code?continue=${run.id}`)}><Zap />{t("code.develop")}</NeonButton>
             </>

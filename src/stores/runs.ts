@@ -56,6 +56,8 @@ interface RunsState {
   /** Answer a blocked subtask's question; its CLI session resumes. */
   answer(runId: string, subtaskId: string, text: string): boolean
   cancel(runId: string): void
+  /** Bind a working folder to an existing run (older runs may have none); persisted. */
+  attachRepo(runId: string, repoPath: string): Promise<void>
   remove(runId: string): Promise<void>
   loadTerminal(runId: string, subtaskId: string): Promise<void>
   byId(id: string | undefined): SilentCodeRun | undefined
@@ -155,6 +157,14 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     set({ runs: runs.map((r) => ({ ...r, plan: r.plan.map((s) => ({ ...s, answers: s.answers ?? [], deviations: s.deviations ?? [] })) })).sort((a, b) => b.createdAt - a.createdAt) })
   },
 
+  async attachRepo(runId, repoPath) {
+    const run = get().byId(runId)
+    if (!run || !repoPath) return
+    const updated = { ...run, repoPath }
+    set({ runs: get().runs.map((r) => (r.id === runId ? updated : r)) })
+    const backend = await getBackend()
+    await backend.db.runs.upsert(updated)
+  },
   draft(input) {
     const agent = useAgentsStore.getState().byId(input.repoAgentId)
     const id = newId("run")
