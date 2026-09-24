@@ -4,7 +4,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
 import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, Backend, KvStore, Repositories, RunHandle } from "./backend"
+import type { AppInfo, Backend, KvStore, LauncherStatus, Repositories, RunHandle } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -56,6 +56,14 @@ export class TauriBackend implements Backend {
 
   providerLogin(providerId: ProviderId): Promise<void> {
     return invoke<void>("provider_login", { providerId })
+  }
+
+  cliLauncherStatus(): Promise<LauncherStatus> {
+    return invoke<LauncherStatus>("cli_launcher_status")
+  }
+
+  installCliLauncher(): Promise<LauncherStatus> {
+    return invoke<LauncherStatus>("install_cli_launcher")
   }
 
   repoInspect(path: string): Promise<RepoInfo> {

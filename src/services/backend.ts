@@ -6,6 +6,13 @@ export interface AppInfo {
   platform: string
 }
 
+export interface LauncherStatus {
+  installed: boolean
+  path: string
+  appPath: string
+  onPath: boolean
+}
+
 export interface RunHandle {
   cancel(): Promise<void>
 }
@@ -35,6 +42,8 @@ export interface Backend {
   providerModels(providerId: ProviderId): Promise<ProviderModel[]>
   providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   providerLogin(providerId: ProviderId): Promise<void>
+  cliLauncherStatus(): Promise<LauncherStatus>
+  installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
   openExternal(url: string): Promise<void>

@@ -13,6 +13,7 @@ import type { ModelTier, Effort } from "@/domain"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { getBackend } from "@/services"
+import type { LauncherStatus } from "@/services/backend"
 import { formatRelative } from "@/lib/format"
 import { useT } from "@/i18n"
 
@@ -68,6 +69,32 @@ function CliCard({ id }: { id: ProviderId }) {
   )
 }
 
+function LauncherCard() {
+  const t = useT()
+  const [status, setStatus] = React.useState<LauncherStatus | null>(null)
+  const [busy, setBusy] = React.useState(false)
+  React.useEffect(() => {
+    void getBackend().then((b) => b.cliLauncherStatus()).then(setStatus).catch(() => setStatus(null))
+  }, [])
+  const install = async () => {
+    setBusy(true)
+    try {
+      const b = await getBackend()
+      setStatus(await b.installCliLauncher())
+    } finally {
+      setBusy(false)
+    }
+  }
+  const dir = status?.path.replace(/\/silent$/, "") ?? ""
+  return (
+    <GlowCard className="flex flex-col gap-2">
+      <SectionHeader eyebrow={t("common.cli")} title={t("settings.launcherTitle")} description={t("settings.launcherHint")} actions={<NeonButton size="sm" variant={status?.installed ? "outline" : "default"} disabled={busy || !status} onClick={install}>{t("settings.launcherInstall")}</NeonButton>} />
+      {status?.installed && <div className="mono text-[11px] text-text-2">{t("settings.launcherInstalled", { path: status.path })}</div>}
+      {status && !status.onPath && <div className="mono text-[11px] text-warn">{t("settings.launcherNotOnPath", { dir })}</div>}
+    </GlowCard>
+  )
+}
+
 export function SettingsScreen() {
   const t = useT()
   const settings = useSettingsStore((s) => s.settings)
@@ -109,6 +136,7 @@ export function SettingsScreen() {
               {lastError && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{t("settings.detectError", { error: lastError })}</div>}
               {installedIds.length === 0 && !lastError && <div className="text-[11px] text-text-3">{t("settings.alreadyInstalledHint")}</div>}
               <div className="grid gap-3 md:grid-cols-2">{installedIds.map((id) => <CliCard key={id} id={id} />)}</div>
+              <LauncherCard />
               {missingIds.length > 0 && (
                 <>
                   <SectionHeader eyebrow={t("common.notInstalled")} title={`${missingIds.length}`} />

@@ -63,6 +63,8 @@ pub fn run() {
             commands::cli::cli_run_cancel,
             commands::cli::provider_install,
             commands::cli::provider_login,
+            commands::launcher::cli_launcher_status,
+            commands::launcher::install_cli_launcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Silent");

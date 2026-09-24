@@ -29,6 +29,12 @@ export class TestBackend implements Backend {
     return { cancel: async () => {} }
   }
   async providerLogin() {}
+  async cliLauncherStatus() {
+    return { installed: false, path: "/opt/homebrew/bin/silent", appPath: "/Applications/Silent.app", onPath: true }
+  }
+  async installCliLauncher() {
+    return { installed: true, path: "/opt/homebrew/bin/silent", appPath: "/Applications/Silent.app", onPath: true }
+  }
   async repoInspect(path: string): Promise<RepoInfo> {
     return { path, exists: true, isGitRepo: true, name: path.split("/").pop() ?? path, branch: "main", fileCount: 1, languages: [] }
   }
