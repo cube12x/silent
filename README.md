@@ -62,4 +62,6 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 
 ## Güvenlik
 
+- **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.
+
 Onaylar her zaman kapalı (`-a never` / `--permission-prompts none`), sandbox tavanı workspace-write (Codex'te gerçek sandbox; diğerlerinde salt-okunur brief ile), gizli anahtarlar çıktıya ulaşmadan maskelenir, ham akıl yürütme metni gösterilmez. Git push varsayılan kapalı ve bir Gateway promptuyla asla açılamaz. Silent hiçbir kimlik bilgisi saklamaz; her CLI kendi girişini kullanır.

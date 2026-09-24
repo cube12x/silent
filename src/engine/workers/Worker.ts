@@ -10,6 +10,8 @@ export interface WorkerJob {
   brief: string
   repoPath?: string
   sandbox: "read-only" | "workspace-write"
+  /** Outbound network for the worker shell (installs). */
+  network: boolean
   effort: Effort
   timeoutSecs: number
   /** Resume this CLI session instead of starting a new one (continuation after a timeout). */

@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::{CliAdapter, CliRunRequest, ParseState, ProviderId};
+use super::{CliAdapter, CliRunRequest, ParseState, ProviderId, SandboxMode};
 use crate::events::{
     classify_error, str_field, tail, u64_at, FileChangeKind, RuntimeEvent, OUTPUT_TAIL_CHARS,
 };
@@ -42,6 +42,12 @@ pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<S
         "-s".into(),
         req.sandbox.as_flag().into(),
     ];
+    // Package installs and fetches need the network; Codex's workspace-write sandbox blocks it by default
+    // (verified 2026-09-24: `curl registry.npmjs.org` → "Could not resolve host" without, HTTP 200 with).
+    if req.network && req.sandbox == SandboxMode::WorkspaceWrite {
+        args.push("-c".into());
+        args.push("sandbox_workspace_write.network_access=true".into());
+    }
     if let Some(cwd) = req.cwd() {
         args.push("-C".into());
         args.push(cwd.into());
@@ -317,6 +323,41 @@ mod tests {
                 "do the thing"
             ]
         );
+    }
+
+    #[test]
+    fn network_flag_only_with_workspace_write() {
+        let r = CliRunRequest {
+            network: true,
+            sandbox: SandboxMode::WorkspaceWrite,
+            ..req(ProviderId::Codex)
+        };
+        let args = build_args_with(&r, None);
+        let pos = args
+            .iter()
+            .position(|a| a == "sandbox_workspace_write.network_access=true")
+            .expect("network flag");
+        assert_eq!(args[pos - 1], "-c");
+        assert!(
+            pos < args.iter().position(|a| a == "exec").unwrap(),
+            "must be a global -c before exec"
+        );
+        let ro = CliRunRequest {
+            network: true,
+            sandbox: SandboxMode::ReadOnly,
+            ..req(ProviderId::Codex)
+        };
+        assert!(!build_args_with(&ro, None)
+            .iter()
+            .any(|a| a.contains("network_access")));
+        let off = CliRunRequest {
+            network: false,
+            sandbox: SandboxMode::WorkspaceWrite,
+            ..req(ProviderId::Codex)
+        };
+        assert!(!build_args_with(&off, None)
+            .iter()
+            .any(|a| a.contains("network_access")));
     }
 
     #[test]

@@ -191,7 +191,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const brief = chat.gatewayProfile ? `${renderGatewayBrief(chat.gatewayProfile)}\n\n${content}` : content
       handle = await backend.cliStart(
-        { runId: `chat:${chatId}:${user.id}`, providerId: chat.providerId, modelId: chat.modelId || undefined, prompt: brief, cwd: chat.repoPath, sandbox, resumeSessionId: chat.sessionId, ephemeral: false },
+        { runId: `chat:${chatId}:${user.id}`, providerId: chat.providerId, modelId: chat.modelId || undefined, prompt: brief, cwd: chat.repoPath, sandbox, network: sandbox === "workspace-write", resumeSessionId: chat.sessionId, ephemeral: false },
         onEvent,
       )
       set({ streaming: { ...get().streaming, [chatId]: { cancel: () => void handle?.cancel() } } })

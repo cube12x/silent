@@ -114,6 +114,9 @@ pub struct CliRunRequest {
     pub cwd: Option<String>,
     #[serde(default)]
     pub sandbox: SandboxMode,
+    /// Outbound network inside the workspace-write sandbox (Codex: `sandbox_workspace_write.network_access`).
+    #[serde(default)]
+    pub network: bool,
     #[serde(default)]
     pub resume_session_id: Option<String>,
     #[serde(default)]
@@ -310,6 +313,7 @@ pub(crate) fn req(provider: ProviderId) -> CliRunRequest {
         prompt: "do the thing".into(),
         cwd: Some("/repo".into()),
         sandbox: SandboxMode::WorkspaceWrite,
+        network: false,
         resume_session_id: None,
         ephemeral: false,
         review: None,

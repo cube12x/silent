@@ -31,6 +31,8 @@ export interface CliRunRequest {
   prompt: string
   cwd?: string
   sandbox: SandboxMode
+  /** Outbound network for the worker's shell (package installs, fetches). Only meaningful with workspace-write; Codex enforces it, other CLIs do not sandbox the network. */
+  network?: boolean
   /** Resume a previous session of this CLI (Codex thread id, Claude/Kimi/Gemini session id…). */
   resumeSessionId?: string
   /** One-shot: do not persist a resumable session where the CLI supports it. */

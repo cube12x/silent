@@ -20,7 +20,7 @@ export const DEFAULT_PERMISSIONS: AgentPermissions = {
   terminal: true,
   gitCommit: false,
   gitPush: false,
-  network: false,
+  network: true,
   fileCreateDelete: true,
 }
 

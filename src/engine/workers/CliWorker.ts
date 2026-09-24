@@ -54,7 +54,7 @@ export class CliWorker implements Worker {
     }
 
     sink.state("planning", 2)
-    sink.log(`▶ ${providerId}${modelId ? ` · ${modelId}` : ""} · ${request.sandbox} · effort ${job.effort} · ${Math.round(job.timeoutSecs / 60)} min${job.resumeSessionId ? ` · resume ${job.resumeSessionId.slice(0, 8)}…` : ""}${request.cwd ? ` · ${request.cwd}` : ""}`, "system")
+    sink.log(`▶ ${providerId}${modelId ? ` · ${modelId}` : ""} · ${request.sandbox}${job.network ? "+net" : ""} · effort ${job.effort} · ${Math.round(job.timeoutSecs / 60)} min${job.resumeSessionId ? ` · resume ${job.resumeSessionId.slice(0, 8)}…` : ""}${request.cwd ? ` · ${request.cwd}` : ""}`, "system")
 
     const onEvent = (e: RuntimeEvent) => {
       switch (e.type) {

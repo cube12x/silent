@@ -14,6 +14,8 @@ export interface ExecutorOptions {
   /** Gateway brief prepended to every job. */
   gatewayBrief?: string
   sandbox?: "read-only" | "workspace-write"
+  /** Outbound network for worker shells (package installs). Default: on when the sandbox is workspace-write. */
+  network?: boolean
   now?: () => number
   /** Models the pool refs resolve to (for fallback/escalation and display). */
   models?: ProviderModel[]
@@ -267,6 +269,7 @@ export class Executor {
           : this.brief(subtask, modelId),
       repoPath: this.run.repoPath,
       sandbox: this.opts.sandbox ?? "workspace-write",
+      network: this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write",
       effort: subtask.effort ?? effortFor(subtask.kind, this.run.costMode, model?.tier),
       timeoutSecs: subtask.timeoutSecs ?? timeoutFor(subtask.kind, subtask.weight),
       resumeSessionId,
@@ -295,6 +298,7 @@ export class Executor {
       `Task: ${subtask.title}`,
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
+      (this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write") ? "Environment: the shell has outbound network access (package installs, git fetch and HTTP work)." : "Environment: the shell has NO network access. Do not attempt installs or downloads; if the task needs them, ask with SILENT_QUESTION.",
       "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing every point where you deviated from the request (or `SILENT_DEVIATIONS: none`).",
     ]
       .filter(Boolean)

@@ -229,7 +229,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const bus = new EventBus()
     const worker = new CliWorker(backend)
     const sandbox = agent && !agent.permissions.write ? "read-only" : "workspace-write"
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
+    const network = sandbox === "workspace-write" && (agent ? agent.permissions.network : true)
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
     const loadContext = async () => {
