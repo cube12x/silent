@@ -21,7 +21,7 @@ const sink: WorkerSink = { state() {}, log() {}, command() {}, file() {}, usage(
 function job(over: Partial<WorkerJob> = {}): WorkerJob {
   return {
     runId: "r1",
-    subtask: { id: "s1", runId: "r1", kind: "backend", title: "t", description: "d", dependsOn: [], state: "queued", attempts: [], files: [], commands: [], weight: 1, progress: 0, lastUpdate: 0, answers: [], deviations: [] },
+    subtask: { id: "s1", runId: "r1", kind: "backend", title: "t", description: "d", dependsOn: [], state: "waiting", attempts: [], files: [], commands: [], weight: 1, progress: 0, lastUpdate: 0, answers: [], deviations: [] },
     modelId: "codex:gpt-6-sol",
     attempt: 1,
     brief: "do it",
