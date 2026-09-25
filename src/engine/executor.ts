@@ -381,6 +381,19 @@ export class Executor {
       })
   }
 
+  /** Every worker sees the whole plan: sibling tasks, their state and their owned paths (prevents path drift between brief and plan). */
+  private planOverview(current: Subtask): string {
+    const rows = this.snapshot
+      .filter((s) => s.id !== current.id)
+      .map((s) => {
+        const owns = /Owns:\s*([^\n.]+(?:\.[^\n]*)?)/i.exec(s.description)?.[1]?.trim()
+        return `- [${s.state}] ${s.title}${owns ? ` — owns ${owns.slice(0, 160)}` : ""}`
+      })
+    if (!rows.length) return ""
+    const mine = /Owns:\s*([^\n]+)/i.exec(current.description)?.[1]?.trim()
+    return `Run plan (${this.snapshot.length} tasks; yours: "${current.title}"${mine ? `, owns ${mine.slice(0, 200)}` : ""}):\n${rows.join("\n")}\nUse these exact paths when you reference other modules (import paths, docs, briefs).`
+  }
+
   private brief(subtask: Subtask, modelId: string): string {
     const model = this.models.get(modelId)
     const upstream = subtask.dependsOn.map((d) => this.summaries.get(d)).filter(Boolean)
@@ -393,11 +406,13 @@ export class Executor {
       `Task: ${subtask.title}`,
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
+      this.planOverview(subtask),
       (this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write") ? "Environment: the shell has outbound network access (package installs, git fetch and HTTP work)." : "Environment: the shell has NO network access. Do not attempt installs or downloads; if the task needs them, ask with SILENT_QUESTION.",
       "Scratch files (bots, probes, screenshots): write them under <repo>/.silent/tmp/ (git-ignored) or the OS temp dir; writes elsewhere are denied.",
       "Editing: prefer your native file-edit tool (Codex: apply_patch; Claude: Edit/Write) over shell heredocs, so every changed file is tracked and reviewable.",
       "Shell notes: macOS — there is no `timeout` command (use `gtimeout` if present, or `perl -e 'alarm shift; exec @ARGV' 120 cmd…`); long-running servers must be started in the background and stopped before you finish.",
       providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
+      "Verification scope: other tasks may be editing their own paths right now, so the GLOBAL typecheck/test/build can be red for reasons outside your paths. Verify YOUR paths (filter tsc output to them, run the tests under your directories). Mention sibling breakage as a note, not as your deviation, and never fix files you do not own. The integration task runs the full suite at the end.",
       "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing every point where you deviated from the request (or `SILENT_DEVIATIONS: none`). (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
     ]
       .filter(Boolean)

@@ -170,4 +170,30 @@ describe("executor", () => {
     expect(worker.jobs.every((j) => j.brief.includes("SPEC TEXT") && j.brief.includes("KIT TEXT"))).toBe(true)
     expect(worker.jobs.filter((j) => j.subtask.title.startsWith("Fix:")).every((j) => j.modelId === "claude:opus")).toBe(true)
   })
+
+  it("every worker brief carries the run plan with sibling ownership and the verification-scope rule", async () => {
+    class BriefWorker implements Worker {
+      readonly id = "b"
+      briefs: string[] = []
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        this.briefs.push(job.brief)
+        sink.state("coding", 50)
+        return { done: Promise.resolve({ ok: true, summary: "ok" }), cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s, i) => ({ ...s, dependsOn: [], description: `Owns: src/mod${i}/**. ${s.description}` }))
+    const worker = new BriefWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    expect(worker.briefs.length).toBe(run.plan.length)
+    for (const b of worker.briefs) {
+      expect(b).toMatch(/Run plan \(\d+ tasks/)
+      expect(b).toMatch(/owns src\/mod\d+\/\*\*/)
+      expect(b).toMatch(/Verification scope:/)
+    }
+  })
 })
