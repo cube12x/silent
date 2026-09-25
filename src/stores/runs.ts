@@ -340,7 +340,21 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
       } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
         persist(updated)
-        if (e.type === "subtask.state" && e.state === "completed") void loadContext()
+        if (e.type === "subtask.state" && e.state === "completed") {
+          void loadContext()
+          const done = updated.plan.find((s) => s.id === e.subtaskId)
+          const since = done?.attempts[0]?.startedAt
+          if (done && !done.files.length && run.repoPath && since) {
+            void backend.changedFiles(run.repoPath, since).then((files) => {
+              if (!files.length) return
+              const cur = get().runs.find((r) => r.id === run.id)
+              if (!cur) return
+              const next = { ...cur, plan: cur.plan.map((s) => (s.id === done.id ? { ...s, files: files.slice(0, 200) } : s)) }
+              set({ runs: get().runs.map((r) => (r.id === run.id ? next : r)) })
+              persist(next)
+            }).catch(() => {})
+          }
+        }
       }
     })
     void executor.start()

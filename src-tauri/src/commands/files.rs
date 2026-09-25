@@ -47,3 +47,97 @@ mod tests {
         );
     }
 }
+
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    ".silent",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".cache",
+    "coverage",
+];
+
+fn walk_changed(
+    dir: &Path,
+    root: &Path,
+    since: std::time::SystemTime,
+    out: &mut Vec<String>,
+    budget: &mut usize,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if *budget == 0 {
+            return;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_dir() {
+            if SKIP_DIRS.contains(&name.as_str()) || (name.starts_with('.') && name != ".github") {
+                continue;
+            }
+            walk_changed(&path, root, since, out, budget);
+        } else if meta.is_file() {
+            *budget -= 1;
+            if meta.modified().map(|m| m >= since).unwrap_or(false) {
+                if let Ok(rel) = path.strip_prefix(root) {
+                    out.push(rel.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+}
+
+/// Files under `root` (excluding node_modules, .git, dist, …) modified at or after `since_ms` (Unix ms).
+/// Fallback for CLIs that edit through shell commands and therefore emit no file-change events.
+#[tauri::command]
+pub fn repo_changed_files(root: String, since_ms: u64) -> Result<Vec<String>, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_dir() {
+        return Err(format!("{root} is not a directory"));
+    }
+    let since = std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_ms);
+    let mut out = Vec::new();
+    let mut budget = 20_000usize;
+    walk_changed(&root_path, &root_path, since, &mut out, &mut budget);
+    out.sort();
+    out.truncate(500);
+    Ok(out)
+}
+
+#[cfg(test)]
+mod changed_tests {
+    use super::repo_changed_files;
+    #[test]
+    fn lists_only_recent_files_and_skips_node_modules() {
+        let dir = std::env::temp_dir().join(format!("silent-changed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/x")).unwrap();
+        std::fs::write(dir.join("src/old.ts"), "a").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        let f = std::fs::File::options()
+            .write(true)
+            .open(dir.join("src/old.ts"))
+            .unwrap();
+        f.set_modified(old).unwrap();
+        std::fs::write(dir.join("src/new.ts"), "b").unwrap();
+        std::fs::write(dir.join("node_modules/x/index.js"), "c").unwrap();
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            - 60_000;
+        let files = repo_changed_files(dir.to_string_lossy().into_owned(), since).unwrap();
+        assert_eq!(files, vec!["src/new.ts".to_string()]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

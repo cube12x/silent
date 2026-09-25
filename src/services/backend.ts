@@ -54,6 +54,8 @@ export interface Backend {
   confirm(message: string, title?: string): Promise<boolean>
   /** Text of `root/rel` (capped), or null when missing. */
   readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
+  /** Files under `root` modified at/after `sinceMs` (skips node_modules, .git, dist…); fallback when a CLI reports no file events. */
+  changedFiles(root: string, sinceMs: number): Promise<string[]>
   openExternal(url: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore

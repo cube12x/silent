@@ -7,6 +7,20 @@ export function isModelRejected(message: string): boolean {
   return /model.{0,40}(is not supported|not supported|unsupported|not available|unavailable|does not exist|unknown model|invalid model)|unsupported model|invalid_model|model_not_found/i.test(message)
 }
 
+/**
+ * Files a shell command obviously writes (`cat > path <<EOF`, `tee path`, `cp/mv … path`, `sed -i … path`).
+ * Codex often edits through the shell instead of apply_patch and then emits no file-change events.
+ */
+export function filesFromCommand(command: string): string[] {
+  const out = new Set<string>()
+  const clean = (p: string) => p.replace(/^['"]|['"]$/g, "").replace(/^\.\//, "")
+  for (const m of command.matchAll(/(?:^|[\s;|&('"])(?:cat|printf|echo)\b[^>]*>>?\s*(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
+  for (const m of command.matchAll(/\btee\s+(?:-a\s+)?(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
+  for (const m of command.matchAll(/\b(?:cp|mv)\s+(?:-[a-zA-Z]+\s+)*\S+\s+(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
+  for (const m of command.matchAll(/\bsed\s+-i[^\s]*\s+(?:'[^']*'|"[^"]*"|\S+)\s+(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
+  return [...out].filter((p) => p && !p.startsWith("/dev/") && !p.startsWith("/tmp/") && !p.startsWith("-") && /[./]/.test(p))
+}
+
 /** Minimal seam the worker needs from the host; `Backend` satisfies it. */
 export interface CliRunner {
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<{ cancel(): Promise<void> }>
@@ -73,6 +87,7 @@ export class CliWorker implements Worker {
         case "commandStarted":
           sink.state(/test|vitest|jest|pytest|cargo test|go test/.test(e.data.command) ? "testing" : "coding")
           sink.command(e.data.command)
+          for (const f of filesFromCommand(e.data.command)) sink.file(f)
           sink.log(`$ ${e.data.command}`)
           break
         case "commandCompleted":

@@ -42,6 +42,9 @@ export class TestBackend implements Backend {
     return null
   }
   projectFiles: Record<string, string> = {}
+  async changedFiles() {
+    return [] as string[]
+  }
   async syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>) {
     return refs.map((r) => ({ name: r.name, path: `${repoPath}/.silent/refs/${r.name}`, ok: true }))
   }

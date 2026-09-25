@@ -84,6 +84,10 @@ export class TauriBackend implements Backend {
     return invoke<Array<{ name: string; path: string; ok: boolean; error?: string }>>("refs_sync", { repoPath, refs })
   }
 
+  changedFiles(root: string, sinceMs: number): Promise<string[]> {
+    return invoke<string[]>("repo_changed_files", { root, sinceMs: Math.floor(sinceMs) })
+  }
+
   readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
   }
