@@ -64,6 +64,26 @@ pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<S
         args.push("-c".into());
         args.push("sandbox_workspace_write.network_access=true".into());
     }
+    // Package managers write their caches outside the repo (~/.npm, ~/.cache, ~/Library/Caches); the
+    // workspace-write sandbox denies that with a misleading "root-owned files" npm error (2026-09-25).
+    if req.sandbox == SandboxMode::WorkspaceWrite {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = std::path::PathBuf::from(home);
+            let roots = [
+                ".npm",
+                ".cache",
+                "Library/Caches",
+                ".cargo/registry",
+                ".bun/install/cache",
+            ]
+            .iter()
+            .map(|r| format!("\"{}\"", home.join(r).display()))
+            .collect::<Vec<_>>()
+            .join(",");
+            args.push("-c".into());
+            args.push(format!("sandbox_workspace_write.writable_roots=[{roots}]"));
+        }
+    }
     // Structured output: Codex wants a schema *file*. `build_args` writes it to a per-run temp
     // path (see `CliRunRequest::schema_file_path`); the host removes it after the process exits.
     if let Some(schema) = req.schema() {
@@ -324,6 +344,29 @@ mod tests {
                 "do the thing"
             ]
         );
+    }
+
+    #[test]
+    fn writable_cache_roots_only_with_workspace_write() {
+        let rw = CliRunRequest {
+            sandbox: SandboxMode::WorkspaceWrite,
+            ..req(ProviderId::Codex)
+        };
+        let args = build_args_with(&rw, None);
+        let pos = args
+            .iter()
+            .position(|a| a.starts_with("sandbox_workspace_write.writable_roots=["))
+            .expect("writable roots");
+        assert_eq!(args[pos - 1], "-c");
+        assert!(pos > args.iter().position(|a| a == "exec").unwrap());
+        assert!(args[pos].contains("/.npm\""));
+        let ro = CliRunRequest {
+            sandbox: SandboxMode::ReadOnly,
+            ..req(ProviderId::Codex)
+        };
+        assert!(!build_args_with(&ro, None)
+            .iter()
+            .any(|a| a.contains("writable_roots")));
     }
 
     #[test]
