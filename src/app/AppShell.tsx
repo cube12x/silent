@@ -25,9 +25,12 @@ export function AppShell() {
     const poll = async () => {
       try {
         const req = await (await getBackend()).autostartTake()
-        if (req && !stopped && req.prompt && req.folder) {
-          useRunsStore.setState({ autostart: req })
-          navigate(`/code?auto=${Date.now()}`)
+        if (req && !stopped) {
+          console.warn("[autostart] picked up", JSON.stringify({ folder: req.folder, promptLen: req.prompt?.length, kit: req.kit, cost: req.cost, polish: req.polish }))
+          if (req.prompt && req.folder) {
+            useRunsStore.setState({ autostart: req })
+            navigate(`/code?auto=${Date.now()}`)
+          }
         }
       } catch {
         /* dev backend has none */

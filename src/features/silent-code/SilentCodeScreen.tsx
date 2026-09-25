@@ -125,6 +125,7 @@ function Composer() {
   /** Terminal-triggered run: plan → approve → start, no clicks (questions from the planner stay unanswered). */
   const autoRun = (req: NonNullable<typeof autostart>) =>
     guard("silent run", async () => {
+      console.warn("[autostart] autoRun start", req.folder)
       setPrompt(req.prompt)
       setFolder(req.folder)
       setAgentId(undefined)
@@ -134,6 +135,7 @@ function Composer() {
       if (req.cost) setCostMode(cost)
       const kit = !req.kit || req.kit === "auto" ? detectKit(req.prompt) : kitById(req.kit)
       const res = await planWithAi({ prompt: req.prompt, pool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true })
+      console.warn("[autostart] planned", JSON.stringify({ source: res.source, error: res.error, subtasks: res.run.plan.length, questions: res.run.questions?.length ?? 0 }))
       setResult(res)
       setAnswers({})
       setStep("plan")
@@ -156,6 +158,7 @@ function Composer() {
   // carries `auto`, so the URL param must be a dependency too (2026-09-25: a queued run was lost this way).
   const autoParam = params.get("auto")
   React.useEffect(() => {
+    if (autostart) console.warn("[autostart] composer effect", JSON.stringify({ autoParam, hasParent: Boolean(parent) }))
     if (!autostart || !autoParam) return
     useRunsStore.setState({ autostart: undefined })
     const req = autostart
