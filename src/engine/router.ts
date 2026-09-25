@@ -87,14 +87,17 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
 }
 
 /** Next model to try after failures: remaining fallbacks, then escalation to a higher tier in the pool. */
-export function nextModel(decision: RoutingDecision, tried: string[], pool: string[], models: ProviderModel[]): { modelId: string; cause: "fallback" | "escalation" } | null {
-  const fb = decision.fallbackModelIds.find((id) => !tried.includes(id))
-  if (fb) return { modelId: fb, cause: "fallback" }
+export function nextModel(decision: RoutingDecision, tried: string[], pool: string[], models: ProviderModel[], needsBrowser = false): { modelId: string; cause: "fallback" | "escalation" } | null {
   const index = new ModelIndex(models)
+  // A browser-driving task must stay on CLIs whose sandbox can launch one (2026-09-25: a play-test task
+  // escalated to Codex after three Claude sessions and could not open Chromium).
+  const allowed = (ref: string) => !needsBrowser || providerInfo((index.get(ref)?.providerId ?? ref.split(":")[0]) as ProviderModel["providerId"]).capabilities.browser
+  const fb = decision.fallbackModelIds.find((id) => !tried.includes(id) && allowed(id))
+  if (fb) return { modelId: fb, cause: "fallback" }
   const highest = Math.max(-1, ...tried.map((ref) => TIER_RANK[index.get(ref)?.tier ?? "fast"]))
   const escalation = pool
     .map((ref) => ({ ref, model: index.get(ref) }))
-    .filter((x): x is { ref: string; model: ProviderModel } => Boolean(x.model) && !tried.includes(x.ref) && TIER_RANK[x.model!.tier] > highest)
+    .filter((x): x is { ref: string; model: ProviderModel } => Boolean(x.model) && !tried.includes(x.ref) && allowed(x.ref) && TIER_RANK[x.model!.tier] > highest)
     .sort((a, b) => TIER_RANK[b.model.tier] - TIER_RANK[a.model.tier])[0]
   return escalation ? { modelId: escalation.ref, cause: "escalation" } : null
 }

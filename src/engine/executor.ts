@@ -250,7 +250,7 @@ export class Executor {
       }
       if (this.cancelled) return
       tried.push(modelId)
-      const next = nextModel(decision, tried, this.run.modelPool, this.models.all())
+      const next = nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser))
       if (result.blocked) {
         // Unanswered after the question budget: leave it blocked so the user can still answer later.
         this.setState(subtask, "failed", subtask.progress, result.question)

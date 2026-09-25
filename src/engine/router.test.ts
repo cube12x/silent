@@ -57,4 +57,14 @@ describe("router (CLI models)", () => {
     expect(esc?.cause).toBe("escalation")
     expect(nextModel(decision, TEST_POOL, TEST_POOL, TEST_MODELS)).toBeNull()
   })
+
+  it("escalation and fallback of a browser task never leave browser-capable CLIs", () => {
+    const tests = plan.filter((s) => s.kind === "tests").map((s) => ({ ...s, needsBrowser: true }))
+    const [route] = routeSubtasks({ subtasks: tests, pool: ["claude:sonnet", "codex:gpt-6-astra"], models: TEST_MODELS, costMode: "balanced" })
+    expect(route.primaryModelId).toBe("claude:sonnet")
+    // Sonnet exhausted: Astra is the only higher tier left but cannot launch a browser → no escalation.
+    expect(nextModel(route, ["claude:sonnet"], ["claude:sonnet", "codex:gpt-6-astra"], TEST_MODELS, true)).toBeNull()
+    // Without the browser constraint the same call escalates to Astra.
+    expect(nextModel(route, ["claude:sonnet"], ["claude:sonnet", "codex:gpt-6-astra"], TEST_MODELS, false)?.modelId).toBe("codex:gpt-6-astra")
+  })
 })
