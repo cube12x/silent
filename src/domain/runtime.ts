@@ -47,9 +47,9 @@ export interface CliRunRequest {
   outputSchema?: Record<string, unknown>
 }
 
-export type ProviderId = "codex" | "claude" | "kimi" | "grok" | "gemini" | "qwen" | "opencode" | "copilot" | "cursor" | "amp"
+export type ProviderId = "codex" | "claude" | "kimi" | "grok" | "gemini" | "qwen" | "opencode" | "copilot" | "cursor" | "amp" | "antigravity"
 
-export const PROVIDER_IDS: readonly ProviderId[] = ["codex", "claude", "kimi", "grok", "gemini", "qwen", "opencode", "copilot", "cursor", "amp"] as const
+export const PROVIDER_IDS: readonly ProviderId[] = ["codex", "claude", "kimi", "grok", "gemini", "qwen", "opencode", "copilot", "cursor", "amp", "antigravity"] as const
 
 export interface DetectedProvider {
   id: ProviderId

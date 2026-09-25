@@ -3,6 +3,7 @@
 //! every adapter falls back to the generic JSONL parser, which in turn falls back to `Stdout`.
 
 pub mod amp;
+pub mod antigravity;
 pub mod claude;
 pub mod codex;
 pub mod copilot;
@@ -34,10 +35,11 @@ pub enum ProviderId {
     Copilot,
     Cursor,
     Amp,
+    Antigravity,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 10] = [
+    pub const ALL: [ProviderId; 11] = [
         ProviderId::Codex,
         ProviderId::Claude,
         ProviderId::Kimi,
@@ -48,6 +50,7 @@ impl ProviderId {
         ProviderId::Copilot,
         ProviderId::Cursor,
         ProviderId::Amp,
+        ProviderId::Antigravity,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -62,6 +65,7 @@ impl ProviderId {
             ProviderId::Copilot => "copilot",
             ProviderId::Cursor => "cursor",
             ProviderId::Amp => "amp",
+            ProviderId::Antigravity => "antigravity",
         }
     }
 }
@@ -296,6 +300,7 @@ pub fn adapter_for(id: ProviderId) -> Box<dyn CliAdapter> {
         ProviderId::Copilot => Box::new(copilot::Copilot),
         ProviderId::Cursor => Box::new(cursor::Cursor),
         ProviderId::Amp => Box::new(amp::Amp),
+        ProviderId::Antigravity => Box::new(antigravity::Antigravity),
     }
 }
 

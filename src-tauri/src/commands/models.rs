@@ -301,6 +301,33 @@ pub fn kimi_models() -> Vec<ProviderModel> {
 
 pub fn grok_models() -> Vec<ProviderModel> {
     let mut models = Vec::new();
+    // `grok models` writes ~/.grok/models_cache.json: {"models": {"<id>": {"info": {"name", "description", …}}}}
+    // (verified 2026-09-25, grok 1.0.41). It is the live catalog; config.toml only adds custom entries.
+    if let Some(raw) = home().and_then(|h| read(h.join(".grok/models_cache.json"))) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(map) = v.get("models").and_then(|m| m.as_object()) {
+                for (id, entry) in map {
+                    let info = entry.get("info").unwrap_or(entry);
+                    let display = info.get("name").and_then(|x| x.as_str()).unwrap_or(id);
+                    let desc = info
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("");
+                    let tier = if id.contains("fast") {
+                        "strong"
+                    } else if desc.to_ascii_lowercase().contains("frontier")
+                        || id.starts_with("grok-4.7")
+                        || id.starts_with("grok-4.6")
+                    {
+                        "frontier"
+                    } else {
+                        tier_from_name(id, true)
+                    };
+                    models.push(model(ProviderId::Grok, id, display, "catalog", tier));
+                }
+            }
+        }
+    }
     if let Some(raw) = home().and_then(|h| read(h.join(".grok/config.toml"))) {
         if let Ok(table) = raw.parse::<toml::Table>() {
             if let Some(entries) = table.get("models").and_then(|m| m.as_table()) {
@@ -383,9 +410,11 @@ pub async fn provider_models(provider_id: ProviderId) -> Result<Vec<ProviderMode
         ProviderId::Grok => grok_models(),
         ProviderId::Gemini => settings_model(ProviderId::Gemini, ".gemini/settings.json"),
         ProviderId::Qwen => settings_model(ProviderId::Qwen, ".qwen/settings.json"),
-        ProviderId::Opencode | ProviderId::Copilot | ProviderId::Cursor | ProviderId::Amp => {
-            Vec::new()
-        }
+        ProviderId::Antigravity
+        | ProviderId::Opencode
+        | ProviderId::Copilot
+        | ProviderId::Cursor
+        | ProviderId::Amp => Vec::new(),
     })
 }
 

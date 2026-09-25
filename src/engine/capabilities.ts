@@ -11,6 +11,7 @@ export const PROVIDER_CAPABILITY: Record<ProviderId, Record<SubtaskKind, number>
   kimi: { architecture: 0.8, backend: 0.84, frontend: 0.8, algorithm: 0.86, tests: 0.78, review: 0.78, integration: 0.78, docs: 0.76 },
   grok: { architecture: 0.84, backend: 0.8, frontend: 0.74, algorithm: 0.85, tests: 0.7, review: 0.72, integration: 0.72, docs: 0.66 },
   gemini: { architecture: 0.74, backend: 0.76, frontend: 0.78, algorithm: 0.72, tests: 0.9, review: 0.7, integration: 0.7, docs: 0.9 },
+  antigravity: { architecture: 0.74, backend: 0.76, frontend: 0.78, algorithm: 0.72, tests: 0.9, review: 0.7, integration: 0.7, docs: 0.9 },
   qwen: { architecture: 0.68, backend: 0.78, frontend: 0.74, algorithm: 0.74, tests: 0.76, review: 0.66, integration: 0.7, docs: 0.72 },
   opencode: { architecture: 0.72, backend: 0.78, frontend: 0.76, algorithm: 0.7, tests: 0.72, review: 0.7, integration: 0.74, docs: 0.7 },
   copilot: { architecture: 0.7, backend: 0.78, frontend: 0.8, algorithm: 0.66, tests: 0.76, review: 0.72, integration: 0.74, docs: 0.72 },

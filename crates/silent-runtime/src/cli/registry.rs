@@ -13,7 +13,7 @@ pub struct ProviderSpec {
     pub login_command: &'static str,
 }
 
-pub const SPECS: [ProviderSpec; 10] = [
+pub const SPECS: [ProviderSpec; 11] = [
     ProviderSpec {
         id: ProviderId::Codex,
         name: "Codex CLI",
@@ -103,6 +103,15 @@ pub const SPECS: [ProviderSpec; 10] = [
         install_script: Some("npm install -g @ampcode/cli"),
         install_npm: Some("npm install -g @ampcode/cli"),
         login_command: "amp login",
+    },
+    ProviderSpec {
+        id: ProviderId::Antigravity,
+        name: "Antigravity CLI",
+        binary: "agy",
+        alt_binaries: &[],
+        install_script: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+        install_npm: None,
+        login_command: "agy",
     },
 ];
 

@@ -23,6 +23,7 @@ function Mark({ provider }: { provider: ProviderId }) {
     case "grok":
       return <g {...s}><path d="M6 6l12 12" /><path d="M18 6l-5.2 5.2" /><path d="M6 18l4.2-4.2" /></g>
     case "gemini":
+    case "antigravity":
       return <path fill="currentColor" d="M12 3c.6 5 3.9 8.4 9 9-5.1.6-8.4 4-9 9-.6-5-3.9-8.4-9-9 5.1-.6 8.4-4 9-9z" />
     case "qwen":
       return <g {...s}><path d="M12 4l7 4v8l-7 4-7-4V8z" /><path d="M12 12l7-4M12 12v8M12 12L5 8" strokeWidth={1.4} /></g>
