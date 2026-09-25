@@ -31,6 +31,9 @@ pub struct SpawnConfig {
     pub hard_factor: u32,
     pub shutdown_grace: Duration,
     pub max_line_bytes: usize,
+    /// When set, every raw stdout line (and stderr, prefixed `!! `) is appended here (capped at 20 MB)
+    /// so parser gaps can be diagnosed from evidence instead of guesses.
+    pub raw_log: Option<PathBuf>,
 }
 
 impl SpawnConfig {
@@ -44,6 +47,7 @@ impl SpawnConfig {
             hard_factor: 2,
             shutdown_grace: Duration::from_secs(3),
             max_line_bytes: 4 * 1024 * 1024,
+            raw_log: None,
         }
     }
 }
@@ -114,6 +118,21 @@ async fn terminate(child: &mut Child, grace: Duration) {
     }
     let _ = child.start_kill();
     let _ = tokio::time::timeout(grace, child.wait()).await;
+}
+
+const RAW_LOG_CAP: usize = 20 * 1024 * 1024;
+
+/// Append one raw line to the optional per-run evidence file; silently stops at the size cap.
+fn raw_append(slot: &Arc<Mutex<Option<(std::fs::File, usize)>>>, line: &str, prefix: &str) {
+    use std::io::Write;
+    if let Ok(mut guard) = slot.lock() {
+        if let Some((file, written)) = guard.as_mut() {
+            if *written < RAW_LOG_CAP {
+                let _ = writeln!(file, "{prefix}{line}");
+                *written += line.len() + prefix.len() + 1;
+            }
+        }
+    }
 }
 
 async fn pump_lines<R, F>(reader: R, max_line_bytes: usize, mut on_line: F) -> RuntimeResult<()>
@@ -227,9 +246,22 @@ where
     let out_failed = Arc::clone(&failed_emitted);
     let out_last = Arc::clone(&last_output);
     let max_line = config.max_line_bytes;
+    let raw = Arc::new(Mutex::new(config.raw_log.as_ref().and_then(|p| {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+            .map(|f| (f, 0usize))
+    })));
+    let raw_out = Arc::clone(&raw);
     let stdout_task = tokio::spawn(async move {
         pump_lines(stdout, max_line, |line| {
             out_last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            raw_append(&raw_out, &line, "");
             for event in parser(&line) {
                 if matches!(event, RuntimeEvent::Failed { .. }) {
                     out_failed.store(true, Ordering::Relaxed);
@@ -241,10 +273,12 @@ where
     });
     let err_sink = Arc::clone(&sink);
     let err_last = Arc::clone(&last_error_line);
+    let raw_err = Arc::clone(&raw);
     let err_last_out = Arc::clone(&last_output);
     let stderr_task = tokio::spawn(async move {
         pump_lines(stderr, max_line, |line| {
             err_last_out.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            raw_append(&raw_err, &line, "!! ");
             if !line.trim().is_empty() {
                 let lower = line.to_ascii_lowercase();
                 if lower.contains("error") || lower.contains("failed") || lower.contains("invalid")

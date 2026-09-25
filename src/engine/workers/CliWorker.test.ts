@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CliRunRequest, RuntimeEvent } from "@/domain"
-import { CliWorker, type CliRunner } from "./CliWorker"
+import { CliWorker, isEnvironmentLimit, type CliRunner } from "./CliWorker"
 import type { WorkerJob, WorkerSink } from "./Worker"
 
 /** Captures the request the worker hands to the host and completes the run immediately. */
@@ -71,5 +71,24 @@ describe("CliWorker request shape", () => {
     expect(result.deviations).toEqual(["Kept tuning in a local file"])
     expect(result.notes).toEqual(["engine tests were red at the time (not mine)", "extended World with optional hook"])
     expect(result.summary).toBe("Built the enemies module.")
+  })
+
+  it("moves environment-limit deviations into notes", async () => {
+    expect(isEnvironmentLimit("Browser playthrough unavailable in this sandbox; pacing unverified.")).toBe(true)
+    expect(isEnvironmentLimit("Sandbox kısıtı nedeniyle tarayıcı doğrulaması yapılmadı.")).toBe(true)
+    expect(isEnvironmentLimit("Kept tuning in a local file instead of src/config/tuning.ts")).toBe(false)
+    expect(isEnvironmentLimit("Did not implement the gamepad rebinding UI")).toBe(false)
+    class R implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "done\n\nSILENT_DEVIATIONS:\n- Browser validation unavailable in this sandbox; no browser launch attempted.\n- Skipped the optional docs page" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const result = await new CliWorker(new R()).start(job(), sink).done
+    expect(result.deviations).toEqual(["Skipped the optional docs page"])
+    expect(result.notes).toEqual(["Browser validation unavailable in this sandbox; no browser launch attempted."])
   })
 })

@@ -21,6 +21,17 @@ export function filesFromCommand(command: string): string[] {
   return [...out].filter((p) => p && !p.startsWith("/dev/") && !p.startsWith("/tmp/") && !p.startsWith("-") && /[./]/.test(p))
 }
 
+/**
+ * A "deviation" that only restates an environment limit the worker was told about (no browser in the
+ * Codex sandbox, network/permission limits) is information, not a deviation from the request.
+ */
+export function isEnvironmentLimit(item: string): boolean {
+  const t = item.toLowerCase()
+  const limit = /(sandbox|browser|chromium|playwright|headless|network|permission|izin|tarayıcı|ağ)/.test(t)
+  const cannot = /(unavailable|not available|could not|couldn't|cannot|can't|unable|not attempted|prohibited|blocked|denied|restricted|skipped|deferred|yapılamadı|yapılmadı|başlatılamadı|engellendi|kısıt)/.test(t)
+  return limit && cannot
+}
+
 /** Minimal seam the worker needs from the host; `Backend` satisfies it. */
 export interface CliRunner {
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<{ cancel(): Promise<void> }>
@@ -115,7 +126,7 @@ export class CliWorker implements Worker {
           const dev = text.match(/SILENT_DEVIATIONS:\s*([\s\S]*?)(?:\n\s*\n|SILENT_NOTES:|$)/)
           if (dev) for (const line of dev[1].split("\n")) {
             const item = line.replace(/^\s*[-*•]\s*/, "").trim()
-            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) deviations.push(item)
+            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) (isEnvironmentLimit(item) ? notes : deviations).push(item)
           }
           messages.push(text.replace(/SILENT_(DEVIATIONS|NOTES):[\s\S]*$/, "").replace(/SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)

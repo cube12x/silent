@@ -123,6 +123,7 @@ export const tr = {
     reportPolish: "Cila puanı",
     reportOpen: "Cevaplanmamış sorular",
     reportNotes: "Notlar (bilgi, sapma değil)",
+    dev: { env: "ortam", undone: "yapılamadı", changed: "değişiklik" },
     reportNone: "yok",
     workerQuestion: "Çalışan soruyor",
     workerQuestionHint: "Cevabın aynı oturuma gönderilir; görev kaldığı yerden devam eder.",

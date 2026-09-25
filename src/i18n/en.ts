@@ -125,6 +125,7 @@ export const en: Dictionary = {
     reportPolish: "Polish score",
     reportOpen: "Unanswered questions",
     reportNotes: "Notes (information, not deviations)",
+    dev: { env: "environment", undone: "not done", changed: "changed" },
     reportNone: "none",
     workerQuestion: "Worker is asking",
     workerQuestionHint: "Your answer goes to the same session; the task continues where it stopped.",

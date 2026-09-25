@@ -134,6 +134,22 @@ pub async fn cli_run_start(
         .map(Into::into)
         .or_else(binaries::home);
     config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
+    // Raw JSONL evidence per run: ~/Library/Logs/com.silent.workstation/raw/<run id>.jsonl
+    config.raw_log = binaries::home().map(|h| {
+        let safe: String = request
+            .run_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        h.join("Library/Logs/com.silent.workstation/raw")
+            .join(format!("{safe}.jsonl"))
+    });
     let run_id = request.run_id.clone();
     // Codex's schema file was written by `build_args`; drop it once the run is over.
     let temp_files = if request.provider_id == ProviderId::Codex && request.schema().is_some() {
