@@ -49,6 +49,33 @@ export const BUILTIN_KITS: ExpertKit[] = [
     ],
   },
   {
+    id: "pixel-art-game",
+    name: { tr: "Pixel-art 2D oyun (web)", en: "Pixel-art 2D game (web)" },
+    keywords: ["oyun", "game", "platformer", "canvas", "webgl", "sprite", "boss", "combat", "savaş", "arcade", "roguelike", "pixel", "pixel art", "pixel-art", "pixelart", "8-bit", "8bit", "16-bit", "retro", "piksel"],
+    brief: [
+      "Expert kit: pixel-art web game. Everything in the 2D game kit applies (fixed timestep, juice, telegraphs, state machines, 60 fps, gamepad, save) PLUS pixel discipline:",
+      "Render to a small virtual canvas (320×180 or 480×270) and scale it to the window by an INTEGER factor with nearest-neighbour sampling (imageSmoothingEnabled=false, CSS image-rendering: pixelated), letterboxed; never draw at fractional coordinates (round positions; keep a sub-pixel camera in world space, snap on draw).",
+      "Use a fixed palette (16–32 colours, curated ramps per material) and stick to it; procedurally generate sprite sheets and animation frames as pixel arrays at load time (no external assets); outline/shade sprites consistently; screen-space effects at the same resolution: ordered (Bayer) dithering for gradients and fades, palette swaps for damage flashes and elemental states, chromatic split on big hits.",
+      "Pixel-perfect collision on tile grids; telegraph frames before enemy attacks; particles are pixels/small squares in palette colours; UI uses a small bitmap font drawn from a generated glyph sheet.",
+      "Process: study the references in .silent/refs first (LittleJS pixel renderer, kaplay sprites/animation, kontra sprite sheets and small-engine structure, ditherto for palettes and Bayer dithering) and reuse the proven patterns.",
+    ].join(" "),
+    checklist: [
+      "Integer-scaled virtual canvas with nearest-neighbour sampling; no blurry or fractional pixels",
+      "One consistent palette; sprites, particles and UI all use it",
+      "Sprite sheets and animation frames generated procedurally; every character has idle/run/attack/hurt frames",
+      "Dithering, palette swaps and flashes used for effects; hits have hit-stop, shake and pixel particles",
+      "Fixed-timestep loop; 60 fps on a mid laptop; keyboard and gamepad",
+      "Title/play/pause/results/game over/restart all work; save/continue works",
+      "npm run build passes; the built game opens and plays in a real browser",
+    ],
+    references: [
+      { name: "littlejs", url: "https://github.com/KilledByAPixel/LittleJS", hint: "Pixel-perfect 2D engine: engine loop, tile layers, particles, sound; examples/ has complete small games." },
+      { name: "kaplay", url: "https://github.com/kaplayjs/kaplay", hint: "Sprites, animation, scenes and state components; many small complete examples." },
+      { name: "kontra", url: "https://github.com/straker/kontra", hint: "Tiny engine: sprite sheets + animations, tile engine, pools, gamepad, examples/ with retro games." },
+      { name: "ditherto", url: "https://github.com/mindthealgorithm/ditherto", hint: "Palettes and ordered/Floyd–Steinberg dithering in TypeScript; integer nearest-neighbour resize." },
+    ],
+  },
+  {
     id: "web-app",
     name: { tr: "Web uygulaması (React / Next.js)", en: "Web app (React / Next.js)" },
     keywords: ["web app", "web uygulaması", "next", "react", "dashboard", "saas", "landing", "site", "frontend", "tailwind", "auth", "login"],

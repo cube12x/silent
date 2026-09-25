@@ -37,6 +37,7 @@ export function AgentWorkerCard({ subtask, onOpen, className, selected, now, kin
         <span className="flex items-center gap-1"><FileCode2 className="size-3" />{subtask.files.length}</span>
         <span className="flex items-center gap-1"><TerminalSquare className="size-3" />{subtask.commands.length}</span>
         {retries > 0 && <span className="flex items-center gap-1 text-warn"><RotateCcw className="size-3" />{retries}</span>}
+        {subtask.tokens ? <span className="mono" title="tokens">{subtask.tokens >= 1000 ? `${Math.round(subtask.tokens / 1000)}k` : subtask.tokens} tok</span> : null}
         <span className="ml-auto">{formatRelative(subtask.lastUpdate, now)}</span>
       </div>
     </GlowCard>

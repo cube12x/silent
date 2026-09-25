@@ -49,6 +49,7 @@ export class CliWorker implements Worker {
     const messages: string[] = []
     let question: string | undefined
     const deviations: string[] = []
+    const notes: string[] = []
     let failure: { message: string; retryable: boolean; timedOut: boolean } | undefined
     let resolveDone!: (r: WorkerResult) => void
     const done = new Promise<WorkerResult>((r) => (resolveDone = r))
@@ -106,12 +107,17 @@ export class CliWorker implements Worker {
           if (!text.trim()) break
           const q = text.match(/SILENT_QUESTION:\s*(.+)/)
           if (q) question = q[1].trim()
-          const dev = text.match(/SILENT_DEVIATIONS:\s*([\s\S]*?)(?:\n\s*\n|$)/)
+          const notesBlock = text.match(/SILENT_NOTES:\s*([\s\S]*?)(?:\n\s*\n|SILENT_DEVIATIONS:|$)/)
+          if (notesBlock) for (const line of notesBlock[1].split("\n")) {
+            const item = line.replace(/^\s*[-*•]\s*/, "").trim()
+            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri)\.?$/i.test(item)) notes.push(item)
+          }
+          const dev = text.match(/SILENT_DEVIATIONS:\s*([\s\S]*?)(?:\n\s*\n|SILENT_NOTES:|$)/)
           if (dev) for (const line of dev[1].split("\n")) {
             const item = line.replace(/^\s*[-*•]\s*/, "").trim()
             if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) deviations.push(item)
           }
-          messages.push(text.replace(/SILENT_DEVIATIONS:[\s\S]*$/, "").replace(/SILENT_QUESTION:.*$/m, "").trim())
+          messages.push(text.replace(/SILENT_(DEVIATIONS|NOTES):[\s\S]*$/, "").replace(/SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)
           sink.log(text)
           break
@@ -139,11 +145,11 @@ export class CliWorker implements Worker {
           break
         case "exited": {
           if (cancelled) return resolveDone({ ok: false, summary: "cancelled", error: "cancelled", retryable: false })
-          if (question) return resolveDone({ ok: false, blocked: true, question, summary: question, retryable: false, deviations })
-          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations })
+          if (question) return resolveDone({ ok: false, blocked: true, question, summary: question, retryable: false, deviations, notes })
+          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes })
           if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
-          resolveDone({ ok: true, summary, deviations })
+          resolveDone({ ok: true, summary, deviations, notes })
         }
       }
     }

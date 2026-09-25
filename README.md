@@ -66,6 +66,11 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 - **Uzman kiti** (`src/domain/kits.ts`): alana özel brief + kontrol listesi + referans depolar (2D oyun, web uygulaması, backend API, Tauri masaüstü, ML). İstekten otomatik seçilir ya da elle. Başlatırken referanslar `<repo>/.silent/refs/<ad>` altına shallow clone edilir (`refs_sync` komutu, `.gitignore`'a eklenir); worker'lara "önce bunları incele, kanıtlanmış kalıpları kullan" denir. Ek depolar composer'dan URL olarak verilebilir.
 - **Cila turu:** tüm görevler bitince havuzdaki en güçlü (tarayıcı açabilen) model spec + kontrol listesine göre 0-10 puan verir (`SILENT_SCORE`), en etkili 3 düzeltmeyi (`SILENT_FIXES`) görev olarak koşar. Puan ve notlar rapora yazılır. Tek tur.
 
+- **`silent run`:** `silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool codex:gpt-6-astra,claude:sonnet] <klasör> "<istek>"` terminalden koşu başlatır: uygulama isteği alır, planlar, planlayıcı sorularını "kendin karar ver, README'ye yaz" diye cevaplar, onaylar ve başlatır. `--pool` havuzu verilen modellere kısıtlar.
+- **Notlar vs sapmalar:** worker'lar `SILENT_DEVIATIONS:` (yalnız istekten sapılan/yapılamayan) ve `SILENT_NOTES:` (bilgi: kardeş modül kırıklığı, tasarım kararı, ekleyerek yapılan sözleşme genişletmesi) olarak ayrı raporlar; rapor ikisini ayrı gösterir. Worker başına token alt görev kartında görünür.
+- **Pixel-art kiti:** `pixel-art-game` (tam sayı ölçekli sanal canvas, palet, prosedürel sprite sheet, dithering; referanslar LittleJS, kaplay, kontra, ditherto). "pixel/8-bit/retro" geçen isteklerde otomatik seçilir.
+- **Cila turu en-iyi-çaba:** inceleyici çökse ya da bir düzeltme bitmese koşu "failed" olmaz; rapora sapma olarak düşer.
+
 ## Güvenlik
 
 - **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.

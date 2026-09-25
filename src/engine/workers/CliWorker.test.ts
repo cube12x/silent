@@ -55,4 +55,21 @@ describe("CliWorker request shape", () => {
     expect(runner.requests[0].network).toBe(false)
     expect(runner.requests[0].sandbox).toBe("read-only")
   })
+
+  it("separates SILENT_NOTES from SILENT_DEVIATIONS and strips both from the summary", async () => {
+    class TalkingRunner implements CliRunner {
+      async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "Built the enemies module.\n\nSILENT_DEVIATIONS:\n- Kept tuning in a local file\n\nSILENT_NOTES:\n- engine tests were red at the time (not mine)\n- extended World with optional hook" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const result = await new CliWorker(new TalkingRunner()).start(job(), sink).done
+    expect(result.ok).toBe(true)
+    expect(result.deviations).toEqual(["Kept tuning in a local file"])
+    expect(result.notes).toEqual(["engine tests were red at the time (not mine)", "extended World with optional hook"])
+    expect(result.summary).toBe("Built the enemies module.")
+  })
 })

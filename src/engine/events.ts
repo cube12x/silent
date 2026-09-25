@@ -11,7 +11,7 @@ export type RunEvent =
   | { type: "subtask.summary"; runId: string; subtaskId: string; summary: string; at: number }
   | { type: "subtask.question"; runId: string; subtaskId: string; question: string; at: number }
   | { type: "subtask.answered"; runId: string; subtaskId: string; answer: string; at: number }
-  | { type: "subtask.deviations"; runId: string; subtaskId: string; deviations: string[]; at: number }
+  | { type: "subtask.deviations"; runId: string; subtaskId: string; deviations: string[]; notes?: string[]; at: number }
   | { type: "subtask.session"; runId: string; subtaskId: string; sessionId: string; at: number }
   | { type: "run.report"; runId: string; report: RunReport; at: number }
   | { type: "subtask.added"; runId: string; subtask: Subtask; at: number }

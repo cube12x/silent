@@ -103,7 +103,7 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
     case "subtask.answered":
       return patch(e.subtaskId, (s) => ({ ...s, question: undefined, answers: [...s.answers, e.answer] }))
     case "subtask.deviations":
-      return patch(e.subtaskId, (s) => ({ ...s, deviations: e.deviations }))
+      return patch(e.subtaskId, (s) => ({ ...s, deviations: e.deviations, notes: e.notes ?? s.notes }))
     case "subtask.session":
       return patch(e.subtaskId, (s) => ({ ...s, attempts: s.attempts.map((a, i) => (i === s.attempts.length - 1 ? { ...a, sessionId: e.sessionId } : a)) }))
     case "worker.command":
@@ -328,7 +328,10 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       }
       if (e.type === "worker.usage") {
         const u = get().usage[run.id] ?? { tokens: 0, costUsd: 0 }
-        set({ usage: { ...get().usage, [run.id]: { tokens: u.tokens + e.tokens, costUsd: u.costUsd + e.costUsd } } })
+        set({
+          usage: { ...get().usage, [run.id]: { tokens: u.tokens + e.tokens, costUsd: u.costUsd + e.costUsd } },
+          runs: get().runs.map((r) => (r.id === run.id ? { ...r, plan: r.plan.map((s) => (s.id === e.subtaskId ? { ...s, tokens: (s.tokens ?? 0) + e.tokens, costUsd: Number(((s.costUsd ?? 0) + e.costUsd).toFixed(4)) } : s)) } : r)),
+        })
         return
       }
       if (e.type === "subtask.fallback" && isModelRejected(e.reason)) useProvidersStore.getState().markUnavailable(e.fromModelId, e.reason)

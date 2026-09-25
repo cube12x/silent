@@ -134,7 +134,10 @@ function Composer() {
       const cost = (["economy", "balanced", "max-quality"] as CostMode[]).find((c) => c === req.cost) ?? costMode
       if (req.cost) setCostMode(cost)
       const kit = !req.kit || req.kit === "auto" ? detectKit(req.prompt) : kitById(req.kit)
-      const res = await planWithAi({ prompt: req.prompt, pool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true })
+      const runPool = req.pool?.length ? req.pool.filter((ref) => modelLabels[ref]) : pool
+      if (req.pool?.length) setPool(runPool)
+      if (req.pool?.length && runPool.length !== req.pool.length) console.warn("[autostart] unknown pool refs ignored", req.pool.filter((ref) => !modelLabels[ref]))
+      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true })
       console.warn("[autostart] planned", JSON.stringify({ source: res.source, error: res.error, subtasks: res.run.plan.length, questions: res.run.questions?.length ?? 0 }))
       setResult(res)
       setAnswers({})

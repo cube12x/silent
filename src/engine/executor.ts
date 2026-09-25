@@ -50,6 +50,8 @@ export class Executor {
   private routing: Map<string, RoutingDecision>
   private summaries = new Map<string, string>()
   private order: string[] = []
+  /** Polish review + fix subtasks: best-effort, never fail the run. */
+  private polishIds = new Set<string>()
   private polishScore?: number
   private polishNotes?: string
   private waiters = new Map<string, (answer: string | null) => void>()
@@ -112,7 +114,11 @@ export class Executor {
     const all = this.snapshot
     return {
       done: all.filter((s) => s.state === "completed" && s.summary).map((s) => `${s.title}: ${s.summary}`),
-      deviations: all.flatMap((s) => s.deviations.map((d) => `${s.title}: ${d}`)),
+      deviations: [
+        ...all.flatMap((s) => s.deviations.map((d) => `${s.title}: ${d}`)),
+        ...all.filter((s) => this.polishIds.has(s.id) && s.state !== "completed").map((s) => `${s.title}: ${s.state} (${s.attempts.at(-1)?.error ?? "no result"})`),
+      ],
+      notes: all.flatMap((s) => (s.notes ?? []).map((d) => `${s.title}: ${d}`)),
       openQuestions: all.filter((s) => s.state === "blocked" && s.question).map((s) => `${s.title}: ${s.question}`),
       finishedAt: this.now(),
       polishScore: this.polishScore,
@@ -165,7 +171,8 @@ export class Executor {
   private finish(): "completed" | "failed" | "cancelled" {
     if (this.cancelled) return "cancelled"
     this.bus.emit({ type: "run.report", runId: this.run.id, report: this.report(), at: this.now() })
-    const ok = this.snapshot.every((s) => s.state === "completed")
+    // Polish tasks are best-effort: a crashed reviewer or an unfinished fix never turns a built project into a failed run.
+    const ok = this.snapshot.filter((s) => !this.polishIds.has(s.id)).every((s) => s.state === "completed")
     if (ok) {
       this.bus.emit({ type: "run.status", runId: this.run.id, status: "completed", at: this.now() })
       this.bus.emit({ type: "run.completed", runId: this.run.id, at: this.now() })
@@ -229,9 +236,10 @@ export class Executor {
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: result.error ?? "failed", at: this.now() })
         result = await this.attempt(subtask, modelId, attemptNo, "retry")
       }
-      if (result.deviations?.length) {
-        subtask.deviations.push(...result.deviations)
-        this.bus.emit({ type: "subtask.deviations", runId: this.run.id, subtaskId, deviations: [...subtask.deviations], at: this.now() })
+      if (result.notes?.length) subtask.notes = [...(subtask.notes ?? []), ...result.notes]
+      if (result.deviations?.length || result.notes?.length) {
+        subtask.deviations.push(...(result.deviations ?? []))
+        this.bus.emit({ type: "subtask.deviations", runId: this.run.id, subtaskId, deviations: [...subtask.deviations], notes: [...(subtask.notes ?? [])], at: this.now() })
       }
       if (result.ok) {
         subtask.summary = result.summary
@@ -279,6 +287,7 @@ export class Executor {
     }
     this.subtasks.set(s.id, s)
     this.order.push(s.id)
+    this.polishIds.add(s.id)
     this.routing.set(s.id, { subtaskId: s.id, kind, primaryModelId: modelId, fallbackModelIds: [], reason: "polish", score: 1 })
     this.bus.emit({ type: "subtask.added", runId: this.run.id, subtask: structuredClone(s), at: this.now() })
     return s
@@ -391,7 +400,7 @@ export class Executor {
       })
     if (!rows.length) return ""
     const mine = /Owns:\s*([^\n]+)/i.exec(current.description)?.[1]?.trim()
-    return `Run plan (${this.snapshot.length} tasks; yours: "${current.title}"${mine ? `, owns ${mine.slice(0, 200)}` : ""}):\n${rows.join("\n")}\nUse these exact paths when you reference other modules (import paths, docs, briefs).`
+    return `Run plan (${this.snapshot.length} tasks; yours: "${current.title}"${mine ? `, owns ${mine.slice(0, 200)}` : ""}):\n${rows.join("\n").slice(0, 2000)}\nUse these exact paths when you reference other modules (import paths, docs, briefs).`
   }
 
   private brief(subtask: Subtask, modelId: string): string {
@@ -401,7 +410,7 @@ export class Executor {
       `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker in a Silent orchestration run.`,
       this.opts.gatewayBrief ?? "",
       this.opts.spec ? `SPEC (build exactly this; the user judges the result against it):\n${this.opts.spec.slice(0, 6000)}` : "",
-      this.opts.kitBrief ?? "",
+      (this.opts.kitBrief ?? "").slice(0, 3500),
       this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 8000)}` : "",
       `Task: ${subtask.title}`,
       subtask.description,
@@ -413,7 +422,7 @@ export class Executor {
       "Shell notes: macOS — there is no `timeout` command (use `gtimeout` if present, or `perl -e 'alarm shift; exec @ARGV' 120 cmd…`); long-running servers must be started in the background and stopped before you finish.",
       providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
       "Verification scope: other tasks may be editing their own paths right now, so the GLOBAL typecheck/test/build can be red for reasons outside your paths. Verify YOUR paths (filter tsc output to them, run the tests under your directories). Mention sibling breakage as a note, not as your deviation, and never fix files you do not own. The integration task runs the full suite at the end.",
-      "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing every point where you deviated from the request (or `SILENT_DEVIATIONS: none`). (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
+      "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing ONLY what you did differently from the request or could not do (or `SILENT_DEVIATIONS: none`), then a section `SILENT_NOTES:` with information for the user and other tasks — sibling modules that were red at the time, follow-ups, design decisions, additive contract extensions (or `SILENT_NOTES: none`). Notes are not deviations. (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
     ]
       .filter(Boolean)
       .join("\n\n")

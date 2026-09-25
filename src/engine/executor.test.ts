@@ -196,4 +196,44 @@ describe("executor", () => {
       expect(b).toMatch(/Verification scope:/)
     }
   })
+
+  it("cancel mid-run stops scheduling, marks running attempts cancelled and reports run.cancelled", async () => {
+    const run = makeRun("Add a real-time notification system with tests", TEST_POOL, "sequential")
+    const bus = new EventBus()
+    const events = collect(bus)
+    const worker = new ScriptedWorker({}, true)
+    const exec = new Executor(run, () => worker, bus, { models: TEST_MODELS })
+    const done = exec.start()
+    await new Promise((r) => setTimeout(r, 30))
+    exec.cancel()
+    expect(await done).toBe("cancelled")
+    expect(events.some((e) => e.type === "run.cancelled")).toBe(true)
+    expect(exec.snapshot.filter((s) => s.state === "completed")).toHaveLength(0)
+    expect(exec.snapshot.every((s) => s.attempts.every((a) => a.outcome !== "running"))).toBe(true)
+  })
+
+  it("a failed polish review still completes the run (review is best-effort) and records no score", async () => {
+    class ReviewFailsWorker implements Worker {
+      readonly id = "rf"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        sink.state("coding", 50)
+        const fail = job.subtask.title === "Polish review"
+        return { done: Promise.resolve(fail ? { ok: false, summary: "crashed", error: "boom", retryable: false } : { ok: true, summary: "done" }), cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId))
+    const bus = new EventBus()
+    const events = collect(bus)
+    const exec = new Executor(run, () => new ReviewFailsWorker(), bus, { models: TEST_MODELS, polish: true, polishModelId: "claude:opus", maxRetriesPerModel: 0 })
+    const outcome = await exec.start()
+    const report = events.find((e) => e.type === "run.report")
+    expect(report && report.type === "run.report" ? report.report.polishScore : 1).toBeUndefined()
+    expect(exec.snapshot.filter((s) => s.title.startsWith("Fix:"))).toHaveLength(0)
+    expect(outcome).toBe("completed")
+  })
 })

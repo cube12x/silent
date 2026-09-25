@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react"
+import { CheckCircle2, AlertTriangle, HelpCircle, Info } from "lucide-react"
 import type { RunReport as Report } from "@/domain"
 import { GlowCard, SectionHeader } from "@/design-system"
 import { useT } from "@/i18n"
@@ -20,6 +20,7 @@ export function RunReport({ report }: { report: Report }) {
       <SectionHeader eyebrow={t("code.report")} title={report.polishScore !== undefined ? `${t("code.reportPolish")}: ${report.polishScore}/10` : ""} description={report.polishNotes} />
       <Section icon={<CheckCircle2 className="size-3" />} title={t("code.reportDone")} items={report.done} tone="text-success" none={none} />
       <Section icon={<AlertTriangle className="size-3" />} title={t("code.reportDeviations")} items={report.deviations} tone="text-warn" none={none} />
+      {report.notes?.length ? <Section icon={<Info className="size-3" />} title={t("code.reportNotes")} items={report.notes} tone="text-text-2" none={none} /> : null}
       <Section icon={<HelpCircle className="size-3" />} title={t("code.reportOpen")} items={report.openQuestions} tone="text-text-2" none={none} />
     </GlowCard>
   )

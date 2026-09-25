@@ -84,6 +84,11 @@ export interface Subtask {
   answers: string[]
   /** Things the worker reported it did differently from the request. */
   deviations: string[]
+  /** Informational notes from the worker (sibling breakage, follow-ups, design decisions) — not deviations. */
+  notes?: string[]
+  /** Uncached tokens this subtask consumed across attempts. */
+  tokens?: number
+  costUsd?: number
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh"
@@ -91,6 +96,7 @@ export type Effort = "low" | "medium" | "high" | "xhigh"
 export interface RunReport {
   done: string[]
   deviations: string[]
+  notes?: string[]
   openQuestions: string[]
   finishedAt: number
   /** Polish round: reviewer score 0–10 against the spec and kit checklist, and its notes. */

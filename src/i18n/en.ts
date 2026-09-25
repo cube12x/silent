@@ -124,6 +124,7 @@ export const en: Dictionary = {
     spec: "Spec (English, written by the planner)",
     reportPolish: "Polish score",
     reportOpen: "Unanswered questions",
+    reportNotes: "Notes (information, not deviations)",
     reportNone: "none",
     workerQuestion: "Worker is asking",
     workerQuestionHint: "Your answer goes to the same session; the task continues where it stopped.",

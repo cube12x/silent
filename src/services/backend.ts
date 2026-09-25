@@ -41,6 +41,8 @@ export interface AutostartRequest {
   kit?: string
   polish?: boolean
   cost?: string
+  /** Restrict the model pool to these refs (provider:model). */
+  pool?: string[]
 }
 
 export interface Backend {

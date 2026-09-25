@@ -122,6 +122,7 @@ export const tr = {
     spec: "Spec (İngilizce, planlayıcı yazdı)",
     reportPolish: "Cila puanı",
     reportOpen: "Cevaplanmamış sorular",
+    reportNotes: "Notlar (bilgi, sapma değil)",
     reportNone: "yok",
     workerQuestion: "Çalışan soruyor",
     workerQuestionHint: "Cevabın aynı oturuma gönderilir; görev kaldığı yerden devam eder.",

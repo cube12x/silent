@@ -40,6 +40,8 @@ export interface WorkerResult {
   question?: string
   /** Things the worker reported doing differently from the request (SILENT_DEVIATIONS). */
   deviations?: string[]
+  /** `SILENT_NOTES:` items: information, not deviations. */
+  notes?: string[]
 }
 
 export interface WorkerHandle {
