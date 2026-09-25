@@ -8,7 +8,9 @@
 use serde_json::Value;
 
 use super::{generic, CliAdapter, CliRunRequest, ParseState, ProviderId, SandboxMode};
-use crate::events::{str_field, u64_at, RuntimeEvent};
+use crate::events::{
+    compact_call, str_field, tail, u64_at, FileChangeKind, RuntimeEvent, OUTPUT_TAIL_CHARS,
+};
 
 pub struct Antigravity;
 
@@ -59,18 +61,98 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
         return generic::parse_generic(line, state);
     };
     match str_field(&value, "event") {
+        // {"event":"init","conversation_id":"…","init":{"model":"…","cwd":"…","tools":[…],"permission_mode":"…"}}
+        Some("init") => {
+            let mut events = Vec::new();
+            if let Some(id) = str_field(&value, "conversation_id").filter(|s| !s.is_empty()) {
+                events.extend(state.session(id));
+            }
+            events.push(RuntimeEvent::TurnStarted {});
+            events
+        }
+        // {"event":"step_update","step_update":{"step_index":n,"state":"ACTIVE|DONE","step_type":"tool|agent_response|user_input",
+        //   "tool_name":"run_command","tool_info":{"name":"…","parameters":{"CommandLine":"…"|"TargetFile":"…"},"output":"…"},
+        //   "text_delta":"…","usage":{…}}}
+        Some("step_update") => {
+            let su = value.get("step_update").cloned().unwrap_or(Value::Null);
+            let step_state = str_field(&su, "state").unwrap_or("");
+            let idx = su
+                .get("step_index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .to_string();
+            match str_field(&su, "step_type") {
+                Some("tool") => {
+                    let name = str_field(&su, "tool_name").unwrap_or("tool");
+                    let info = su.get("tool_info").cloned().unwrap_or(Value::Null);
+                    let params = info.get("parameters").cloned().unwrap_or(Value::Null);
+                    let command = str_field(&params, "CommandLine")
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| compact_call(name, Some(&params)));
+                    let path = str_field(&params, "TargetFile")
+                        .or_else(|| str_field(&params, "AbsolutePath"))
+                        .map(ToOwned::to_owned);
+                    if step_state == "ACTIVE" {
+                        let mut events = vec![state.start_call(Some(&idx), command)];
+                        if let Some(p) = path {
+                            let kind = if name.contains("write") {
+                                FileChangeKind::Add
+                            } else {
+                                FileChangeKind::Update
+                            };
+                            if name.contains("write")
+                                || name.contains("replace")
+                                || name.contains("edit")
+                            {
+                                events.push(RuntimeEvent::FileChanged { path: p, kind });
+                            }
+                        }
+                        events
+                    } else {
+                        let output = str_field(&info, "output").unwrap_or("");
+                        vec![RuntimeEvent::CommandCompleted {
+                            command: state.take_call(Some(&idx)),
+                            exit_code: Some(0),
+                            output_tail: tail(output, OUTPUT_TAIL_CHARS),
+                        }]
+                    }
+                }
+                Some("agent_response") => {
+                    let mut events = Vec::new();
+                    if let Some(t) = str_field(&su, "text_delta").filter(|t| !t.is_empty()) {
+                        state.saw_text_delta = true;
+                        events.push(RuntimeEvent::TextDelta { text: t.to_owned() });
+                    }
+                    if step_state == "DONE" {
+                        if let Some(usage) = su.get("usage") {
+                            state.usage_reported = true;
+                            events.push(RuntimeEvent::usage(
+                                u64_at(usage, "/input_tokens"),
+                                u64_at(usage, "/cache_read_tokens"),
+                                u64_at(usage, "/output_tokens") + u64_at(usage, "/thinking_tokens"),
+                            ));
+                        }
+                    }
+                    events
+                }
+                _ => Vec::new(),
+            }
+        }
+        // {"event":"result","result":{"conversation_id":"…","status":"SUCCESS|ERROR","response":"…","error":"…","usage":{…}}}
         Some("result") => {
             let mut events = Vec::new();
             let r = value.get("result").cloned().unwrap_or(Value::Null);
             if let Some(id) = str_field(&r, "conversation_id").filter(|s| !s.is_empty()) {
                 events.extend(state.session(id));
             }
-            if let Some(usage) = r.get("usage") {
-                events.push(RuntimeEvent::usage(
-                    u64_at(usage, "/input_tokens"),
-                    u64_at(usage, "/cache_read_tokens"),
-                    u64_at(usage, "/output_tokens") + u64_at(usage, "/thinking_tokens"),
-                ));
+            if !state.usage_reported {
+                if let Some(usage) = r.get("usage") {
+                    events.push(RuntimeEvent::usage(
+                        u64_at(usage, "/input_tokens"),
+                        u64_at(usage, "/cache_read_tokens"),
+                        u64_at(usage, "/output_tokens") + u64_at(usage, "/thinking_tokens"),
+                    ));
+                }
             }
             let status = str_field(&r, "status").unwrap_or("");
             let error = str_field(&r, "error").unwrap_or("");
@@ -84,7 +166,10 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
                     },
                     retryable: false,
                 });
-            } else if let Some(text) = str_field(&r, "response").filter(|t| !t.is_empty()) {
+            } else if let Some(text) = str_field(&r, "response")
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+            {
                 events.push(RuntimeEvent::AgentMessage {
                     text: text.to_owned(),
                 });
@@ -92,11 +177,6 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
             events.push(RuntimeEvent::TurnCompleted {});
             events
         }
-        Some("text") | Some("message") | Some("assistant") => str_field(&value, "text")
-            .or_else(|| str_field(&value, "content"))
-            .filter(|t| !t.is_empty())
-            .map(|t| vec![RuntimeEvent::AgentMessage { text: t.to_owned() }])
-            .unwrap_or_default(),
         _ => generic::parse_generic(line, state),
     }
 }
@@ -164,5 +244,62 @@ mod tests {
             &mut ParseState::default(),
         );
         assert!(err.iter().any(|e| matches!(e, RuntimeEvent::Failed { message, .. } if message.contains("authentication"))), "{err:?}");
+    }
+
+    #[test]
+    fn step_updates_map_to_commands_files_deltas_and_usage() {
+        let mut state = ParseState::default();
+        let init = parse_line(
+            r#"{"event":"init","conversation_id":"c9","init":{"model":"gemini-3.8-flash-low","cwd":"/t","tools":[],"permission_mode":"x"}}"#,
+            &mut state,
+        );
+        assert!(init.iter().any(
+            |e| matches!(e, RuntimeEvent::SessionStarted { session_id } if session_id == "c9")
+        ));
+        let a = parse_line(
+            r#"{"event":"step_update","step_update":{"conversation_id":"c9","step_index":2,"state":"ACTIVE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"ls -la"}}}}"#,
+            &mut state,
+        );
+        assert!(
+            matches!(&a[..], [RuntimeEvent::CommandStarted { command }] if command == "ls -la"),
+            "{a:?}"
+        );
+        let d = parse_line(
+            r#"{"event":"step_update","step_update":{"conversation_id":"c9","step_index":2,"state":"DONE","step_type":"tool","tool_name":"run_command","duration_seconds":0.1,"tool_info":{"name":"run_command","parameters":{"CommandLine":"ls -la"},"output":"total 1\nhello\n"}}}"#,
+            &mut state,
+        );
+        assert!(
+            matches!(&d[..], [RuntimeEvent::CommandCompleted { command, exit_code: Some(0), .. }] if command == "ls -la"),
+            "{d:?}"
+        );
+        let w = parse_line(
+            r#"{"event":"step_update","step_update":{"conversation_id":"c9","step_index":4,"state":"ACTIVE","step_type":"tool","tool_name":"write_to_file","tool_info":{"name":"write_to_file","parameters":{"TargetFile":"/t/out.txt"}}}}"#,
+            &mut state,
+        );
+        assert!(
+            w.iter().any(
+                |e| matches!(e, RuntimeEvent::FileChanged { path, .. } if path == "/t/out.txt")
+            ),
+            "{w:?}"
+        );
+        let t = parse_line(
+            r#"{"event":"step_update","step_update":{"conversation_id":"c9","step_index":5,"state":"DONE","step_type":"agent_response","text_delta":"OK","duration_seconds":1.7,"usage":{"input_tokens":13027,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":13028}}}"#,
+            &mut state,
+        );
+        assert!(t
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::TextDelta { text } if text == "OK")));
+        assert!(t.iter().any(|e| matches!(e, RuntimeEvent::Usage { .. })));
+        let r = parse_line(
+            r#"{"event":"result","result":{"conversation_id":"c9","status":"SUCCESS","response":"OK\n","duration_seconds":6.7,"num_turns":1,"usage":{"input_tokens":38170,"output_tokens":230,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":38400}}}"#,
+            &mut state,
+        );
+        assert!(r
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::AgentMessage { text } if text == "OK")));
+        assert!(
+            !r.iter().any(|e| matches!(e, RuntimeEvent::Usage { .. })),
+            "total must not double-count: {r:?}"
+        );
     }
 }

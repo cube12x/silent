@@ -135,4 +135,20 @@ mod tests {
         let ev = Grok.parse_line(r#"{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"thinking"}}}"#, &mut state);
         assert!(ev.iter().any(|e| matches!(e, RuntimeEvent::ReasoningStatus { status } if status == "Grok is thinking")), "{ev:?}");
     }
+
+    #[test]
+    fn grok_tool_names_map_to_commands_and_file_changes() {
+        let mut state = ParseState::default();
+        let ev = Grok.parse_line(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"run_terminal_command","input":{"command":"npm run typecheck","description":"x"}},{"type":"tool_use","id":"t2","name":"search_replace","input":{"file_path":"/r/src/a.ts","old_string":"a","new_string":"b"}}]}}"#,
+            &mut state,
+        );
+        assert!(ev.iter().any(|e| matches!(e, RuntimeEvent::CommandStarted { command } if command == "npm run typecheck")), "{ev:?}");
+        assert!(
+            ev.iter().any(
+                |e| matches!(e, RuntimeEvent::FileChanged { path, .. } if path == "/r/src/a.ts")
+            ),
+            "{ev:?}"
+        );
+    }
 }

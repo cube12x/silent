@@ -122,6 +122,29 @@ fn tool_use_events(block: &Value, state: &mut ParseState) -> Vec<RuntimeEvent> {
                 RuntimeEvent::FileChanged { path: p, kind },
             ]
         }
+        // Grok Build tool names on the same stream shape (verified 2026-09-25).
+        "run_terminal_command" => {
+            let cmd = input
+                .and_then(|i| str_field(i, "command"))
+                .unwrap_or("shell")
+                .to_owned();
+            vec![state.start_call(id, cmd)]
+        }
+        "search_replace" | "write_file" | "create_file" | "edit_file" | "multi_edit" => {
+            let p = input
+                .and_then(|i| str_field(i, "file_path").or_else(|| str_field(i, "path")))
+                .unwrap_or("?")
+                .to_owned();
+            let kind = if name.contains("write") || name.contains("create") {
+                FileChangeKind::Add
+            } else {
+                FileChangeKind::Update
+            };
+            vec![
+                state.start_call(id, format!("{name} {p}")),
+                RuntimeEvent::FileChanged { path: p, kind },
+            ]
+        }
         "Read" => vec![state.start_call(id, format!("read {}", path.unwrap_or_default()))],
         "Glob" | "Grep" => {
             let pattern = input.and_then(|i| str_field(i, "pattern")).unwrap_or("");

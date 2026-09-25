@@ -228,6 +228,8 @@ pub struct ParseState {
     pub saw_text_delta: bool,
     /// A `--json-schema` structured result was already surfaced (avoid emitting it twice).
     pub saw_structured: bool,
+    /// Per-step usage was already reported (skip the duplicate total in the final result).
+    pub usage_reported: bool,
     pub turn_completed: bool,
     pub last_call: Option<String>,
 }

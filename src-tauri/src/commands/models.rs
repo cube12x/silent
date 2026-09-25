@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use silent_runtime::cli::ProviderId;
 
+use super::binaries;
 use super::binaries::home;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -299,6 +300,51 @@ pub fn kimi_models() -> Vec<ProviderModel> {
 
 // ---- grok -------------------------------------------------------------------------------------
 
+/// `agy models` prints `<id>\t<display name>` per line once the user is signed in (verified 2026-09-25:
+/// gemini-3.8/3.7/3.6-flash-{high,medium,low}, gemini-3.1-pro-{high,low}, claude-sonnet-4-6,
+/// claude-opus-4-6-thinking, gpt-oss-120b-medium). Empty when not signed in.
+pub async fn antigravity_models() -> Vec<ProviderModel> {
+    let Some(program) = binaries::resolve("agy") else {
+        return Vec::new();
+    };
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tokio::process::Command::new(program)
+            .arg("models")
+            .env("PATH", binaries::augmented_path())
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await;
+    let Ok(Ok(out)) = out else { return Vec::new() };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut models = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(2, '\t');
+        let id = parts.next().unwrap_or("").trim();
+        let name = parts.next().unwrap_or(id).trim();
+        if id.is_empty() || id.contains(' ') || id.starts_with("Fetching") {
+            continue;
+        }
+        let lower = id.to_ascii_lowercase();
+        let tier = if lower.contains("pro") || lower.contains("opus") {
+            "frontier"
+        } else if lower.ends_with("-high") || lower.contains("sonnet") || lower.contains("gpt-oss")
+        {
+            "strong"
+        } else {
+            "fast"
+        };
+        models.push(model(ProviderId::Antigravity, id, name, "catalog", tier));
+    }
+    let default_id = models
+        .iter()
+        .find(|m| m.id.contains("flash-high"))
+        .map(|m| m.id.clone());
+    mark_default(&mut models, default_id.as_deref());
+    models
+}
+
 pub fn grok_models() -> Vec<ProviderModel> {
     let mut models = Vec::new();
     // `grok models` writes ~/.grok/models_cache.json: {"models": {"<id>": {"info": {"name", "description", …}}}}
@@ -410,11 +456,10 @@ pub async fn provider_models(provider_id: ProviderId) -> Result<Vec<ProviderMode
         ProviderId::Grok => grok_models(),
         ProviderId::Gemini => settings_model(ProviderId::Gemini, ".gemini/settings.json"),
         ProviderId::Qwen => settings_model(ProviderId::Qwen, ".qwen/settings.json"),
-        ProviderId::Antigravity
-        | ProviderId::Opencode
-        | ProviderId::Copilot
-        | ProviderId::Cursor
-        | ProviderId::Amp => Vec::new(),
+        ProviderId::Antigravity => antigravity_models().await,
+        ProviderId::Opencode | ProviderId::Copilot | ProviderId::Cursor | ProviderId::Amp => {
+            Vec::new()
+        }
     })
 }
 
