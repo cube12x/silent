@@ -24,7 +24,9 @@ function shift(e: Effort, by: number): Effort {
 export function effortFor(kind: SubtaskKind, costMode: CostMode, tier?: ModelTier): Effort {
   let e = BASE[kind]
   if (costMode === "economy") e = shift(e, -1)
-  if (costMode === "max-quality" && (kind === "architecture" || kind === "algorithm")) e = "xhigh"
+  // Max quality: everything one step up (build work at high), design work at the ceiling. A frontier
+  // model at "medium" produced thin modules (Thor run, 2026-09-25: 6 enemy types in ~650 lines).
+  if (costMode === "max-quality") e = kind === "architecture" || kind === "algorithm" ? "xhigh" : shift(e, 1)
   // A fast model at high effort is wasteful; a frontier model at low effort is fine.
   if (tier === "fast" && e === "high") e = "medium"
   return e
