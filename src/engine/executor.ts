@@ -258,8 +258,9 @@ export class Executor {
     }
   }
 
-  private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2): Subtask {
+  private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2, timeoutSecs?: number): Subtask {
     const s: Subtask = {
+      timeoutSecs,
       id: `st_${this.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       runId: this.run.id,
       kind,
@@ -299,6 +300,8 @@ export class Executor {
       ].join(" "),
       modelId,
       2,
+      // A polish review plays the product (build, browser, bots): the 15-minute default for "review" is too short.
+      30 * 60,
     )
     await this.drain(limit)
     if (this.cancelled) return
@@ -315,7 +318,7 @@ export class Executor {
     if (review.state !== "completed" || !fixes.length || (this.polishScore ?? 0) >= 9) return
     for (const fix of fixes) {
       const kind: Subtask["kind"] = /test|spec|coverage/i.test(fix) ? "tests" : /ui|visual|render|css|layout|animation|screen|hud|menu|sprite|sound|audio|juice|feel/i.test(fix) ? "frontend" : "backend"
-      this.addSubtask(kind, `Fix: ${fix.slice(0, 70)}`, `Polish fix from the review (score ${this.polishScore ?? "?"}/10). ${fix} Verify it works end to end and keep every check green.`, modelId, 1)
+      this.addSubtask(kind, `Fix: ${fix.slice(0, 70)}`, `Polish fix from the review (score ${this.polishScore ?? "?"}/10). ${fix} Verify it works end to end and keep every check green.`, modelId, 1, 25 * 60)
     }
     await this.drain(limit)
   }
