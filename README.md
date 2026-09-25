@@ -71,6 +71,8 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 - **Pixel-art kiti:** `pixel-art-game` (tam sayı ölçekli sanal canvas, palet, prosedürel sprite sheet, dithering; referanslar LittleJS, kaplay, kontra, ditherto). "pixel/8-bit/retro" geçen isteklerde otomatik seçilir.
 - **Cila turu en-iyi-çaba:** inceleyici çökse ya da bir düzeltme bitmese koşu "failed" olmaz; rapora sapma olarak düşer.
 
+- **Uzman (şablon) ajanlar:** bir depoya bağlı olmayan ajanlar; kit, model havuzu, sabit yapım modeli, maliyet modu ve cila ayarını taşır. Yerleşik **Pixel Ustası** (pixel-art kiti, ucuz set: grok-4.7-build-fast + gpt-5.6-terra + haiku, tarayıcı işleri sonnet, ekonomi modu). Composer'da "★ Pixel Ustası" seçin veya `silent run --agent "Pixel Ustası" <klasör> "<istek>"`. Ajanlar > "Uzman ajan" ile yenisi oluşturulur; ayrıntı ekranından varsayılanları düzenlenir.
+
 ## Güvenlik
 
 - **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.

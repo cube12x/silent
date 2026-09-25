@@ -75,7 +75,12 @@ function Composer() {
   const detectedKit = React.useMemo(() => (kitSel === "auto" ? detectKit(prompt) : kitById(kitSel)), [kitSel, prompt])
   const refs = React.useMemo(() => refsText.split(/\s+/).map((x) => x.trim()).filter((x) => /^(https:\/\/|git@)/.test(x)), [refsText])
   const agent = agents.find((a) => a.id === agentId)
-  const repoPath = agent?.repoPath ?? folder
+  const repoPath = agent && !agent.template ? agent.repoPath : folder
+  /** Expert-agent defaults become routing pins for every build kind. */
+  const agentOverrides = React.useMemo(() => {
+    const prefer = agent?.runDefaults?.prefer
+    return prefer && pool.includes(prefer) ? Object.fromEntries((["architecture", "backend", "frontend", "algorithm", "integration"] as const).map((k) => [k, prefer])) : undefined
+  }, [agent, pool])
 
   const run: SilentCodeRun | null = result ? (edit ? { ...result.run, plan: edit.plan, routing: edit.routing, manual } : result.run) : null
   const unrouted = run?.routing.filter((r) => !r.primaryModelId).length ?? 0
@@ -117,20 +122,29 @@ function Composer() {
       setApproved(false)
       const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
       if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
-      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa, kitId: detectedKit?.id ?? "", refs, polish })
+      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa, kitId: detectedKit?.id ?? "", refs, polish, overrides: agentOverrides })
       setResult(res)
       if (!withAnswers) setAnswers({})
       setStep("plan")
     })
   /** Terminal-triggered run: plan → approve → start, no clicks (questions from the planner stay unanswered). */
-  const autoRun = (req: NonNullable<typeof autostart>) =>
+  const autoRun = (req0: NonNullable<typeof autostart>) =>
     guard("silent run", async () => {
+      let req = { ...req0 }
       console.warn("[autostart] autoRun start", req.folder)
       setPrompt(req.prompt)
       setFolder(req.folder)
-      setAgentId(undefined)
-      if (req.kit !== undefined) setKitSel(req.kit === "auto" ? "auto" : req.kit)
-      if (req.polish !== undefined) setPolish(req.polish)
+      const expert = req.agent ? agents.find((a) => a.name.toLowerCase() === req.agent!.toLowerCase() || a.id === req.agent) : undefined
+      if (req.agent && !expert) console.warn("[autostart] --agent not found, ignored", req.agent)
+      setAgentId(expert?.id)
+      const d = expert?.runDefaults
+      if (d?.kitId !== undefined && req.kit == null) req = { ...req, kit: d.kitId || "" }
+      if (d?.pool?.length && !req.pool?.length) req = { ...req, pool: d.pool }
+      if (d?.prefer && !req.prefer) req = { ...req, prefer: d.prefer }
+      if (d?.costMode && !req.cost) req = { ...req, cost: d.costMode }
+      if (d?.polish !== undefined && req.polish == null) req = { ...req, polish: d.polish }
+      if (req.kit != null) setKitSel(req.kit === "auto" ? "auto" : req.kit)
+      if (req.polish != null) setPolish(req.polish)
       const cost = (["economy", "balanced", "max-quality"] as CostMode[]).find((c) => c === req.cost) ?? costMode
       if (req.cost) setCostMode(cost)
       const kit = !req.kit || req.kit === "auto" ? detectKit(req.prompt) : kitById(req.kit)
@@ -140,7 +154,7 @@ function Composer() {
       const prefer = req.prefer && runPool.includes(req.prefer) ? req.prefer : undefined
       if (req.prefer && !prefer) console.warn("[autostart] --prefer not in pool, ignored", req.prefer)
       const overrides = prefer ? Object.fromEntries((["architecture", "backend", "frontend", "algorithm", "integration"] as const).map((k) => [k, prefer])) : undefined
-      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true, overrides })
+      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoAgentId: expert?.id, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true, overrides })
       console.warn("[autostart] planned", JSON.stringify({ source: res.source, error: res.error, subtasks: res.run.plan.length, questions: res.run.questions?.length ?? 0 }))
       setResult(res)
       setAnswers({})
@@ -246,12 +260,25 @@ function Composer() {
               <Zap className="size-3" />{t("code.prompt")}
               <span className="ml-auto flex items-center gap-2 normal-case tracking-normal">
                 <Bot className="size-3 text-text-3" />
-                <select value={agentId ?? ""} onChange={(e) => { setAgentId(e.target.value || undefined); if (e.target.value) setFolder(undefined) }} className="rounded-sm border border-line bg-ink-2 px-1.5 py-0.5 text-[11px] text-text-1 outline-none focus:border-text-2">
+                <select value={agentId ?? ""} onChange={(e) => {
+                  const id = e.target.value || undefined
+                  setAgentId(id)
+                  const picked = agents.find((a) => a.id === id)
+                  if (picked && !picked.template) setFolder(undefined)
+                  const d = picked?.runDefaults
+                  if (d) {
+                    if (d.kitId !== undefined) setKitSel(d.kitId || "")
+                    if (d.pool?.length) setPool(d.pool.filter((ref) => modelLabels[ref]))
+                    if (d.costMode) setCostMode(d.costMode)
+                    if (d.polish !== undefined) setPolish(d.polish)
+                    if (d.refs?.length) setRefsText(d.refs.join("\n"))
+                  }
+                }} className="rounded-sm border border-line bg-ink-2 px-1.5 py-0.5 text-[11px] text-text-1 outline-none focus:border-text-2">
                   <option value="">{t("code.noAgent")}</option>
-                  {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {agents.map((a) => <option key={a.id} value={a.id}>{a.template ? `★ ${a.name}` : a.name}</option>)}
                 </select>
-                {!agent && <button type="button" onClick={pickFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderOpen className="size-3" />{t("common.browse")}</button>}
-                {!agent && <button type="button" onClick={newFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderGit2 className="size-3" />{t("code.newFolder")}</button>}
+                {(!agent || agent.template) && <button type="button" onClick={pickFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderOpen className="size-3" />{t("common.browse")}</button>}
+                {(!agent || agent.template) && <button type="button" onClick={newFolder} className="flex items-center gap-1 rounded-sm border border-line px-1.5 py-0.5 text-[11px] text-text-2 hover:border-text-2 hover:text-text-1"><FolderGit2 className="size-3" />{t("code.newFolder")}</button>}
               </span>
             </div>
             <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} placeholder={t("code.promptPlaceholder")} className="mono min-h-[150px] resize-y border-0 bg-transparent px-4 text-[15px] leading-7 shadow-none focus-visible:ring-0" />

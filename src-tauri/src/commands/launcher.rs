@@ -56,7 +56,7 @@ fn status() -> LauncherStatus {
     }
 }
 
-/// `silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] <folder> <request…>` queues a run
+/// `silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent "Pixel Ustası"] <folder> <request…>` queues a run
 /// for the app (plan → approve → start) by writing `autostart.json`; the app is opened as usual afterwards.
 const RUN_PRELUDE: &str = r#"#!/bin/sh
 # Silent — opens the desktop app. Installed by Silent > Settings.
@@ -64,7 +64,7 @@ const RUN_PRELUDE: &str = r#"#!/bin/sh
 #        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] <folder> <request…>
 if [ "$1" = "run" ]; then
   shift
-  kit=""; polish="true"; cost=""; pool=""; prefer=""
+  kit=""; polish=""; cost=""; pool=""; prefer=""; agent=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --kit) kit="$2"; shift 2 ;;
@@ -72,6 +72,7 @@ if [ "$1" = "run" ]; then
       --cost) cost="$2"; shift 2 ;;
       --pool) pool="$2"; shift 2 ;;
       --prefer) prefer="$2"; shift 2 ;;
+      --agent) agent="$2"; shift 2 ;;
       *) break ;;
     esac
   done
@@ -81,10 +82,10 @@ if [ "$1" = "run" ]; then
   folder=$(cd "$folder" && pwd)
   dir="$HOME/Library/Application Support/com.silent.workstation"
   mkdir -p "$dir"
-  python3 - "$folder" "$*" "$kit" "$polish" "$cost" "$pool" "$prefer" > "$dir/autostart.json" <<'PY'
+  python3 - "$folder" "$*" "$kit" "$polish" "$cost" "$pool" "$prefer" "$agent" > "$dir/autostart.json" <<'PY'
 import json, sys
 pool = [p for p in sys.argv[6].split(",") if p] if len(sys.argv) > 6 else []
-print(json.dumps({"folder": sys.argv[1], "prompt": sys.argv[2], "kit": sys.argv[3], "polish": sys.argv[4] == "true", "cost": sys.argv[5], "pool": pool, "prefer": sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None}))
+print(json.dumps({"folder": sys.argv[1], "prompt": sys.argv[2], "kit": sys.argv[3] or None, "polish": (sys.argv[4] == "true") if sys.argv[4] else None, "cost": sys.argv[5] or None, "pool": pool, "prefer": sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None, "agent": sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] else None}))
 PY
   echo "queued: $folder"
   set --

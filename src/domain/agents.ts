@@ -79,10 +79,26 @@ export interface AgentAction {
   ok: boolean
 }
 
+/** Defaults an expert (template) agent applies to every run started with it. */
+export interface RunDefaults {
+  kitId?: string
+  /** Model refs (`provider:model`) the run is restricted to. */
+  pool?: string[]
+  /** Model ref pinned to every build kind (architecture/backend/frontend/algorithm/integration). */
+  prefer?: string
+  costMode?: "economy" | "balanced" | "max-quality"
+  polish?: boolean
+  refs?: string[]
+}
+
 export interface RepoAgent {
   id: string
   name: string
+  /** Empty for template (expert) agents: they are applied to whatever folder the run uses. */
   repoPath: string
+  /** Expert agent: not bound to one repository; carries `runDefaults`. */
+  template?: boolean
+  runDefaults?: RunDefaults
   providerId: ProviderId
   modelId: string
   /** Fallback models as ModelRefs (`provider:model`). */
@@ -98,4 +114,20 @@ export interface RepoAgent {
   lastActions: AgentAction[]
   createdAt: number
   updatedAt: number
+}
+
+/** Built-in expert agent seeded once: cheap, creative pixel-art production. */
+export const PIXEL_MASTER_SEED = {
+  name: "Pixel Ustası",
+  providerId: "grok" as ProviderId,
+  modelId: "grok-4.7-build-fast",
+  gatewayPrompt:
+    "You are Pixel Ustası, a pixel-art game master. Every project you touch is a finished, charming retro game: integer-scaled virtual canvas with nearest-neighbour sampling, one disciplined palette, procedurally generated sprite sheets with real animation frames, Bayer dithering and palette swaps for effects, chunky readable UI in a bitmap font, juicy feedback (hit-stop, shake, pixel particles) and synthesized chiptune audio. You study the reference engines in .silent/refs before designing and reuse their proven patterns. You work economically: small focused modules, no over-engineering, verify with unit tests and headless checks, leave browser play-testing to the integration task.",
+  runDefaults: {
+    kitId: "pixel-art-game",
+    pool: ["grok:grok-4.7-build-fast", "codex:gpt-5.6-terra", "claude:haiku", "claude:sonnet"],
+    prefer: "grok:grok-4.7-build-fast",
+    costMode: "economy" as const,
+    polish: true,
+  },
 }

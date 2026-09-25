@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { AgentAction, AgentPermissions, ProviderId, RepoAgent } from "@/domain"
-import { DEFAULT_PERMISSIONS } from "@/domain"
+import { DEFAULT_PERMISSIONS , PIXEL_MASTER_SEED, type RunDefaults } from "@/domain"
 import { interpretGateway } from "@/engine/gateway"
 import { getBackend } from "@/services"
 import { newId } from "@/lib/ids"
@@ -14,12 +14,16 @@ export interface CreateAgentInput {
   gatewayPrompt: string
   permissions?: Partial<AgentPermissions>
   sourceRunId?: string
+  template?: boolean
+  runDefaults?: RunDefaults
 }
 
 interface AgentsState {
   agents: RepoAgent[]
   load(): Promise<void>
   create(input: CreateAgentInput): Promise<RepoAgent>
+  /** Update an expert agent's run defaults (kit, pool, pins, cost). */
+  setRunDefaults(id: string, defaults: RunDefaults): Promise<void>
   update(id: string, patch: Partial<RepoAgent>): Promise<void>
   setPermission(id: string, key: keyof AgentPermissions, value: boolean): Promise<void>
   recordAction(id: string, action: Omit<AgentAction, "id" | "at">): Promise<void>
@@ -31,7 +35,19 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   agents: [],
   async load() {
     const backend = await getBackend()
-    set({ agents: await backend.db.agents.list() })
+    const agents = await backend.db.agents.list()
+    set({ agents })
+    // Seed the built-in expert once (users can edit or delete it afterwards).
+    if (!agents.some((a) => a.template && a.name === PIXEL_MASTER_SEED.name)) {
+      await get().create({ ...PIXEL_MASTER_SEED, repoPath: "", template: true, permissions: { network: true } })
+    }
+  },
+  async setRunDefaults(id, defaults) {
+    const agent = get().byId(id)
+    if (!agent) return
+    const updated = { ...agent, runDefaults: defaults, updatedAt: Date.now() }
+    set({ agents: get().agents.map((a) => (a.id === id ? updated : a)) })
+    await (await getBackend()).db.agents.upsert(updated)
   },
   async create(input) {
     const profile = interpretGateway(input.gatewayPrompt)
@@ -49,6 +65,8 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
       toolsEnabled: ["shell", "git", "tests", "file-edit", "search"],
       memoryCount: 0,
       sourceRunId: input.sourceRunId,
+      template: input.template || undefined,
+      runDefaults: input.runDefaults,
       status: "idle",
       lastActions: [],
       createdAt: now,

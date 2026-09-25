@@ -34,5 +34,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0005_kits.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "v2.4 template agents",
+            sql: include_str!("../migrations/0006_template_agents.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

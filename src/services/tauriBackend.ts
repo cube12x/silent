@@ -201,6 +201,8 @@ export class TauriBackend implements Backend {
             toolsEnabled: json(r.tools_json, []),
             memoryCount: Number(r.memory_count ?? 0),
             sourceRunId: str(r.source_run_id),
+            template: Number(r.is_template ?? 0) === 1 || undefined,
+            runDefaults: json(r.run_defaults_json, undefined),
             status: r.status as RepoAgent["status"],
             lastActions: json(r.last_actions_json, []),
             createdAt: Number(r.created_at),
@@ -210,10 +212,10 @@ export class TauriBackend implements Backend {
       },
       upsert: async (a) => {
         await (await this.conn()).execute(
-          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, provider_id, model_id, fallback_model_refs_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at, source_run_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, provider_id=$5, model_id=$6, fallback_model_refs_json=$7, gateway_prompt=$8, gateway_profile_json=$9, permissions_json=$10, tools_json=$11, memory_count=$12, status=$13, last_actions_json=$14, updated_at=$16, source_run_id=$17`,
-          [a.id, a.name, a.repoPath, `${a.providerId}:${a.modelId}`, a.providerId, a.modelId, JSON.stringify(a.fallbackModelRefs), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt, a.sourceRunId ?? null],
+          `INSERT INTO repo_agents (id, name, repo_path, primary_model_id, provider_id, model_id, fallback_model_refs_json, gateway_prompt, gateway_profile_json, permissions_json, tools_json, memory_count, status, last_actions_json, created_at, updated_at, source_run_id, run_defaults_json, is_template)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+           ON CONFLICT(id) DO UPDATE SET name=$2, repo_path=$3, primary_model_id=$4, provider_id=$5, model_id=$6, fallback_model_refs_json=$7, gateway_prompt=$8, gateway_profile_json=$9, permissions_json=$10, tools_json=$11, memory_count=$12, status=$13, last_actions_json=$14, updated_at=$16, source_run_id=$17, run_defaults_json=$18, is_template=$19`,
+          [a.id, a.name, a.repoPath, `${a.providerId}:${a.modelId}`, a.providerId, a.modelId, JSON.stringify(a.fallbackModelRefs), a.gatewayPrompt, JSON.stringify(a.gatewayProfile), JSON.stringify(a.permissions), JSON.stringify(a.toolsEnabled), a.memoryCount, a.status, JSON.stringify(a.lastActions), a.createdAt, a.updatedAt, a.sourceRunId ?? null, a.runDefaults ? JSON.stringify(a.runDefaults) : null, a.template ? 1 : 0],
         )
       },
       delete: async (id) => {

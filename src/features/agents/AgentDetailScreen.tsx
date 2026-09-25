@@ -9,7 +9,9 @@ import { useUiStore } from "@/stores/ui"
 import { useChatsStore } from "@/stores/chats"
 import { useRunsStore } from "@/stores/runs"
 import { EmptyState, GlowCard, KeyValueList, ModelLogo, ModelTag, NeonButton, PageHeader, PermissionToggle, SectionHeader, TacticalChip, RunStatusBadge } from "@/design-system"
-import { modelRef, type PermissionKey, type RunStatus } from "@/domain"
+import { modelRef, type PermissionKey, type RunStatus, type RepoAgent, type RunDefaults } from "@/domain"
+import { BUILTIN_KITS } from "@/domain/kits"
+import { useProvidersStore } from "@/stores/providers"
 import { humanTrait } from "@/engine/gateway"
 import { formatRelative } from "@/lib/format"
 import { Textarea } from "@/components/ui/textarea"
@@ -19,6 +21,46 @@ import { ModelPicker } from "@/features/chat/ModelPicker"
 
 const PERMS: PermissionKey[] = ["read", "write", "runTests", "terminal", "gitCommit", "gitPush", "network", "fileCreateDelete"]
 const DANGER: PermissionKey[] = ["gitPush", "network", "fileCreateDelete"]
+
+function RunDefaultsEditor({ agent }: { agent: RepoAgent }) {
+  const t = useT()
+  const setRunDefaults = useAgentsStore((s) => s.setRunDefaults)
+  const models = useProvidersStore((s) => s.availableModels())
+  const d = agent.runDefaults ?? {}
+  const [draft, setDraft] = React.useState<RunDefaults>(d)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(d)
+  const pool = draft.pool ?? []
+  const toggle = (ref: string) => setDraft({ ...draft, pool: pool.includes(ref) ? pool.filter((x) => x !== ref) : [...pool, ref] })
+  return (
+    <GlowCard className="flex flex-col gap-3">
+      <SectionHeader eyebrow={t("agents.expert")} title={t("agents.expertDefaults")} description={t("agents.expertHint")} actions={dirty ? <NeonButton size="sm" onClick={() => void setRunDefaults(agent.id, draft)}><Save />{t("common.save")}</NeonButton> : undefined} />
+      <div className="grid gap-3 md:grid-cols-3 text-xs">
+        <label className="flex flex-col gap-1"><span className="text-text-3">{t("code.kit")}</span>
+          <select value={draft.kitId ?? ""} onChange={(e) => setDraft({ ...draft, kitId: e.target.value })} className="rounded-sm border border-line bg-ink-2 px-1.5 py-1 text-text-1">
+            <option value="">{t("code.kitNone")}</option>
+            {BUILTIN_KITS.map((k) => <option key={k.id} value={k.id}>{k.name.tr}</option>)}
+          </select></label>
+        <label className="flex flex-col gap-1"><span className="text-text-3">{t("code.cost")}</span>
+          <select value={draft.costMode ?? ""} onChange={(e) => setDraft({ ...draft, costMode: (e.target.value || undefined) as RunDefaults["costMode"] })} className="rounded-sm border border-line bg-ink-2 px-1.5 py-1 text-text-1">
+            <option value="">{t("common.default")}</option>
+            {(["economy", "balanced", "max-quality"] as const).map((c) => <option key={c} value={c}>{t(`code.costModes.${c}` as const)}</option>)}
+          </select></label>
+        <label className="flex flex-col gap-1"><span className="text-text-3">{t("agents.prefer")}</span>
+          <select value={draft.prefer ?? ""} onChange={(e) => setDraft({ ...draft, prefer: e.target.value || undefined })} className="rounded-sm border border-line bg-ink-2 px-1.5 py-1 text-text-1">
+            <option value="">{t("common.none")}</option>
+            {models.filter((m) => !pool.length || pool.includes(modelRef(m.providerId, m.id))).map((m) => <option key={modelRef(m.providerId, m.id)} value={modelRef(m.providerId, m.id)}>{m.displayName}</option>)}
+          </select></label>
+      </div>
+      <label className="flex items-center gap-2 text-xs text-text-1"><input type="checkbox" checked={draft.polish !== false} onChange={(e) => setDraft({ ...draft, polish: e.target.checked })} />{t("code.polish")}</label>
+      <div>
+        <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("code.pool")} · {pool.length || t("common.none")}</div>
+        <div className="flex flex-wrap gap-1">
+          {models.map((m) => { const ref = modelRef(m.providerId, m.id); const on = pool.includes(ref); return <button key={ref} type="button" onClick={() => toggle(ref)} className={cn("mono rounded-sm border px-1.5 py-0.5 text-[11px]", on ? "border-text-2 bg-ink-3 text-text-1" : "border-line text-text-3 hover:text-text-1")}>{m.displayName}</button> })}
+        </div>
+      </div>
+    </GlowCard>
+  )
+}
 
 function GatewayEditor({ initial, role, summary, onSave }: { initial: string; role: string; summary: string; onSave: (g: string) => void }) {
   const t = useT()
@@ -79,6 +121,7 @@ export function AgentDetailScreen() {
               <div><div className="mb-1.5 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("agents.quality")}</div><ul className="flex flex-col gap-1 text-xs text-text-2">{p.qualityExpectations.map((q) => <li key={q} className="flex gap-1.5"><span className="text-success">✓</span>{q}</li>)}</ul></div>
             </div>
           </GlowCard>
+          {agent.template && <RunDefaultsEditor key={agent.id} agent={agent} />}
           <GlowCard className="flex flex-col gap-3">
             <SectionHeader eyebrow={t("agents.permissions")} title={t("agents.permissionsHint")} />
             <div className="grid gap-2 md:grid-cols-2">

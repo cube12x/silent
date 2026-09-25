@@ -45,6 +45,8 @@ export interface AutostartRequest {
   pool?: string[]
   /** Pin every build kind (architecture, backend, frontend, algorithm, integration) to this model. */
   prefer?: string
+  /** Expert (template) agent name or id whose run defaults apply (flags given explicitly win). */
+  agent?: string
 }
 
 export interface Backend {

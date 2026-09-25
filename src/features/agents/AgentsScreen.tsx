@@ -11,10 +11,15 @@ export function AgentsScreen() {
   const agents = useAgentsStore((s) => s.agents)
   const memory = useMemoryStore((s) => s.entries)
   const openNewSession = useUiStore((s) => s.openNewSession)
+  const create = useAgentsStore((s) => s.create)
+  const createExpert = async () => {
+    const agent = await create({ name: t("agents.newExpertName"), repoPath: "", providerId: "codex", modelId: "", gatewayPrompt: t("agents.newExpertGateway"), template: true, runDefaults: { polish: true }, permissions: { network: true } })
+    navigate(`/agents/${agent.id}`)
+  }
   const navigate = useNavigate()
   return (
     <div className="mx-auto flex max-w-[1800px] flex-col gap-6 p-6">
-      <PageHeader eyebrow={t("agents.title")} title={t("agents.subtitle")} description={t("agents.description")} actions={<NeonButton onClick={() => openNewSession({ kind: "repo-agent" })}><Plus />{t("agents.create")}</NeonButton>} />
+      <PageHeader eyebrow={t("agents.title")} title={t("agents.subtitle")} description={t("agents.description")} actions={<div className="flex gap-2"><NeonButton variant="outline" onClick={() => void createExpert()}><Plus />{t("agents.createExpert")}</NeonButton><NeonButton onClick={() => openNewSession({ kind: "repo-agent" })}><Plus />{t("agents.create")}</NeonButton></div>} />
       {agents.length === 0 ? (
         <EmptyState icon={<Bot />} title={t("agents.empty")} description={t("agents.emptyHint")} action={<NeonButton onClick={() => openNewSession({ kind: "repo-agent" })}>{t("agents.create")}</NeonButton>} />
       ) : (
