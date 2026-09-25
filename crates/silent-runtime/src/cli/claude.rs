@@ -40,6 +40,15 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     if req.sandbox == SandboxMode::WorkspaceWrite {
         args.push("--allowedTools".into());
         args.push("Bash".into());
+        // `acceptEdits` auto-approves writes only inside the working directory and `--add-dir`s; a worker
+        // writing a scratch script to /tmp was denied (2026-09-25). Grant the OS temp dir as well.
+        args.push("--add-dir".into());
+        args.push(
+            std::env::temp_dir()
+                .to_string_lossy()
+                .trim_end_matches('/')
+                .to_string(),
+        );
     }
     if let Some(model) = req.model() {
         args.push("--model".into());
@@ -290,6 +299,10 @@ mod tests {
 
     #[test]
     fn write_turn_args() {
+        let tmp = std::env::temp_dir()
+            .to_string_lossy()
+            .trim_end_matches('/')
+            .to_string();
         assert_eq!(
             build_args(&req(ProviderId::Claude)),
             [
@@ -307,6 +320,8 @@ mod tests {
                 "acceptEdits",
                 "--allowedTools",
                 "Bash",
+                "--add-dir",
+                &tmp,
                 "--add-dir",
                 "/repo"
             ]

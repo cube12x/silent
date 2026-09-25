@@ -390,6 +390,7 @@ export class Executor {
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
       (this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write") ? "Environment: the shell has outbound network access (package installs, git fetch and HTTP work)." : "Environment: the shell has NO network access. Do not attempt installs or downloads; if the task needs them, ask with SILENT_QUESTION.",
+      "Scratch files (bots, probes, screenshots): write them under <repo>/.silent/tmp/ (git-ignored) or the OS temp dir; writes elsewhere are denied.",
       "Editing: prefer your native file-edit tool (Codex: apply_patch; Claude: Edit/Write) over shell heredocs, so every changed file is tracked and reviewable.",
       "Shell notes: macOS — there is no `timeout` command (use `gtimeout` if present, or `perl -e 'alarm shift; exec @ARGV' 120 cmd…`); long-running servers must be started in the background and stopped before you finish.",
       providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
