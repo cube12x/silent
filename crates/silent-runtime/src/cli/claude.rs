@@ -89,6 +89,19 @@ fn tool_use_events(block: &Value, state: &mut ParseState) -> Vec<RuntimeEvent> {
         .and_then(|i| str_field(i, "file_path").or_else(|| str_field(i, "notebook_path")))
         .map(ToOwned::to_owned);
     match name {
+        // `--json-schema`: Claude answers through a synthetic tool call whose input IS the structured
+        // result (also mirrored in `result.structured_output`). Surface it as the agent message so the
+        // planner can parse it (2026-09-25: "planner returned no valid JSON" → silent heuristic fallback).
+        "StructuredOutput" => {
+            state.saw_structured = true;
+            input
+                .map(|i| {
+                    vec![RuntimeEvent::AgentMessage {
+                        text: i.to_string(),
+                    }]
+                })
+                .unwrap_or_default()
+        }
         "Bash" => {
             let cmd = input
                 .and_then(|i| str_field(i, "command"))
@@ -233,6 +246,14 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
             let mut events = Vec::new();
             if let Some(id) = str_field(&value, "session_id") {
                 events.extend(state.session(id));
+            }
+            if let Some(structured) = value.get("structured_output").filter(|v| !v.is_null()) {
+                if !state.saw_structured {
+                    state.saw_structured = true;
+                    events.push(RuntimeEvent::AgentMessage {
+                        text: structured.to_string(),
+                    });
+                }
             }
             if let Some(usage) = value.get("usage") {
                 events.push(RuntimeEvent::usage(
@@ -462,5 +483,35 @@ mod schema_tests {
         assert!(!build_args(&req(crate::cli::ProviderId::Claude))
             .iter()
             .any(|a| a == "--json-schema"));
+    }
+
+    #[test]
+    fn structured_output_is_surfaced_once_as_agent_message() {
+        let adapter = Claude;
+        let mut state = ParseState::default();
+        let a = adapter.parse_line(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t9","name":"StructuredOutput","input":{"summary":"s","subtasks":[{"title":"a"}]}}]}}"#,
+            &mut state,
+        );
+        assert!(
+            matches!(&a[..], [RuntimeEvent::AgentMessage { text }] if text.contains("\"subtasks\""))
+        );
+        let r = adapter.parse_line(
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"s","subtasks":[{"title":"a"}]},"session_id":"x","usage":{"input_tokens":1,"output_tokens":1}}"#,
+            &mut state,
+        );
+        assert!(
+            !r.iter()
+                .any(|e| matches!(e, RuntimeEvent::AgentMessage { .. })),
+            "must not duplicate: {r:?}"
+        );
+        let mut fresh = ParseState::default();
+        let only_result = adapter.parse_line(
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"summary":"s"},"session_id":"y"}"#,
+            &mut fresh,
+        );
+        assert!(only_result
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::AgentMessage { text } if text.contains("summary"))));
     }
 }

@@ -222,6 +222,8 @@ pub struct ParseState {
     pub pending_calls: HashMap<String, String>,
     pub session_announced: bool,
     pub saw_text_delta: bool,
+    /// A `--json-schema` structured result was already surfaced (avoid emitting it twice).
+    pub saw_structured: bool,
     pub turn_completed: bool,
     pub last_call: Option<String>,
 }

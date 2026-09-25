@@ -143,6 +143,10 @@ function Composer() {
       setAnswers({})
       setStep("plan")
       const planned = res.run
+      if (res.source !== "ai") {
+        setUiError(`${t("code.planFallback", { error: res.error ?? "" })} — silent run: not starting a heuristic plan; fix the planner or start from the UI.`)
+        return
+      }
       if (planned.routing.some((r) => !r.primaryModelId)) {
         setUiError(t("code.unroutedHint", { n: planned.routing.filter((r) => !r.primaryModelId).length }))
         return
