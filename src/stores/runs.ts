@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine } from "@/domain"
+import type { SubtaskKind, CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine } from "@/domain"
 import { modelRef } from "@/domain"
 import { EventBus, type RunEvent } from "@/engine/events"
 import { Executor } from "@/engine/executor"
@@ -41,6 +41,8 @@ export interface DraftInput {
   refs?: string[]
   /** Polish review + fix round at the end (default true). */
   polish?: boolean
+  /** Pin these kinds to a model ref (e.g. `silent run --prefer codex:gpt-6-astra` pins every build kind). */
+  overrides?: Partial<Record<SubtaskKind, string>>
 }
 
 export interface PlanResult {
@@ -121,7 +123,7 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
   const models = useProvidersStore.getState().availableModels()
   const policy = effectivePolicy(settings, input.costMode)
   const table = settings.routingPolicy.mode === "manual" ? settings.routingPolicy.table : {}
-  const overrides = { ...settings.routingOverrides }
+  const overrides = { ...settings.routingOverrides, ...(input.overrides ?? {}) }
   const EFFORT_RANK = { low: 0, medium: 1, high: 2, xhigh: 3 } as const
   for (const s of plan) {
     // The AI planner may suggest a tier/effort, but never above the cost policy (max-quality lifts the ceiling).

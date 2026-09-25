@@ -43,6 +43,8 @@ export interface AutostartRequest {
   cost?: string
   /** Restrict the model pool to these refs (provider:model). */
   pool?: string[]
+  /** Pin every build kind (architecture, backend, frontend, algorithm, integration) to this model. */
+  prefer?: string
 }
 
 export interface Backend {

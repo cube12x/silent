@@ -137,7 +137,10 @@ function Composer() {
       const runPool = req.pool?.length ? req.pool.filter((ref) => modelLabels[ref]) : pool
       if (req.pool?.length) setPool(runPool)
       if (req.pool?.length && runPool.length !== req.pool.length) console.warn("[autostart] unknown pool refs ignored", req.pool.filter((ref) => !modelLabels[ref]))
-      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true })
+      const prefer = req.prefer && runPool.includes(req.prefer) ? req.prefer : undefined
+      if (req.prefer && !prefer) console.warn("[autostart] --prefer not in pool, ignored", req.prefer)
+      const overrides = prefer ? Object.fromEntries((["architecture", "backend", "frontend", "algorithm", "integration"] as const).map((k) => [k, prefer])) : undefined
+      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true, overrides })
       console.warn("[autostart] planned", JSON.stringify({ source: res.source, error: res.error, subtasks: res.run.plan.length, questions: res.run.questions?.length ?? 0 }))
       setResult(res)
       setAnswers({})
