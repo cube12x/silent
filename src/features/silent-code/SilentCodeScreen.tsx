@@ -144,11 +144,15 @@ function Composer() {
         setUiError(t("code.unroutedHint", { n: planned.routing.filter((r) => !r.primaryModelId).length }))
         return
       }
+      // Nobody is at the keyboard: planner questions get a standing answer so workers do not stall or guess silently.
+      const autoAnswer = "Nobody is available to answer; decide yourself using best judgment and industry defaults, and document the decision in README.md."
+      const questions = (planned.questions ?? []).map((q) => ({ ...q, answer: q.answer || autoAnswer }))
+      const promptWithAnswers = questions.length ? `${planned.prompt}\n\nClarifications:\n${questions.map((q) => `- ${q.question} → ${q.answer}`).join("\n")}` : planned.prompt
       setApproved(true)
       setStep("start")
       setStarting(true)
       try {
-        await start({ ...planned, manual: false })
+        await start({ ...planned, prompt: promptWithAnswers, questions, manual: false })
         navigate(`/code/${planned.id}`)
       } finally {
         setStarting(false)

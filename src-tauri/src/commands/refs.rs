@@ -63,7 +63,9 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     ensure_gitignore(&repo);
     let mut out = Vec::new();
+    let t0 = std::time::Instant::now();
     for r in refs {
+        let t = std::time::Instant::now();
         let Some(name) = safe_name(&r.name) else {
             out.push(RefResult {
                 name: r.name,
@@ -111,6 +113,12 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
                 .output(),
         )
         .await;
+        let ok = matches!(&res, Ok(Ok(o)) if o.status.success());
+        log::info!(
+            "refs_sync {} ok={ok} in {:.1}s",
+            r.url,
+            t.elapsed().as_secs_f32()
+        );
         match res {
             Ok(Ok(o)) if o.status.success() => out.push(RefResult {
                 name,
@@ -144,6 +152,7 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
             }),
         }
     }
+    log::info!("refs_sync total {:.1}s", t0.elapsed().as_secs_f32());
     Ok(out)
 }
 

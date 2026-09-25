@@ -257,6 +257,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const worker = new CliWorker(backend)
     const sandbox = agent && !agent.permissions.write ? "read-only" : "workspace-write"
     const network = sandbox === "workspace-write" && (agent ? agent.permissions.network : true)
+    const t0 = Date.now()
+    const mark = (label: string) => console.warn(`[start] ${label} +${((Date.now() - t0) / 1000).toFixed(1)}s`)
     // Expert kit: clone the reference repositories (host side, outside any CLI sandbox) and tell workers where they are.
     const kit = kitById(run.kitId)
     const refSpecs = [
@@ -267,6 +269,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     if (run.repoPath && refSpecs.length) {
       try {
         const synced = await backend.syncReferences(run.repoPath, refSpecs.map(({ name, url }) => ({ name, url })))
+        mark(`references synced (${synced.filter((r) => r.ok).length}/${synced.length})`)
         const paths = synced.filter((r) => r.ok).map((r) => ({ name: r.name, path: r.path, hint: refSpecs.find((s) => s.name === r.name)?.hint ?? "" }))
         const failed = synced.filter((r) => !r.ok)
         if (failed.length) console.warn("reference clone failed", failed)
@@ -293,9 +296,11 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       }
     }
     await loadContext()
+    mark("context loaded")
     const started = { ...run, status: "running" as const, startedAt: Date.now() }
     set({ runs: [started, ...get().runs.filter((r) => r.id !== run.id)], executors: { ...get().executors, [run.id]: executor }, usage: { ...get().usage, [run.id]: { tokens: 0, costUsd: 0 } } })
     await backend.db.runs.upsert(started)
+    mark("run persisted")
     // DB writes for one run are serialized: the report upsert (large JSON) and the final status upsert used to
     // race on the connection pool and could leave the run "running" forever (seen 2026-09-24).
     let chain: Promise<void> = Promise.resolve()
