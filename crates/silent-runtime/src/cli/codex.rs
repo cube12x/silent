@@ -295,10 +295,28 @@ mod tests {
     use crate::cli::{req, SandboxMode};
     use serde_json::json;
 
+    /// The cache `writable_roots` override depends on $HOME; array-comparison tests drop that pair.
+    fn without_roots(args: Vec<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut skip = false;
+        for a in args {
+            if skip {
+                skip = false;
+                continue;
+            }
+            if a == "-c" {
+                skip = true;
+                continue;
+            }
+            out.push(a);
+        }
+        out
+    }
+
     #[test]
     fn new_chat_turn() {
         assert_eq!(
-            build_args_with(&req(ProviderId::Codex), None),
+            without_roots(build_args_with(&req(ProviderId::Codex), None)),
             [
                 "-a",
                 "never",
@@ -325,7 +343,7 @@ mod tests {
             ..req(ProviderId::Codex)
         };
         assert_eq!(
-            build_args_with(&r, None),
+            without_roots(build_args_with(&r, None)),
             [
                 "-a",
                 "never",
