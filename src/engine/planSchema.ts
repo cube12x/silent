@@ -14,6 +14,8 @@ export interface AiPlanSubtask {
   rationale: string
   /** Must drive a real browser (Playwright, visual QA): routed to a CLI whose sandbox can launch one. */
   needsBrowser: boolean
+  /** Planner's model choice for this task: a `provider:model` ref from the offered pool, or "" to let the router decide. */
+  model: string
 }
 
 export interface AiPlanQuestion {
@@ -45,7 +47,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale", "needsBrowser"],
+        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale", "needsBrowser", "model"],
         properties: {
           key: { type: "string" },
           kind: { type: "string", enum: [...SUBTASK_KINDS] },
@@ -57,6 +59,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
           rationale: { type: "string" },
           needsBrowser: { type: "boolean" },
+          model: { type: "string" },
         },
       },
     },
@@ -97,6 +100,7 @@ export function parseAiPlan(text: string): AiPlan | null {
           effort: (["low", "medium", "high", "xhigh"].includes(String(s.effort)) ? s.effort : "medium") as Effort,
           rationale: String(s.rationale ?? ""),
           needsBrowser: s.needsBrowser === true,
+          model: typeof s.model === "string" ? s.model.trim() : "",
         }))
       if (!subtasks.length) continue
       return {

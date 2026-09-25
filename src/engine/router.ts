@@ -14,6 +14,8 @@ export interface RouteInput {
   overrides?: Partial<Record<SubtaskKind, string>>
   /** Agent's primary model gets a small affinity bonus. */
   preferredModelRef?: string
+  /** Honour each subtask's `modelHint` (planner's per-task choice) when it is in the pool. */
+  honourHints?: boolean
   /** kind → tier table replacing TARGET_TIER[costMode] (manual policy). */
   policy?: Record<SubtaskKind, ModelTier>
 }
@@ -68,9 +70,13 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
 
     let primary = ranked[0]
     let usedOverride = false
+    let usedHint = false
     if (override && ranked.some((r) => r.ref === override)) {
       primary = ranked.find((r) => r.ref === override) ?? primary
       usedOverride = true
+    } else if (input.honourHints !== false && subtask.modelHint && ranked.some((r) => r.ref === subtask.modelHint)) {
+      primary = ranked.find((r) => r.ref === subtask.modelHint) ?? primary
+      usedHint = true
     }
     if (!primary) return { subtaskId: subtask.id, kind: subtask.kind, primaryModelId: "", fallbackModelIds: [], reason: "no-model", score: 0 }
     assigned.set(primary.ref, (assigned.get(primary.ref) ?? 0) + 1)
@@ -83,7 +89,7 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
       kind: subtask.kind,
       primaryModelId: primary.ref,
       fallbackModelIds: fallbacks,
-      reason: explainRoute(primary.model, subtask.kind, input.costMode, usedOverride),
+      reason: usedHint ? `AI planner chose ${primary.model.displayName} for this task.` : explainRoute(primary.model, subtask.kind, input.costMode, usedOverride),
       score: Number(primary.score.toFixed(3)),
     }
   })

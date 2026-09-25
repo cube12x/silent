@@ -34,6 +34,28 @@ export function pickPlannerModel(models: ProviderModel[]): ProviderModel | undef
   return [...models].sort((a, b) => order(a) - order(b) || (a.isDefault ? -1 : 1))[0]
 }
 
+/** Short, model-family based strengths so the planner can assign tasks sensibly (kept generic and honest). */
+export function modelStrengths(m: ProviderModel): string {
+  const id = m.id.toLowerCase()
+  const p = m.providerId
+  if (p === "claude") {
+    if (/fable|opus/.test(id)) return "deepest reasoning; architecture, contracts, long coherent systems, reviews; can drive a browser"
+    if (/sonnet/.test(id)) return "strong all-round implementation and integration; can drive a browser"
+    if (/haiku/.test(id)) return "fast and cheap; tests, docs, small mechanical edits; can drive a browser"
+    return "Claude model; can drive a browser"
+  }
+  if (p === "codex") {
+    if (/astra/.test(id)) return "frontier; creative gameplay, visuals, effects, content and algorithms; sandboxed (no browser)"
+    if (/sol|luna/.test(id)) return "frontier; strong implementation and refactors; sandboxed (no browser)"
+    if (/terra/.test(id)) return "strong and cheaper; solid implementation; sandboxed (no browser)"
+    if (/mini|fast/.test(id)) return "fast and cheap; mechanical work; sandboxed (no browser)"
+    return "OpenAI model; sandboxed (no browser)"
+  }
+  if (p === "grok") return /fast/.test(id) ? "fast iteration, cheap; implementation and tuning; can run a browser" : "frontier; creative content and effects; can run a browser"
+  if (p === "antigravity") return /pro|opus/.test(id) ? "frontier Google/partner model; design and reviews; can run a browser" : "fast Google model; implementation, tests, docs; can run a browser"
+  return `${m.tier} model`
+}
+
 export function buildPlannerPrompt(ctx: AiPlanContext): string {
   const tiers = Array.from(new Set(ctx.models.map((m) => m.tier))).sort((a, b) => TIER_RANK[a] - TIER_RANK[b])
   const lines = [
@@ -54,6 +76,8 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "- If an architecture task exists, its description must say to write docs/ARCHITECTURE-BRIEF.md (module map, contracts, conventions): every later worker receives that file and skips repository discovery.",
     "- Kinds: architecture (only for larger multi-part work), backend, frontend, algorithm, tests, review, integration, docs.",
     "- Each subtask: a concrete title, a precise description another engineer could execute, dependencies by key, weight 1-3, the model tier it deserves (fast for light/mechanical work, strong for normal implementation, frontier only for hard design/algorithms/critical review), and effort.",
+    `- MODELS IN THE POOL (choose \`model\` per task from these exact refs; "" lets the router pick by tier):\n${ctx.models.map((m) => `  ${modelRef(m.providerId, m.id)} — ${m.tier} — ${modelStrengths(m)}`).join("\n")}`,
+    "- Match each task to the model that is genuinely best at it (architecture and cross-module contracts → the deepest reasoning model; creative visuals, effects, game feel and content → a creative frontier model; solid implementation → strong models; tests/docs → fast models). Prefer a cheaper model when the task is mechanical. Browser-driving tasks must use a Claude model (Codex/Grok sandboxes cannot launch a browser).",
     `- Available tiers in the user's pool: ${tiers.join(", ") || "strong"}. Default policy kind→tier: ${Object.entries(ctx.policy).map(([k, v]) => `${k}=${v}`).join(", ")}. Follow it unless the task clearly needs otherwise; explain in rationale.`,
     "- If anything is ambiguous, or the request asks for something you cannot or should not do (legal, access, missing info), DO NOT decide silently: put it in `questions` (with why, and options when useful). Do not turn such things into `assumptions`.",
     "- `assumptions` only for harmless defaults. Keep `summary` to two sentences.",
@@ -133,6 +157,7 @@ export function subtasksFromAiPlan(plan: AiPlan, runId: string): Subtask[] {
     progress: 0,
     lastUpdate: now + i,
     tierHint: s.tier,
+    modelHint: s.model || undefined,
     effort: s.effort,
     rationale: s.rationale,
     needsBrowser: s.needsBrowser || undefined,

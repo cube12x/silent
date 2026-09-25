@@ -78,4 +78,16 @@ describe("router (CLI models)", () => {
     const routes = routeSubtasks({ subtasks: tasks, pool: ["codex:m-a", "codex:m-b"], models: twins, costMode: "economy" })
     expect(new Set(routes.map((r) => r.primaryModelId)).size).toBe(2)
   })
+
+  it("honours the planner's per-task model choice when it is in the pool, but never for browser tasks on sandboxed CLIs", () => {
+    const tasks = plan.slice(0, 2).map((s, i) => ({ ...s, id: `h${i}`, dependsOn: [], modelHint: "codex:gpt-6-astra" }))
+    const routes = routeSubtasks({ subtasks: tasks, pool: TEST_POOL, models: TEST_MODELS, costMode: "economy" })
+    expect(routes.every((r) => r.primaryModelId === "codex:gpt-6-astra")).toBe(true)
+    expect(routes[0].reason).toMatch(/AI planner chose/)
+    const browser = [{ ...tasks[0], id: "hb", needsBrowser: true }]
+    const [r] = routeSubtasks({ subtasks: browser, pool: TEST_POOL, models: TEST_MODELS, costMode: "economy" })
+    expect(r.primaryModelId.split(":")[0]).toBe("claude")
+    const [off] = routeSubtasks({ subtasks: [tasks[0]], pool: TEST_POOL, models: TEST_MODELS, costMode: "economy", honourHints: false })
+    expect(off.reason).not.toMatch(/AI planner chose/)
+  })
 })

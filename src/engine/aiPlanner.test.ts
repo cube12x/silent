@@ -43,4 +43,13 @@ describe("AI planner", () => {
     expect(seen[0]).toMatch(/DO NOT decide silently/)
     expect(buildPlannerPrompt({ ...ctx, previous: { title: "v1", summaries: ["did X"], deviations: [] } })).toMatch(/CONTINUES A PREVIOUS RUN/)
   })
+
+  it("offers the pool with strengths and asks for a per-task model", () => {
+    const ctx = { prompt: "Build a game", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "en" } as Parameters<typeof buildPlannerPrompt>[0]
+    const prompt = buildPlannerPrompt(ctx)
+    expect(prompt).toMatch(/MODELS IN THE POOL/)
+    expect(prompt).toMatch(/claude:opus — frontier — deepest reasoning/)
+    expect(prompt).toMatch(/codex:gpt-6-astra — frontier — frontier; creative gameplay/)
+    expect(prompt).toMatch(/Browser-driving tasks must use a Claude model/)
+  })
 })

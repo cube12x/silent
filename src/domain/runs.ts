@@ -79,6 +79,8 @@ export interface Subtask {
   rationale?: string
   /** Needs a real browser; the router avoids sandboxed CLIs that cannot launch one. */
   needsBrowser?: boolean
+  /** Planner's per-task model choice (`provider:model`); honoured when in the pool. */
+  modelHint?: string
   /** Worker asked the user something and is waiting (state = blocked). */
   question?: string
   answers: string[]
