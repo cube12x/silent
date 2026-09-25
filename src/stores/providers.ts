@@ -63,7 +63,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   },
   async load() {
     const enabled = useSettingsStore.getState().settings.enabledProviders
-    set({ providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { ...get().providers[id], enabled: enabled[id] ?? true }])) as Record<ProviderId, ProviderState> })
+    // Retired CLIs (Gemini CLI for consumer accounts) stay off unless the user switched them on explicitly.
+    set({ providers: Object.fromEntries(PROVIDER_IDS.map((id) => [id, { ...get().providers[id], enabled: enabled[id] ?? !PROVIDERS[id].retired }])) as Record<ProviderId, ProviderState> })
     await get().detect()
   },
   async detect() {

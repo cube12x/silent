@@ -32,7 +32,19 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         args.push("--model".into());
         args.push(model.into());
     }
-    if let Some(effort) = req.effort() {
+    // agy accepts --effort low|medium|high|max, but model ids that already carry a level
+    // (gemini-3.8-flash-high/-medium/-low, gemini-3.1-pro-high/-low) reject it: "--model … conflicts with
+    // --effort" (2026-09-25). Only pass it for level-free ids.
+    let model_has_level = req
+        .model()
+        .map(|m| {
+            m.ends_with("-high")
+                || m.ends_with("-medium")
+                || m.ends_with("-low")
+                || m.ends_with("-max")
+        })
+        .unwrap_or(false);
+    if let Some(effort) = req.effort().filter(|_| !model_has_level) {
         // agy accepts low|medium|high|max.
         args.push("--effort".into());
         args.push(if effort == "xhigh" {
@@ -209,6 +221,15 @@ mod tests {
             ..req(ProviderId::Antigravity)
         };
         let a = build_args(&r);
+        let levelled = CliRunRequest {
+            model_id: Some("gemini-3.8-flash-high".into()),
+            effort: Some("medium".into()),
+            ..req(ProviderId::Antigravity)
+        };
+        assert!(
+            !build_args(&levelled).iter().any(|x| x == "--effort"),
+            "levelled model ids must not get --effort"
+        );
         assert_eq!(
             &a[..4],
             ["-p", "do the thing", "--output-format", "stream-json"]

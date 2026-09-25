@@ -31,6 +31,8 @@ export interface ProviderInfo {
   capabilities: ProviderCapabilities
   /** "verified": parser pinned to a real transcript fixture; "beta": written from docs + generic fallback. */
   parserMaturity: "verified" | "beta"
+  /** The vendor stopped serving this CLI for consumer accounts: disabled by default, note explains. */
+  retired?: boolean
   /** Models known without any local catalog (aliases / documented defaults). */
   staticModels: Array<Pick<ProviderModel, "id" | "displayName" | "tier"> & { isDefault?: boolean }>
   /** Accent colour for logos/chips. */
@@ -136,6 +138,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
       { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", tier: "fast" },
     ],
     color: "#7c9cff",
+    retired: true,
     note: "Google closed Gemini CLI for individual / AI Pro / AI Ultra accounts on 2026-06-18 (login fails with 'This client is no longer supported'). Use Antigravity CLI instead; Gemini CLI still works with Code Assist Standard/Enterprise licences.",
   },
   qwen: {
