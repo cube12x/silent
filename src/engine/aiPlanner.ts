@@ -1,5 +1,6 @@
 import type { CliRunRequest, ModelTier, ProviderModel, RuntimeEvent, Subtask, SubtaskKind } from "@/domain"
 import { modelRef } from "@/domain"
+import { providerInfo } from "@/providers/registry"
 import { newId } from "@/lib/ids"
 import { AI_PLAN_SCHEMA, parseAiPlan, type AiPlan } from "./planSchema"
 import { TIER_RANK } from "./capabilities"
@@ -31,7 +32,9 @@ export const PLANNER_TIMEOUT_SECS = 240
 /** Pick the planner model: a strong-tier model from the pool, else the best available. */
 export function pickPlannerModel(models: ProviderModel[]): ProviderModel | undefined {
   const order = (m: ProviderModel) => (m.tier === "strong" ? 0 : m.tier === "frontier" ? 1 : 2)
-  return [...models].sort((a, b) => order(a) - order(b) || (a.isDefault ? -1 : 1))[0]
+  // Only CLIs whose structured planning is verified (Antigravity rejected the schema with INVALID_ARGUMENT, 2026-09-25).
+  const capable = models.filter((m) => providerInfo(m.providerId).capabilities.planner)
+  return [...capable].sort((a, b) => order(a) - order(b) || (a.isDefault ? -1 : 1))[0]
 }
 
 /** Short, model-family based strengths so the planner can assign tasks sensibly (kept generic and honest). */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { parseAiPlan } from "./planSchema"
-import { buildPlannerPrompt, requestAiPlan, subtasksFromAiPlan } from "./aiPlanner"
+import { buildPlannerPrompt, pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "./aiPlanner"
 import { TEST_MODELS } from "./testModels"
 import type { RuntimeEvent } from "@/domain"
 
@@ -51,5 +51,14 @@ describe("AI planner", () => {
     expect(prompt).toMatch(/claude:opus — frontier — deepest reasoning/)
     expect(prompt).toMatch(/codex:gpt-6-astra — frontier — frontier; creative gameplay/)
     expect(prompt).toMatch(/Browser-driving tasks must use a Claude model/)
+  })
+
+  it("never plans with a CLI whose structured output is unverified", () => {
+    const models = [
+      { id: "gemini-3.8-flash-high", providerId: "antigravity" as const, displayName: "G", source: "catalog" as const, tier: "strong" as const, isDefault: true },
+      { id: "grok-4.7", providerId: "grok" as const, displayName: "Grok", source: "catalog" as const, tier: "frontier" as const },
+      ...TEST_MODELS,
+    ]
+    expect(["codex", "claude"]).toContain(pickPlannerModel(models)?.providerId)
   })
 })
