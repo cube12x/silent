@@ -242,6 +242,15 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
             }
             events
         }
+        // Heartbeat while a tool call runs (every 30 s): `{"type":"tool_progress","tool_name":"Bash",
+        // "elapsed_time_seconds":30,"heartbeat":true,...}`. Not a new command (it logged as "$ Bash" before).
+        "tool_progress" => {
+            let tool = str_field(&value, "tool_name").unwrap_or("tool");
+            let secs = u64_at(&value, "/elapsed_time_seconds");
+            vec![RuntimeEvent::ReasoningStatus {
+                status: format!("{tool} still running ({secs}s)"),
+            }]
+        }
         "result" => {
             let mut events = Vec::new();
             if let Some(id) = str_field(&value, "session_id") {
@@ -513,5 +522,22 @@ mod schema_tests {
         assert!(only_result
             .iter()
             .any(|e| matches!(e, RuntimeEvent::AgentMessage { text } if text.contains("summary"))));
+    }
+
+    #[test]
+    fn tool_progress_heartbeat_is_status_not_a_command() {
+        let adapter = Claude;
+        let mut state = ParseState::default();
+        let events = adapter.parse_line(
+            r#"{"type":"tool_progress","tool_use_id":"t1-heartbeat-0","tool_name":"Bash","parent_tool_use_id":"t1","elapsed_time_seconds":30,"heartbeat":true,"session_id":"s"}"#,
+            &mut state,
+        );
+        assert!(
+            matches!(&events[..], [RuntimeEvent::ReasoningStatus { status }] if status.contains("Bash") && status.contains("30")),
+            "{events:?}"
+        );
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e, RuntimeEvent::CommandStarted { .. })));
     }
 }
