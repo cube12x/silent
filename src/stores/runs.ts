@@ -346,7 +346,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
         persist(final)
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
-      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
+      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.assigned" || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
         persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") {
           void loadContext()
