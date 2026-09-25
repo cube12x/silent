@@ -67,4 +67,15 @@ describe("router (CLI models)", () => {
     // Without the browser constraint the same call escalates to Astra.
     expect(nextModel(route, ["claude:sonnet"], ["claude:sonnet", "codex:gpt-6-astra"], TEST_MODELS, false)?.modelId).toBe("codex:gpt-6-astra")
   })
+
+  it("spreads equal-score work across the pool instead of piling on the first model", () => {
+    const twins = [
+      { ...TEST_MODELS[1], id: "m-a", providerId: "codex" as const, displayName: "A" },
+      { ...TEST_MODELS[1], id: "m-b", providerId: "codex" as const, displayName: "B" },
+    ]
+    const tasks = plan.slice(0, 2).map((s, i) => ({ ...s, kind: "backend" as const, id: `t${i}`, dependsOn: [] }))
+    expect(tasks).toHaveLength(2)
+    const routes = routeSubtasks({ subtasks: tasks, pool: ["codex:m-a", "codex:m-b"], models: twins, costMode: "economy" })
+    expect(new Set(routes.map((r) => r.primaryModelId)).size).toBe(2)
+  })
 })

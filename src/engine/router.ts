@@ -50,6 +50,7 @@ export function explainRoute(model: ProviderModel, kind: SubtaskKind, costMode: 
 export function routeSubtasks(input: RouteInput): RoutingDecision[] {
   const index = new ModelIndex(input.models)
   const poolModels = input.pool.map((ref) => index.get(ref)).filter((m): m is ProviderModel => Boolean(m))
+  const assigned = new Map<string, number>()
   return input.subtasks.map((subtask) => {
     const override = input.overrides?.[subtask.kind]
     // A task that must drive a real browser cannot run inside a sandbox that forbids launching one.
@@ -62,7 +63,8 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
         if (input.preferredModelRef === ref) score += 0.03
         return { model, ref, score }
       })
-      .sort((a, b) => b.score - a.score)
+      // Equal scores: prefer the model with fewer assignments so a cheap pool shares the work.
+      .sort((a, b) => b.score - a.score || (assigned.get(a.ref) ?? 0) - (assigned.get(b.ref) ?? 0))
 
     let primary = ranked[0]
     let usedOverride = false
@@ -71,6 +73,7 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
       usedOverride = true
     }
     if (!primary) return { subtaskId: subtask.id, kind: subtask.kind, primaryModelId: "", fallbackModelIds: [], reason: "no-model", score: 0 }
+    assigned.set(primary.ref, (assigned.get(primary.ref) ?? 0) + 1)
     // Prefer a fallback on a *different* CLI first so a broken CLI does not take the whole chain down.
     const others = ranked.filter((r) => r.ref !== primary.ref)
     const diffCli = others.find((r) => r.model.providerId !== primary.model.providerId)
