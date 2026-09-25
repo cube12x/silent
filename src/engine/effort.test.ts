@@ -20,6 +20,8 @@ describe("effort policy", () => {
   })
   it("bounds review/docs/tests tighter than build work", () => {
     expect(timeoutFor("review", 1)).toBe(900)
+    expect(timeoutFor("tests", 3)).toBe(2400)
+    expect(timeoutFor("docs", 2)).toBe(1500)
     expect(timeoutFor("backend", 3)).toBe(2400)
   })
 })

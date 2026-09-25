@@ -34,7 +34,9 @@ export function effortFor(kind: SubtaskKind, costMode: CostMode, tier?: ModelTie
 
 /** Wall-clock limit per subtask kind (seconds). Review/docs/tests are bounded tighter. */
 export function timeoutFor(kind: SubtaskKind, weight: 1 | 2 | 3): number {
+  // Weight drives the limit for every kind: a weight-3 e2e/playtest task (4 levels by bot) blew the fixed
+  // 15-minute "tests" limit on 2026-09-25 and was cut at the hard limit mid-run.
   const light = kind === "docs" || kind === "tests" || kind === "review"
-  if (light) return 15 * 60
+  if (light) return (weight >= 3 ? 40 : weight === 2 ? 25 : 15) * 60
   return (weight >= 3 ? 40 : weight === 2 ? 30 : 20) * 60
 }
