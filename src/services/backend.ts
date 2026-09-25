@@ -35,6 +35,14 @@ export interface Repositories {
  * The single seam between UI/engine and the host. `TauriBackend` talks to Rust; `TestBackend` is an
  * in-memory double for unit tests only (there is no demo/simulation mode in the product).
  */
+export interface AutostartRequest {
+  folder: string
+  prompt: string
+  kit?: string
+  polish?: boolean
+  cost?: string
+}
+
 export interface Backend {
   readonly kind: "tauri" | "test"
   appInfo(): Promise<AppInfo>
@@ -46,6 +54,8 @@ export interface Backend {
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
+  /** Pending `silent run …` request from the terminal launcher (consumed on read). */
+  autostartTake(): Promise<AutostartRequest | null>
   /** Shallow-clone reference repositories into `<repo>/.silent/refs/<name>` (host side, no sandbox). */
   syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>): Promise<Array<{ name: string; path: string; ok: boolean; error?: string }>>
   /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */

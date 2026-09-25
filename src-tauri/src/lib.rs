@@ -70,6 +70,7 @@ pub fn run() {
             commands::files::read_project_file,
             commands::files::repo_changed_files,
             commands::refs::refs_sync,
+            commands::autostart::autostart_take,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Silent");

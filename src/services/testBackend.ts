@@ -42,6 +42,9 @@ export class TestBackend implements Backend {
     return null
   }
   projectFiles: Record<string, string> = {}
+  async autostartTake() {
+    return null
+  }
   async changedFiles() {
     return [] as string[]
   }

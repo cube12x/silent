@@ -4,7 +4,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
 import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, Backend, KvStore, LauncherStatus, Repositories, RunHandle } from "./backend"
+import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, Repositories, RunHandle } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -82,6 +82,10 @@ export class TauriBackend implements Backend {
 
   syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>) {
     return invoke<Array<{ name: string; path: string; ok: boolean; error?: string }>>("refs_sync", { repoPath, refs })
+  }
+
+  autostartTake() {
+    return invoke<AutostartRequest | null>("autostart_take")
   }
 
   changedFiles(root: string, sinceMs: number): Promise<string[]> {

@@ -1,3 +1,4 @@
+pub mod autostart;
 pub mod binaries;
 pub mod cli;
 pub mod files;

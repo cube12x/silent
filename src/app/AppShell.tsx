@@ -1,5 +1,7 @@
 import * as React from "react"
-import { Outlet, useLocation } from "react-router"
+import { Outlet, useLocation, useNavigate } from "react-router"
+import { getBackend } from "@/services"
+import { useRunsStore } from "@/stores/runs"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { CommandPalette } from "./CommandPalette"
@@ -14,6 +16,30 @@ export function AppShell() {
   const openNewSession = useUiStore((s) => s.openNewSession)
   const applyViewport = useUiStore((s) => s.applyViewport)
   const location = useLocation()
+  const navigate = useNavigate()
+
+  // `silent run <folder> "<request>"` from the terminal: the launcher wrote autostart.json; pick it up and
+  // hand it to the composer, which plans, approves and starts without clicks.
+  React.useEffect(() => {
+    let stopped = false
+    const poll = async () => {
+      try {
+        const req = await (await getBackend()).autostartTake()
+        if (req && !stopped && req.prompt && req.folder) {
+          useRunsStore.setState({ autostart: req })
+          navigate(`/code?auto=${Date.now()}`)
+        }
+      } catch {
+        /* dev backend has none */
+      }
+    }
+    void poll()
+    const t = setInterval(() => void poll(), 3000)
+    return () => {
+      stopped = true
+      clearInterval(t)
+    }
+  }, [navigate])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

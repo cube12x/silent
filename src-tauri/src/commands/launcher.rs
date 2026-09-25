@@ -56,6 +56,38 @@ fn status() -> LauncherStatus {
     }
 }
 
+/// `silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] <folder> <request…>` queues a run
+/// for the app (plan → approve → start) by writing `autostart.json`; the app is opened as usual afterwards.
+const RUN_PRELUDE: &str = r#"#!/bin/sh
+# Silent — opens the desktop app. Installed by Silent > Settings.
+# Usage: silent                       open the app
+#        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] <folder> <request…>
+if [ "$1" = "run" ]; then
+  shift
+  kit=""; polish="true"; cost=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kit) kit="$2"; shift 2 ;;
+      --no-polish) polish="false"; shift ;;
+      --cost) cost="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
+  folder="$1"; shift
+  if [ -z "$folder" ] || [ $# -eq 0 ]; then echo "usage: silent run [--kit ID] [--no-polish] [--cost MODE] <folder> <request…>" >&2; exit 2; fi
+  mkdir -p "$folder" || exit 1
+  folder=$(cd "$folder" && pwd)
+  dir="$HOME/Library/Application Support/com.silent.workstation"
+  mkdir -p "$dir"
+  python3 - "$folder" "$*" "$kit" "$polish" "$cost" > "$dir/autostart.json" <<'PY'
+import json, sys
+print(json.dumps({"folder": sys.argv[1], "prompt": sys.argv[2], "kit": sys.argv[3], "polish": sys.argv[4] == "true", "cost": sys.argv[5]}))
+PY
+  echo "queued: $folder"
+  set --
+fi
+"#;
+
 #[tauri::command]
 pub fn cli_launcher_status() -> LauncherStatus {
     status()
@@ -69,7 +101,11 @@ pub fn install_cli_launcher() -> Result<LauncherStatus, String> {
     }
     let app = app_path();
     let script = if app.extension().is_some_and(|e| e == "app") {
-        format!("#!/bin/sh\n# Silent — opens the desktop app. Installed by Silent > Settings.\nexec open -a \"{}\" --args \"$@\"\n", app.display())
+        format!(
+            "{}exec open -a \"{}\" --args \"$@\"\n",
+            RUN_PRELUDE,
+            app.display()
+        )
     } else {
         format!(
             "#!/bin/sh\n# Silent (dev build) — launches the app executable.\nexec \"{}\" \"$@\"\n",

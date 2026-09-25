@@ -16,6 +16,7 @@ import { getBackend } from "@/services"
 import { newId } from "@/lib/ids"
 import { TIER_RANK } from "@/engine/capabilities"
 import { kitById, renderKitBrief } from "@/domain/kits"
+import type { AutostartRequest } from "@/services/backend"
 import { providerInfo } from "@/providers/registry"
 import { useI18nStore } from "@/i18n"
 import { useAgentsStore } from "./agents"
@@ -55,6 +56,8 @@ interface RunsState {
   usage: Record<string, { tokens: number; costUsd: number }>
   executors: Record<string, Executor>
   planning: boolean
+  /** `silent run …` request waiting for the composer to pick it up. */
+  autostart?: AutostartRequest
   load(): Promise<void>
   /** Heuristic plan (instant, used as fallback and for tests). */
   draft(input: DraftInput): SilentCodeRun

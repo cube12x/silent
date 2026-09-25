@@ -50,6 +50,7 @@ function Composer() {
   const planning = useRunsStore((s) => s.planning)
   const start = useRunsStore((s) => s.start)
   const parent = useRunsStore((s) => s.byId(params.get("continue") ?? undefined))
+  const autostart = useRunsStore((s) => s.autostart)
 
   const [prompt, setPrompt] = React.useState("")
   const [rawPool, setPool] = React.useState<string[] | null>(null)
@@ -121,6 +122,45 @@ function Composer() {
       if (!withAnswers) setAnswers({})
       setStep("plan")
     })
+  /** Terminal-triggered run: plan → approve → start, no clicks (questions from the planner stay unanswered). */
+  const autoRun = (req: NonNullable<typeof autostart>) =>
+    guard("silent run", async () => {
+      setPrompt(req.prompt)
+      setFolder(req.folder)
+      setAgentId(undefined)
+      if (req.kit !== undefined) setKitSel(req.kit === "auto" ? "auto" : req.kit)
+      if (req.polish !== undefined) setPolish(req.polish)
+      const cost = (["economy", "balanced", "max-quality"] as CostMode[]).find((c) => c === req.cost) ?? costMode
+      if (req.cost) setCostMode(cost)
+      const kit = !req.kit || req.kit === "auto" ? detectKit(req.prompt) : kitById(req.kit)
+      const res = await planWithAi({ prompt: req.prompt, pool, executionMode: mode, costMode: cost, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true })
+      setResult(res)
+      setAnswers({})
+      setStep("plan")
+      const planned = res.run
+      if (planned.routing.some((r) => !r.primaryModelId)) {
+        setUiError(t("code.unroutedHint", { n: planned.routing.filter((r) => !r.primaryModelId).length }))
+        return
+      }
+      setApproved(true)
+      setStep("start")
+      setStarting(true)
+      try {
+        await start({ ...planned, manual: false })
+        navigate(`/code/${planned.id}`)
+      } finally {
+        setStarting(false)
+      }
+    })
+  React.useEffect(() => {
+    if (!autostart || !params.get("auto")) return
+    useRunsStore.setState({ autostart: undefined })
+    const req = autostart
+    const timer = setTimeout(() => void autoRun(req), 0)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart])
+
   const launch = () =>
     guard(t("code.startRun"), async () => {
       if (!run || unrouted || !approved) return
