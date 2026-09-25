@@ -17,7 +17,7 @@ export function filesFromCommand(command: string): string[] {
   for (const m of command.matchAll(/(?:^|[\s;|&('"])(?:cat|printf|echo)\b[^>]*>>?\s*(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
   for (const m of command.matchAll(/\btee\s+(?:-a\s+)?(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
   for (const m of command.matchAll(/\b(?:cp|mv)\s+(?:-[a-zA-Z]+\s+)*\S+\s+(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
-  for (const m of command.matchAll(/\bsed\s+-i[^\s]*\s+(?:'[^']*'|"[^"]*"|\S+)\s+(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
+  for (const m of command.matchAll(/\bsed\s+-i\S*(?:\s+(?:''|""))?\s+(?:'[^']*'|"[^"]*"|\S+)\s+(['"]?[^\s'";&|>]+['"]?)/g)) out.add(clean(m[1]))
   return [...out].filter((p) => p && !p.startsWith("/dev/") && !p.startsWith("/tmp/") && !p.startsWith("-") && /[./]/.test(p))
 }
 
