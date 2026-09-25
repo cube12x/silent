@@ -49,6 +49,11 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
                 .trim_end_matches('/')
                 .to_string(),
         );
+        // Workers also reach for the classic /tmp (screenshots, bots); Read/Write there were denied (2026-09-25).
+        if cfg!(unix) && std::env::temp_dir() != std::path::Path::new("/tmp") {
+            args.push("--add-dir".into());
+            args.push("/tmp".into());
+        }
     }
     if let Some(model) = req.model() {
         args.push("--model".into());
@@ -322,6 +327,8 @@ mod tests {
                 "Bash",
                 "--add-dir",
                 &tmp,
+                "--add-dir",
+                "/tmp",
                 "--add-dir",
                 "/repo"
             ]
