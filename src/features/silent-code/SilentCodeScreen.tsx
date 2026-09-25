@@ -152,14 +152,17 @@ function Composer() {
         setStarting(false)
       }
     })
+  // The shell sets the store first and navigates second: the store update re-renders before the URL
+  // carries `auto`, so the URL param must be a dependency too (2026-09-25: a queued run was lost this way).
+  const autoParam = params.get("auto")
   React.useEffect(() => {
-    if (!autostart || !params.get("auto")) return
+    if (!autostart || !autoParam) return
     useRunsStore.setState({ autostart: undefined })
     const req = autostart
     const timer = setTimeout(() => void autoRun(req), 0)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autostart])
+  }, [autostart, autoParam])
 
   const launch = () =>
     guard(t("code.startRun"), async () => {
