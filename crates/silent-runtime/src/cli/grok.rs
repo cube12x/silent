@@ -55,6 +55,14 @@ impl CliAdapter for Grok {
     }
     fn parse_line(&self, line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
         claude::parse_line(line, state)
+            .into_iter()
+            .map(|e| match e {
+                RuntimeEvent::ReasoningStatus { status } => RuntimeEvent::ReasoningStatus {
+                    status: status.replace("Claude", "Grok"),
+                },
+                other => other,
+            })
+            .collect()
     }
 }
 
@@ -119,5 +127,12 @@ mod tests {
             "{res:?}"
         );
         assert!(res.iter().any(|e| matches!(e, RuntimeEvent::Cost { .. })));
+    }
+
+    #[test]
+    fn thinking_status_names_grok() {
+        let mut state = ParseState::default();
+        let ev = Grok.parse_line(r#"{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"thinking"}}}"#, &mut state);
+        assert!(ev.iter().any(|e| matches!(e, RuntimeEvent::ReasoningStatus { status } if status == "Grok is thinking")), "{ev:?}");
     }
 }
