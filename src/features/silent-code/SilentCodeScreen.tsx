@@ -160,10 +160,10 @@ function Composer() {
   React.useEffect(() => {
     if (autostart) console.warn("[autostart] composer effect", JSON.stringify({ autoParam, hasParent: Boolean(parent) }))
     if (!autostart || !autoParam) return
-    useRunsStore.setState({ autostart: undefined })
     const req = autostart
-    const timer = setTimeout(() => void autoRun(req), 0)
-    return () => clearTimeout(timer)
+    // Consuming the slot re-renders and re-runs this effect, so nothing here may be cancelled by cleanup.
+    useRunsStore.setState({ autostart: undefined })
+    queueMicrotask(() => void autoRun(req))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autostart, autoParam])
 
