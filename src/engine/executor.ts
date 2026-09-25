@@ -318,7 +318,8 @@ export class Executor {
     if (review.state !== "completed" || !fixes.length || (this.polishScore ?? 0) >= 9) return
     for (const fix of fixes) {
       const kind: Subtask["kind"] = /test|spec|coverage/i.test(fix) ? "tests" : /ui|visual|render|css|layout|animation|screen|hud|menu|sprite|sound|audio|juice|feel/i.test(fix) ? "frontend" : "backend"
-      this.addSubtask(kind, `Fix: ${fix.slice(0, 70)}`, `Polish fix from the review (score ${this.polishScore ?? "?"}/10). ${fix} Verify it works end to end and keep every check green.`, modelId, 1, 25 * 60)
+      const title = fix.replace(/`/g, "").split(/(?<=[.!?])\s/)[0].slice(0, 80)
+      this.addSubtask(kind, `Fix: ${title}`, `Polish fix from the review (score ${this.polishScore ?? "?"}/10). ${fix} Verify it works end to end and keep every check green.`, modelId, 1, 25 * 60)
     }
     await this.drain(limit)
   }
