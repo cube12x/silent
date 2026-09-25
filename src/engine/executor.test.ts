@@ -236,4 +236,29 @@ describe("executor", () => {
     expect(exec.snapshot.filter((s) => s.title.startsWith("Fix:"))).toHaveLength(0)
     expect(outcome).toBe("completed")
   })
+
+  it("polish round falls back to [P1]/[P2] review comments when SILENT_FIXES is missing", async () => {
+    class CommentWorker implements Worker {
+      readonly id = "c"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        sink.state("coding", 50)
+        const summary = job.subtask.title === "Polish review"
+          ? "Solid base.\nSILENT_SCORE: 6\nFull review comments:\n- [P2] Extend Odin's lightning hitboxes to the arena floor — /repo/src/x.ts:272-273\nDetails here.\n- [P1] Honor the unblockable flag — /repo/src/y.ts:22\n- [P3] Minor naming\nSILENT_DEVIATIONS: none"
+          : "done"
+        return { done: Promise.resolve({ ok: true, summary }), cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId))
+    const exec = new Executor(run, () => new CommentWorker(), new EventBus(), { models: TEST_MODELS, polish: true, polishModelId: "claude:opus" })
+    expect(await exec.start()).toBe("completed")
+    const fixes = exec.snapshot.filter((s) => s.title.startsWith("Fix:")).map((s) => s.title)
+    expect(fixes).toHaveLength(3)
+    expect(fixes[0]).toMatch(/^Fix: Honor the unblockable flag/)
+    expect(fixes[1]).toMatch(/^Fix: Extend Odin's lightning hitboxes/)
+  })
 })

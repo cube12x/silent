@@ -318,11 +318,23 @@ export class Executor {
     const score = Number(/SILENT_SCORE:\s*(\d+(?:\.\d+)?)/i.exec(summary)?.[1])
     this.polishScore = Number.isFinite(score) ? score : undefined
     const fixesBlock = /SILENT_FIXES:\s*([\s\S]*?)(?:\n\s*\n|SILENT_DEVIATIONS:|$)/i.exec(summary)?.[1] ?? ""
-    const fixes = fixesBlock
+    let fixes = fixesBlock
       .split("\n")
       .map((l) => l.replace(/^\s*[-*•\d.)]+\s*/, "").trim())
       .filter((l) => l && !/^none$/i.test(l))
       .slice(0, 3)
+    // Reviewers sometimes ignore the SILENT_FIXES block and list findings as "- [P1] …" review comments
+    // (Loki run, 2026-09-25: score 6, three concrete defects, zero fix tasks). Fall back to those.
+    if (!fixes.length) {
+      fixes = summary
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /^[-*•]\s*\[P[0-3]\]/i.test(l))
+        .sort((a, b) => Number(/\[P(\d)\]/i.exec(a)?.[1] ?? 9) - Number(/\[P(\d)\]/i.exec(b)?.[1] ?? 9))
+        .map((l) => l.replace(/^[-*•]\s*\[P\d\]\s*/i, "").replace(/\s+—\s+\/\S+/, "").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    }
     this.polishNotes = summary.replace(/SILENT_(SCORE|FIXES|DEVIATIONS):[\s\S]*$/i, "").trim().slice(0, 1500)
     if (review.state !== "completed" || !fixes.length || (this.polishScore ?? 0) >= 9) return
     for (const fix of fixes) {
