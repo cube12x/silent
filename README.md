@@ -89,6 +89,8 @@ Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ek
 
 Kablo kuralları `src/domain/blueprint.ts` (`BP_EDGE_RULES`); yanlış kablo reddedilir, eksik bağlantılar kutuda ▲ ile uyarılır. Build → Prompt → AI zinciri mevcut klasör üzerinde geliştirme yapar ve aynı Build'i günceller. Grafik `blueprints` tablosunda JSON olarak saklanır (migration 0007).
 
+AI kutusunda **model havuzu** (orkestrasyonda planlayıcı görev başına havuzdan seçer) ve **token sayacı** (kutu rozeti + başlıkta Σ toplam) vardır.
+
 Terminalden tetikleme (launcher):
 
 ```bash
