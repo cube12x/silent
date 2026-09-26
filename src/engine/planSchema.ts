@@ -54,7 +54,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
           title: { type: "string" },
           description: { type: "string" },
           dependsOn: { type: "array", items: { type: "string" } },
-          weight: { type: "integer", enum: [1, 2, 3] },
+          weight: { type: "integer", minimum: 1, maximum: 3 },
           tier: { type: "string", enum: ["fast", "strong", "frontier"] },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
           rationale: { type: "string" },
