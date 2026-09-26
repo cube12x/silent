@@ -25,8 +25,8 @@ export const en: Dictionary = {
     run: "Run", log: "Log", logEmpty: "No output yet.",
     badWire: "Invalid wire: {reason}", dropOnBuild: "Drop files onto a Build node.", imported: "{n} files copied",
     reloadDefaultPurpose: "Review the last output for defects and redo what is broken.",
-    menu: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Photo", "button.start": "Button: Start", "button.send": "Button: Send", "button.reload": "Button: Reload", wizard: "Skill Wizard", variable: "Variable" },
-    warn: { "ai.noPrompt": "no prompt wired into this AI", "ai.noModel": "no model selected", "button.unwired": "button is not wired to anything", "reload.noAi": "Reload must be wired to an AI", "send.unwired": "Send needs an incoming build and an outgoing target", "variable.noTarget": "Variable must be wired to a Wizard/AI", "wizard.noAi": "Wizard must be wired to an AI" },
+    menu: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Photo", button: { start: "Button: Start", send: "Button: Send", reload: "Button: Reload" }, wizard: "Skill Wizard", variable: "Variable" },
+    warn: { ai: { noPrompt: "no prompt wired into this AI", noModel: "no model selected" }, button: { unwired: "button is not wired to anything" }, reload: { noAi: "Reload must be wired to an AI" }, send: { unwired: "Send needs an incoming build and an outgoing target" }, variable: { noTarget: "Variable must be wired to a Wizard/AI" }, wizard: { noAi: "Wizard must be wired to an AI" } },
   },
   chat: {
     title: "Chat",

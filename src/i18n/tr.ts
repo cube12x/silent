@@ -23,8 +23,8 @@ export const tr = {
     run: "Çalıştır", log: "Günlük", logEmpty: "Henüz çıktı yok.",
     badWire: "Bu bağlantı geçersiz: {reason}", dropOnBuild: "Dosyaları bir Build kutusunun üstüne bırakın.", imported: "{n} dosya kopyalandı",
     reloadDefaultPurpose: "Review the last output for defects and redo what is broken.",
-    menu: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Foto", "button.start": "Buton: Start", "button.send": "Buton: Send", "button.reload": "Buton: Reload", wizard: "Yetenek Sihirbazı", variable: "Değişken" },
-    warn: { "ai.noPrompt": "AI'a bağlı prompt yok", "ai.noModel": "model seçilmedi", "button.unwired": "buton hiçbir şeye bağlı değil", "reload.noAi": "Reload bir AI'a bağlanmalı", "send.unwired": "Send: gelen build ve giden hedef gerekli", "variable.noTarget": "Değişken bir Sihirbaz/AI'a bağlanmalı", "wizard.noAi": "Sihirbaz bir AI'a bağlanmalı" },
+    menu: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Foto", button: { start: "Buton: Start", send: "Buton: Send", reload: "Buton: Reload" }, wizard: "Yetenek Sihirbazı", variable: "Değişken" },
+    warn: { ai: { noPrompt: "AI'a bağlı prompt yok", noModel: "model seçilmedi" }, button: { unwired: "buton hiçbir şeye bağlı değil" }, reload: { noAi: "Reload bir AI'a bağlanmalı" }, send: { unwired: "Send: gelen build ve giden hedef gerekli" }, variable: { noTarget: "Değişken bir Sihirbaz/AI'a bağlanmalı" }, wizard: { noAi: "Sihirbaz bir AI'a bağlanmalı" } },
   },
   chat: {
     title: "Sohbet",

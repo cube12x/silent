@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router"
 import { cn } from "cn"
 import { Plus, Play, Send, Trash2, FolderOpen, Sparkles } from "lucide-react"
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
-import { useProvidersStore } from "@/stores/providers"
+import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { lintBlueprint } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
 import { NeonButton, PageHeader } from "@/design-system"
@@ -44,8 +44,10 @@ function Canvas({ bpId }: { bpId: string }) {
   const importFiles = useBlueprintsStore((s) => s.importFiles)
   const { screenToFlowPosition } = useReactFlow()
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
-  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = React.useState<{ x: number; y: number; left: number; top: number } | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
+  // Fit only when the blueprint opens with nodes; on an empty canvas React Flow would defer the fit to the first added node and zoom into it.
+  const [fitOnInit] = React.useState(() => (bp?.nodes.length ?? 0) > 0)
 
   const lint = React.useMemo(() => (bp ? lintBlueprint(bp) : {}), [bp])
   const flowNodes = React.useMemo<BpFlowNode[]>(
@@ -148,7 +150,7 @@ function Canvas({ bpId }: { bpId: string }) {
   if (!bp) return null
   return (
     <div className="relative flex h-full min-h-0 flex-1" onKeyDown={onKeyDown}>
-      <div className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }} onClick={() => menu && setMenu(null)}>
+      <div className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: e.clientX, y: e.clientY, left: e.clientX - r.left, top: e.clientY - r.top }) }} onClick={() => menu && setMenu(null)}>
         <ReactFlow<BpFlowNode>
           nodes={flowNodes}
           edges={flowEdges}
@@ -157,7 +159,11 @@ function Canvas({ bpId }: { bpId: string }) {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeDoubleClick={(_, n) => { const node = bp.nodes.find((x) => x.id === n.id); if (node) trigger(node) }}
-          fitView
+          onPaneClick={() => setMenu(null)}
+          fitView={fitOnInit}
+          fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+          minZoom={0.3}
+          maxZoom={1.6}
           colorMode="dark"
           deleteKeyCode={["Backspace", "Delete"]}
           proOptions={{ hideAttribution: true }}
@@ -167,7 +173,7 @@ function Canvas({ bpId }: { bpId: string }) {
         </ReactFlow>
         {bp.nodes.length === 0 && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-text-3">{t("bp.emptyCanvas")}</div>}
         {menu && (
-          <div className="absolute z-30 w-52 rounded-sm border border-line bg-ink-2 p-1 text-xs shadow-xl" style={{ left: menu.x - (document.querySelector("[data-bp-root]")?.getBoundingClientRect().left ?? 0), top: menu.y - (document.querySelector("[data-bp-root]")?.getBoundingClientRect().top ?? 0) }}>
+          <div className="absolute z-30 w-52 rounded-sm border border-line bg-ink-2 p-1 text-xs shadow-xl" style={{ left: menu.left, top: menu.top }}>
             {MENU.map((m) => (
               <button
                 key={m.key}
@@ -202,7 +208,9 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
   const updateNode = useBlueprintsStore((s) => s.updateNode)
   const cancel = useBlueprintsStore((s) => s.cancel)
   const running = useBlueprintsStore((s) => Boolean(s.running[node.id]))
-  const models = useProvidersStore((s) => s.availableModels())
+  const providers = useProvidersStore((s) => s.providers)
+  const unavailable = useProvidersStore((s) => s.unavailable)
+  const models = React.useMemo(() => selectAvailableModels(providers, unavailable), [providers, unavailable])
   const patch = (data: Record<string, unknown>) => updateNode(bpId, node.id, { data })
   const d = node.data
   const pickFolder = async () => {
@@ -316,7 +324,7 @@ export function BlueprintScreen() {
     navigate(`/blueprint/${created.id}`)
   }
   return (
-    <div className="flex h-full min-h-0 flex-col" data-bp-root>
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b border-line px-4 py-2">
         <PageHeader eyebrow={t("bp.title")} title="" description="" className="mb-0" />
         <select value={id ?? ""} onChange={(e) => navigate(`/blueprint/${e.target.value}`)} className="rounded-sm border border-line bg-ink-2 px-2 py-1 text-xs text-text-1">

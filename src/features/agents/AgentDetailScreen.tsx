@@ -11,7 +11,7 @@ import { useRunsStore } from "@/stores/runs"
 import { EmptyState, GlowCard, KeyValueList, ModelLogo, ModelTag, NeonButton, PageHeader, PermissionToggle, SectionHeader, TacticalChip, RunStatusBadge } from "@/design-system"
 import { modelRef, type PermissionKey, type RunStatus, type RepoAgent, type RunDefaults } from "@/domain"
 import { BUILTIN_KITS } from "@/domain/kits"
-import { useProvidersStore } from "@/stores/providers"
+import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { humanTrait } from "@/engine/gateway"
 import { formatRelative } from "@/lib/format"
 import { Textarea } from "@/components/ui/textarea"
@@ -25,7 +25,9 @@ const DANGER: PermissionKey[] = ["gitPush", "network", "fileCreateDelete"]
 function RunDefaultsEditor({ agent }: { agent: RepoAgent }) {
   const t = useT()
   const setRunDefaults = useAgentsStore((s) => s.setRunDefaults)
-  const models = useProvidersStore((s) => s.availableModels())
+  const providers = useProvidersStore((s) => s.providers)
+  const unavailable = useProvidersStore((s) => s.unavailable)
+  const models = React.useMemo(() => selectAvailableModels(providers, unavailable), [providers, unavailable])
   const d = agent.runDefaults ?? {}
   const [draft, setDraft] = React.useState<RunDefaults>(d)
   const dirty = JSON.stringify(draft) !== JSON.stringify(d)
