@@ -73,6 +73,29 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 
 - **Uzman (şablon) ajanlar:** bir depoya bağlı olmayan ajanlar; kit, model havuzu, sabit yapım modeli, maliyet modu ve cila ayarını taşır. Yerleşik **Pixel Ustası** (pixel-art kiti, ucuz set: grok-4.7-build-fast + gpt-5.6-terra + haiku, tarayıcı işleri sonnet, ekonomi modu). Composer'da "★ Pixel Ustası" seçin veya `silent run --agent "Pixel Ustası" <klasör> "<istek>"`. Ajanlar > "Uzman ajan" ile yenisi oluşturulur; ayrıntı ekranından varsayılanları düzenlenir.
 
+## Blueprint (v2.5)
+
+Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ekle, kabloyla bağla, seçili kutuda **Enter** (veya çift tık) ile çalıştır.
+
+| Kutu | İş |
+| --- | --- |
+| **Prompt** | başlık + metin; AI'a kablolanır |
+| **AI** | model + mod (**Orkestrasyon**: planlayıcı + paralel worker + cila; **Tek oturum**: tek CLI oturumu, hızlı/ucuz) + maliyet + kit + amaç |
+| **Build** | gerçek klasör (`~/CubeCode/blueprints/<blueprint>/<build>`); AI çıktısı buraya düşer, Silent adlandırır (NAME/SUMMARY); dosya sürükle-bırak → klasöre kopyalanır |
+| **Build Foto** | AI'ın ürettiği yeni görseller toplanır |
+| **Start / Send / Reload** | ileri doğru çalıştır / dosyaları başka Build'e veya AI inbox'ına kopyala / bağlı AI'ı amaçla yeniden çalıştır (aynı oturum) |
+| **Değişken** | bir Build klasörünü izler (3 sn); dosya gelince/değişince bağlı Sihirbaz/AI'ı tetikler |
+| **Yetenek Sihirbazı** | model + amaç; olay gelince bağlı AI'a kısa talimat yazar ve oturumu devam ettirir |
+
+Kablo kuralları `src/domain/blueprint.ts` (`BP_EDGE_RULES`); yanlış kablo reddedilir, eksik bağlantılar kutuda ▲ ile uyarılır. Build → Prompt → AI zinciri mevcut klasör üzerinde geliştirme yapar ve aynı Build'i günceller. Grafik `blueprints` tablosunda JSON olarak saklanır (migration 0007).
+
+Terminalden tetikleme (launcher):
+
+```bash
+silent bp "Örnek: Loki 2"              # Start butonunu çalıştırır
+silent bp "Örnek: Loki 2" "Geliştirici" # belirli bir kutu (başlık veya id)
+```
+
 ## Güvenlik
 
 - **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.

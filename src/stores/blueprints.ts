@@ -305,8 +305,14 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     cwd = await backend.blueprintBuildDir(bp.name, title)
   }
   if (!outBuild) {
-    outBuild = store.addNode(bpId, "build", ai.x + 300, ai.y, { title, folderPath: cwd, kind: "code" })
-    if (outBuild) store.addEdge(bpId, aiId, outBuild.id)
+    // Develop flow (Build → Prompt → AI): the AI works inside that build, so the same Build node is updated
+    // instead of growing a second node for the same folder.
+    const source = buildFolders[0] ? bp.nodes.find((n) => n.data.type === "build" && n.data.folderPath === buildFolders[0]) : undefined
+    if (source) outBuild = source
+    else {
+      outBuild = store.addNode(bpId, "build", ai.x + 300, ai.y, { title, folderPath: cwd, kind: "code" })
+      if (outBuild) store.addEdge(bpId, aiId, outBuild.id)
+    }
   } else if (outBuild.data.type === "build" && !outBuild.data.folderPath) {
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
   }
@@ -357,7 +363,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   store.updateNode(bpId, aiId, { status: ok ? "done" : "failed", executionId, note: ok ? undefined : "failed" })
   // Outputs: refresh the build, collect new images into a wired photo build, name an unnamed build.
   bp = useBlueprintsStore.getState().byId(bpId)!
-  outBuild = firstOutgoing(bp, aiId, "build")
+  outBuild = (outBuild && nodeById(bp, outBuild.id)) || firstOutgoing(bp, aiId, "build")
   if (outBuild) {
     store.updateNode(bpId, outBuild.id, { data: { lastRunId: executionId }, status: ok ? "done" : "failed" })
     await store.refreshBuild(bpId, outBuild.id)

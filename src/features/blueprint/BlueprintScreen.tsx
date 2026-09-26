@@ -314,16 +314,20 @@ export function BlueprintScreen() {
   // `silent bp "<blueprint>" ["<node>"]` from the terminal (AppShell routed autostart.json here).
   React.useEffect(() => {
     if (!loaded || !autorun) return
-    const st = useBlueprintsStore.getState()
     useBlueprintsStore.setState({ autorun: undefined })
-    const target = resolveAutorun(st.blueprints, autorun)
-    if (!target) {
-      console.warn("[autostart] blueprint node not found", JSON.stringify(autorun))
-      return
-    }
-    console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
-    navigate(`/blueprint/${target.bp.id}`)
-    void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
+    void (async () => {
+      // Re-read the DB first: the request may reference a blueprint written by a script after this screen mounted.
+      await useBlueprintsStore.getState().load()
+      const st = useBlueprintsStore.getState()
+      const target = resolveAutorun(st.blueprints, autorun)
+      if (!target) {
+        console.warn("[autostart] blueprint node not found", JSON.stringify(autorun))
+        return
+      }
+      console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
+      navigate(`/blueprint/${target.bp.id}`)
+      void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
+    })()
   }, [loaded, autorun, navigate, t])
 
   const bp = blueprints.find((b) => b.id === id)

@@ -3,6 +3,7 @@ import { cn } from "cn"
 import { Cpu, Settings2 } from "lucide-react"
 import { useProvidersStore } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
+import { useBlueprintsStore } from "@/stores/blueprints"
 import { useChatsStore } from "@/stores/chats"
 import { useAgentsStore } from "@/stores/agents"
 import { PROVIDER_IDS } from "@/domain"
@@ -33,6 +34,8 @@ export function TopBar() {
   const navigate = useNavigate()
   const providers = useProvidersStore((s) => s.providers)
   const active = useRunsStore((s) => s.activeCount())
+  // Blueprint single sessions / wizards are not runs; orchestration AIs are already counted through the runs store.
+  const bpActive = useBlueprintsStore((s) => s.blueprints.reduce((n, b) => n + b.nodes.filter((x) => x.status === "running" && !(x.data.type === "ai" && x.data.mode === "orchestration")).length, 0))
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
 
   return (
@@ -60,7 +63,7 @@ export function TopBar() {
         {installed.length === 0 && <TacticalChip tone="warn" dot>{t("top.noCli")}</TacticalChip>}
       </div>
       <div className="no-drag ml-auto flex items-center gap-2">
-        <TacticalChip tone={active ? "cyan" : "neutral"} dot pulse={active > 0}><Cpu className="size-3" />{active} {t("top.activeAis")}</TacticalChip>
+        <TacticalChip tone={active + bpActive ? "cyan" : "neutral"} dot pulse={active + bpActive > 0}><Cpu className="size-3" />{active + bpActive} {t("top.activeAis")}</TacticalChip>
         <button type="button" onClick={() => navigate("/settings")} className="flex size-7 items-center justify-center rounded-md text-text-2 hover:bg-ink-3 hover:text-text-1" aria-label={t("nav.settings")}><Settings2 className="size-4" /></button>
       </div>
     </header>
