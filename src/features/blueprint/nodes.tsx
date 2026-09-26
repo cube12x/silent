@@ -2,7 +2,9 @@ import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
 import { Bot, FileText, FolderGit2, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable } from "lucide-react"
-import type { BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
+import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
+import { useRunsStore } from "@/stores/runs"
+import { formatTokens } from "@/lib/format"
 import { ModelLogo } from "@/design-system"
 import { PROVIDERS } from "@/providers/registry"
 import { useT } from "@/i18n"
@@ -56,13 +58,20 @@ export function PromptNode({ data }: NodeProps<BpFlowNode>) {
 export function AiNode({ data }: NodeProps<BpFlowNode>) {
   const t = useT()
   const n = data.node
-  const d = n.data.type === "ai" ? n.data : { modelRef: "", mode: "orchestration" as const }
+  const d: BpAiData = n.data.type === "ai" ? n.data : { modelRef: "", mode: "orchestration" }
+  const runId = n.executionId && !n.executionId.startsWith("session:") ? n.executionId : undefined
+  // Live tokens of an orchestration run in flight (primitive selector: a number, never a fresh object).
+  const live = useRunsStore((s) => (runId && n.status === "running" ? (s.byId(runId)?.plan ?? []).reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0))
+  const tokens = (d.tokens ?? 0) + live
+  const extra = (d.pool ?? []).filter((p) => p !== d.modelRef)
   return (
     <Shell node={n} icon={<Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)}>
       <div className="flex items-center gap-2">
         {d.modelRef ? <ModelLogo modelRef={d.modelRef} size={14} /> : null}
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
+        {tokens > 0 && <span className="mono ml-auto shrink-0 text-[10px] text-text-3">{formatTokens(tokens)} tok</span>}
       </div>
+      {extra.length > 0 && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
     </Shell>
   )

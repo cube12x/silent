@@ -6,6 +6,9 @@ import { cn } from "cn"
 import { Plus, Play, Send, Trash2, FolderOpen, Sparkles } from "lucide-react"
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
+import { useRunsStore } from "@/stores/runs"
+import { formatTokens } from "@/lib/format"
+import { ModelSelectorGrid } from "@/design-system/tactical/ModelSelectorGrid"
 import { lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
 import { NeonButton, PageHeader } from "@/design-system"
@@ -263,6 +266,12 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                   {BUILTIN_KITS.map((k) => <option key={k.id} value={k.id}>{k.name[lang]}</option>)}
                 </select>
               </label>
+              {d.mode === "orchestration" && (
+                <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.pool")}
+                  <ModelSelectorGrid compact models={models} selected={d.pool ?? []} onToggle={(ref) => patch({ pool: (d.pool ?? []).includes(ref) ? (d.pool ?? []).filter((x) => x !== ref) : [...(d.pool ?? []), ref] })} />
+                  <span className="text-[10px]">{t("bp.poolHint")}</span>
+                </label>
+              )}
             </div>
           )}
           <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.purpose")}
@@ -346,6 +355,9 @@ export function BlueprintScreen() {
   }, [loaded, autorun, navigate, t])
 
   const bp = blueprints.find((b) => b.id === id)
+  // Σ tokens: persisted per AI node + live subtask tokens of orchestration runs in flight (number selector).
+  const liveTokens = useRunsStore((s) => (bp ? bp.nodes.reduce((acc, n) => acc + (n.status === "running" && n.executionId && !n.executionId.startsWith("session:") ? (s.byId(n.executionId)?.plan ?? []).reduce((a, st) => a + (st.tokens ?? 0), 0) : 0), 0) : 0))
+  const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
   const newBlueprint = async () => {
     const created = await create(t("bp.newName", { n: blueprints.length + 1 }))
     navigate(`/blueprint/${created.id}`)
@@ -361,6 +373,7 @@ export function BlueprintScreen() {
         {bp && <Input value={bp.name} onChange={(e) => void rename(bp.id, e.target.value)} className="h-7 w-48 text-xs" />}
         <NeonButton size="sm" onClick={() => void newBlueprint()}><Plus />{t("bp.new")}</NeonButton>
         {bp && <button type="button" onClick={() => { void remove(bp.id); navigate("/blueprint") }} className="ml-auto rounded-sm border border-line px-2 py-1 text-xs text-text-3 hover:text-danger">{t("common.delete")}</button>}
+        {bp && <span className="mono rounded-sm border border-line px-2 py-0.5 text-[11px] text-text-2" title={t("bp.tokensHint")}>{t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>}
         <span className="text-[11px] text-text-3">{t("bp.hint")}</span>
       </div>
       {bp ? (

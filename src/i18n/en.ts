@@ -11,6 +11,7 @@ export const en: Dictionary = {
     newName: "Blueprint {n}",
     none: "No blueprint yet. Create one and right-click the canvas.",
     hint: "Right-click: add node · drag wires · Enter or double-click on a node: run · ⌘Z undo",
+    pool: "Model pool", poolHint: "The planner assigns each task to one of these; the main model is always included.", totalTokens: "Σ {n} tokens", tokensHint: "Tokens spent by this blueprint's AI nodes (uncached input + output)",
     emptyCanvas: "Empty canvas. Right-click to add Prompt, AI, Build.",
     panelHint: "Select a node to edit it here; press Enter to run it.",
     node: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Photo", button: "Button", variable: "Variable", wizard: "Skill Wizard" },

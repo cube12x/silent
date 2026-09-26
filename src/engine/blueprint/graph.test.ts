@@ -50,6 +50,8 @@ describe("blueprint graph", () => {
     const lint = lintBlueprint(g)
     expect(lint.r).toContain("button.unwired")
     expect(lint.a3).toEqual(expect.arrayContaining(["ai.noPrompt", "ai.noModel"]))
+    g.nodes.push({ id: "a4", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "", mode: "orchestration", pool: ["claude:claude-opus-5-5"] } })
+    expect(lintBlueprint(g).a4 ?? []).not.toContain("ai.noModel")
   })
   it("resolves a blueprint + node from CLI refs (id, name, title, default start)", () => {
     const g = bp()

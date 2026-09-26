@@ -7,6 +7,7 @@ import { useProvidersStore } from "./providers"
 import { aiChainFrom, composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
+import { formatTokens } from "@/lib/format"
 
 interface BlueprintsState {
   blueprints: Blueprint[]
@@ -316,13 +317,25 @@ async function waitForRun(runId: string): Promise<"completed" | "failed" | "canc
 }
 
 /** Run one AI node: compose input, ensure a build folder, execute (orchestration or single), collect outputs. */
+/** Token accounting is run state, not an edit: bypasses undo history. */
+function addTokens(bpId: string, nodeId: string, delta: number) {
+  if (!delta) return
+  useBlueprintsStore.getState().update(
+    bpId,
+    (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && n.data.type === "ai" ? { ...n, data: { ...n.data, tokens: (n.data.tokens ?? 0) + delta } } : n)) }),
+    { history: false },
+  )
+}
+
 async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean }): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   let bp = store.byId(bpId)
   const ai = bp && nodeById(bp, aiId)
   if (!bp || !ai || ai.data.type !== "ai") return false
-  if (!ai.data.modelRef) {
+  const mainRef = ai.data.modelRef || ai.data.pool?.[0] || ""
+  const poolRefs = Array.from(new Set([mainRef, ...(ai.data.pool ?? [])].filter(Boolean)))
+  if (!mainRef) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no model" })
     return false
   }
@@ -356,14 +369,15 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   if (buildFolders[0]) prompt = `Work inside the existing project at ${cwd} (it is already there; do not recreate it).\n\n${prompt}`
   const startedAt = Date.now()
   store.updateNode(bpId, aiId, { status: "running", note: undefined })
-  log(set, aiId, `▶ ${ai.data.modelRef} · ${ai.data.mode} · ${cwd}`)
+  log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)
 
   let ok: boolean
+  let used: number
   let executionId: string | undefined
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
   if (ai.data.mode === "orchestration") {
     const runs = useRunsStore.getState()
-    const res = await runs.plan({ prompt, pool: [ai.data.modelRef], executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true })
+    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true })
     if (res.source !== "ai") {
       log(set, aiId, `⚠ planner failed: ${res.error ?? "unknown"}`)
       store.updateNode(bpId, aiId, { status: "failed", note: res.error ?? "planner failed" })
@@ -378,16 +392,18 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     const status = await waitForRun(res.run.id)
     ok = status === "completed"
     const final = useRunsStore.getState().byId(res.run.id)
+    used = (final?.plan ?? []).reduce((n, st) => n + (st.tokens ?? 0), 0)
     if (final?.report?.polishScore !== undefined) log(set, aiId, `polish ${final.report.polishScore}/10`)
   } else {
     const handle = runSingle(
       backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: ai.data.modelRef, prompt: `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, resumeSessionId: opts?.resume ? sessionId : undefined },
+      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, resumeSessionId: opts?.resume ? sessionId : undefined },
       (line) => log(set, aiId, line),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
     const res = await handle.done
     ok = res.ok
+    used = res.tokens
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined
     if (!ok) log(set, aiId, `✖ ${res.error ?? "failed"}`)
@@ -398,6 +414,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     return { running }
   })
   store.updateNode(bpId, aiId, { status: ok ? "done" : "failed", executionId, note: ok ? undefined : "failed" })
+  addTokens(bpId, aiId, used)
+  log(set, aiId, `${ok ? "✓" : "✖"} ${formatTokens(used)} tokens`)
   // Outputs: refresh the build, collect new images into a wired photo build, name an unnamed build.
   bp = useBlueprintsStore.getState().byId(bpId)!
   outBuild = (outBuild && nodeById(bp, outBuild.id)) || firstOutgoing(bp, aiId, "build")
@@ -432,6 +450,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
         effort: "low",
         prompt: "Inspect this folder briefly (README, package manifest, top-level files). Reply with exactly two lines:\nNAME: <a short product name, 1-3 words>\nSUMMARY: <one sentence describing what this project is>",
       }).done
+      addTokens(bpId, aiId, res.tokens)
       const name = /NAME:\s*(.+)/i.exec(res.text)?.[1]?.trim()
       const summary = /SUMMARY:\s*(.+)/i.exec(res.text)?.[1]?.trim()
       if (name || summary) store.updateNode(bpId, outBuild.id, { data: { title: outBuild.data.title === "build" && name ? name.slice(0, 40) : outBuild.data.title, description: summary?.slice(0, 200) } })

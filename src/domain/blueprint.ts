@@ -22,6 +22,10 @@ export interface BpAiData {
   kitId?: string
   /** Purpose used by Reload and by wizards ("regenerate broken images"). */
   purpose?: string
+  /** Orchestration: further models the planner may assign tasks to (`modelRef` is always part of the pool). */
+  pool?: string[]
+  /** Uncached tokens this node's runs consumed so far (accumulates across runs). */
+  tokens?: number
 }
 export interface BpBuildData {
   title: string

@@ -9,6 +9,7 @@ export const tr = {
     newName: "Blueprint {n}",
     none: "Henüz blueprint yok. \"Yeni blueprint\" ile başla, tuvalde sağ tıkla.",
     hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır · ⌘Z geri al",
+    pool: "Model havuzu", poolHint: "Planlayıcı her görevi bu modellerden birine atar; ana model her zaman dahildir.", totalTokens: "Σ {n} token", tokensHint: "Bu blueprint'in AI kutularının harcadığı token (önbelleksiz giriş + çıkış)",
     emptyCanvas: "Boş tuval. Sağ tıklayıp Prompt, AI, Build ekleyin.",
     panelHint: "Bir kutu seçin: içeriğini burada düzenleyin, Enter ile çalıştırın.",
     node: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Foto", button: "Buton", variable: "Değişken", wizard: "Yetenek Sihirbazı" },

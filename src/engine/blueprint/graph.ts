@@ -74,7 +74,7 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
   for (const n of bp.nodes) {
     if (n.type === "ai") {
       if (!incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
-      if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef)) add(n.id, "ai.noModel")
+      if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
     }
     if (n.type === "button" && n.data.type === "button") {
       if (!outgoing(bp, n.id).length) add(n.id, "button.unwired")
