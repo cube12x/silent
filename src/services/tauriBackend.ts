@@ -90,8 +90,8 @@ export class TauriBackend implements Backend {
   blueprintBuildStats(folder: string) {
     return invoke<{ fileCount: number; images: string[]; newestMs: number }>("blueprint_build_stats", { folder })
   }
-  blueprintBuildImport(folder: string, paths: string[], sub?: string) {
-    return invoke<number>("blueprint_build_import", { folder, paths, sub: sub ?? null })
+  blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean) {
+    return invoke<number>("blueprint_build_import", { folder, paths, sub: sub ?? null, skipExisting: skipExisting ?? false })
   }
   blueprintBuildSend(from: string, to: string, sub?: string) {
     return invoke<number>("blueprint_build_send", { from, to, sub: sub ?? null })

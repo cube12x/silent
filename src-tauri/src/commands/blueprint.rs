@@ -67,10 +67,13 @@ const SKIP: &[&str] = &[
     ".cache",
 ];
 
-fn walk(dir: &Path, root: &Path, stats: &mut BuildStats, budget: &mut usize) {
+/// `outputs_only`: inside `.silent/tmp` (screenshots the workers took) images are collected but nothing is
+/// counted as a project file; `.silent/refs` and the rest of `.silent` are never outputs.
+fn walk(dir: &Path, root: &Path, stats: &mut BuildStats, budget: &mut usize, outputs_only: bool) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+    let in_silent = dir.file_name().is_some_and(|n| n == ".silent");
     for entry in entries.flatten() {
         if *budget == 0 {
             return;
@@ -79,13 +82,29 @@ fn walk(dir: &Path, root: &Path, stats: &mut BuildStats, budget: &mut usize) {
         let name = entry.file_name().to_string_lossy().into_owned();
         let Ok(meta) = entry.metadata() else { continue };
         if meta.is_dir() {
-            if SKIP.contains(&name.as_str()) || name.starts_with('.') {
+            if name == ".silent" {
+                // Only `.silent/tmp` (worker screenshots) is an output; refs/inbox are skipped below.
+                walk(&path, root, stats, budget, true);
                 continue;
             }
-            walk(&path, root, stats, budget);
+            if SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            if in_silent {
+                if name == "tmp" {
+                    walk(&path, root, stats, budget, true);
+                }
+                continue;
+            }
+            if name.starts_with('.') {
+                continue;
+            }
+            walk(&path, root, stats, budget, outputs_only);
         } else if meta.is_file() {
             *budget -= 1;
-            stats.file_count += 1;
+            if !outputs_only {
+                stats.file_count += 1;
+            }
             let lower = name.to_ascii_lowercase();
             if lower.ends_with(".png")
                 || lower.ends_with(".jpg")
@@ -123,7 +142,7 @@ pub fn blueprint_build_stats(folder: String) -> Result<BuildStats, String> {
         newest_ms: 0,
     };
     let mut budget = 20_000usize;
-    walk(&root, &root, &mut stats, &mut budget);
+    walk(&root, &root, &mut stats, &mut budget, false);
     stats.images.sort();
     stats.images.truncate(200);
     Ok(stats)
@@ -172,6 +191,7 @@ pub fn blueprint_build_import(
     folder: String,
     paths: Vec<String>,
     sub: Option<String>,
+    skip_existing: Option<bool>,
 ) -> Result<usize, String> {
     let mut dir = PathBuf::from(&folder);
     if let Some(s) = sub.filter(|s| !s.is_empty()) {
@@ -186,6 +206,14 @@ pub fn blueprint_build_import(
         };
         if !src.exists() {
             continue;
+        }
+        if skip_existing.unwrap_or(false) {
+            // Mirroring: a file with the same name and size is already there.
+            if let (Ok(have), Ok(want)) = (dir.join(&name).metadata(), src.metadata()) {
+                if have.is_file() && have.len() == want.len() {
+                    continue;
+                }
+            }
         }
         let dst = unique_target(&dir, &name);
         total += copy_recursive(&src, &dst).map_err(|e| format!("{p}: {e}"))?;
@@ -220,6 +248,28 @@ mod tests {
         assert_eq!(slug("   "), "build");
     }
     #[test]
+    fn stats_collect_worker_screenshots_and_import_skips_existing() {
+        let base = std::env::temp_dir().join(format!("silent-bp-shots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::create_dir_all(repo.join(".silent/tmp")).unwrap();
+        std::fs::create_dir_all(repo.join(".silent/refs/lib")).unwrap();
+        std::fs::write(repo.join("src/main.ts"), "x").unwrap();
+        std::fs::write(repo.join(".silent/tmp/frame1.png"), "png").unwrap();
+        std::fs::write(repo.join(".silent/refs/lib/logo.png"), "png").unwrap();
+        let stats = blueprint_build_stats(repo.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(stats.file_count, 1, "screenshots are not project files");
+        assert_eq!(stats.images, vec![".silent/tmp/frame1.png".to_string()], "refs are never outputs");
+        let photos = base.join("photos");
+        let src = repo.join(".silent/tmp/frame1.png").to_string_lossy().into_owned();
+        let f = photos.to_string_lossy().into_owned();
+        assert_eq!(blueprint_build_import(f.clone(), vec![src.clone()], None, Some(true)).unwrap(), 1);
+        assert_eq!(blueprint_build_import(f.clone(), vec![src.clone()], None, Some(true)).unwrap(), 0, "same name+size is skipped");
+        assert_eq!(blueprint_build_import(f.clone(), vec![src], None, None).unwrap(), 1, "without the flag a -2 copy is made");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+    #[test]
     fn import_and_stats_and_send() {
         let base = std::env::temp_dir().join(format!("silent-bp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
@@ -236,12 +286,14 @@ mod tests {
                 src.join("sub").to_string_lossy().into_owned(),
             ],
             None,
+            None,
         )
         .unwrap();
         assert_eq!(n, 2);
         let n2 = blueprint_build_import(
             build.to_string_lossy().into_owned(),
             vec![src.join("a.png").to_string_lossy().into_owned()],
+            None,
             None,
         )
         .unwrap();

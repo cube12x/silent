@@ -69,6 +69,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const backend = await getBackend()
     const blueprints = await backend.db.blueprints.list()
     set({ blueprints, activeId: get().activeId ?? blueprints[0]?.id })
+    // Folder counts and photo mirrors are derived from disk; refresh them in the background.
+    for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
   },
   async create(name) {
     const now = Date.now()
@@ -245,10 +247,36 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   },
   async refreshBuild(id, nodeId) {
     const bp = get().byId(id)
-    const node = nodeById(bp!, nodeId)
-    if (!bp || !node || (node.data.type !== "build" && node.data.type !== "buildPhoto") || !node.data.folderPath) return
-    const stats = await (await getBackend()).blueprintBuildStats(node.data.folderPath)
-    get().updateNode(id, nodeId, { data: { fileCount: stats.fileCount } })
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || (node.data.type !== "build" && node.data.type !== "buildPhoto")) return
+    const backend = await getBackend()
+    let folder = node.data.folderPath
+    let imported = 0
+    if (node.data.type === "buildPhoto") {
+      // A photo build mirrors every image of the wired AI's build — including the screenshots workers take
+      // under .silent/tmp — so "frames" never stay at 0 when the game draws its art in code. Existing files are skipped.
+      const ai = firstIncoming(bp, nodeId, "ai")
+      const source = ai && firstOutgoing(bp, ai.id, "build")
+      const srcFolder = source?.data.type === "build" ? source.data.folderPath : ""
+      if (srcFolder) {
+        const src = await backend.blueprintBuildStats(srcFolder)
+        if (src.images.length) {
+          if (!folder) folder = await backend.blueprintBuildDir(bp.name, node.data.title || "photos")
+          imported = await backend.blueprintBuildImport(folder, src.images.map((rel) => `${srcFolder}/${rel}`), undefined, true)
+        }
+      }
+    }
+    if (!folder) return
+    const stats = await backend.blueprintBuildStats(folder)
+    if (stats.fileCount !== node.data.fileCount || folder !== node.data.folderPath) {
+      const next = folder
+      get().update(
+        id,
+        (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && (n.data.type === "build" || n.data.type === "buildPhoto") ? { ...n, data: { ...n.data, folderPath: next, fileCount: stats.fileCount } } : n)) }),
+        { history: false },
+      )
+    }
+    if (imported) log(set, nodeId, `${imported} image(s) collected`)
   },
   async tickWatchers(id) {
     const bp = get().byId(id)
@@ -369,7 +397,6 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
   }
   if (buildFolders[0]) prompt = `Work inside the existing project at ${cwd} (it is already there; do not recreate it).\n\n${prompt}`
-  const startedAt = Date.now()
   store.updateNode(bpId, aiId, { status: "running", note: undefined })
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)
 
@@ -428,20 +455,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     await store.refreshBuild(bpId, outBuild.id)
   }
   const photo = firstOutgoing(bp, aiId, "buildPhoto")
-  if (photo && photo.data.type === "buildPhoto") {
-    const stats = await backend.blueprintBuildStats(cwd)
-    let folder = photo.data.folderPath
-    if (!folder) {
-      folder = await backend.blueprintBuildDir(bp.name, photo.data.title || `${title}-photos`)
-      store.updateNode(bpId, photo.id, { data: { folderPath: folder } })
-    }
-    const fresh = stats.newestMs >= startedAt ? stats.images.map((rel) => `${cwd}/${rel}`) : []
-    if (fresh.length) {
-      const n = await backend.blueprintBuildImport(folder, fresh)
-      log(set, photo.id, `${n} image(s) collected`)
-    }
-    await store.refreshBuild(bpId, photo.id)
-  }
+  if (photo) await store.refreshBuild(bpId, photo.id)
   if (ok && outBuild && outBuild.data.type === "build" && (!outBuild.data.description || outBuild.data.title === "build")) {
     const namer = pickPlannerModel(useProvidersStore.getState().availableModels())
     if (namer) {

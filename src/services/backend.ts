@@ -66,7 +66,8 @@ export interface Backend {
   /** Blueprint build folders: create, stats, import dropped files, copy between builds. */
   blueprintBuildDir(blueprint: string, build: string): Promise<string>
   blueprintBuildStats(folder: string): Promise<{ fileCount: number; images: string[]; newestMs: number }>
-  blueprintBuildImport(folder: string, paths: string[], sub?: string): Promise<number>
+  /** `skipExisting`: mirror semantics — a file with the same name and size is not copied again. */
+  blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean): Promise<number>
   blueprintBuildSend(from: string, to: string, sub?: string): Promise<number>
   /** Pending `silent run …` request from the terminal launcher (consumed on read). */
   autostartTake(): Promise<AutostartRequest | null>
