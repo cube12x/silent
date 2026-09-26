@@ -73,6 +73,22 @@ describe("CliWorker request shape", () => {
     expect(result.summary).toBe("Built the enemies module.")
   })
 
+  it("tolerates markdown-bold markers (**SILENT_DEVIATIONS:** none) without inventing a deviation", async () => {
+    class BoldRunner implements CliRunner {
+      async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "Arena done.\n\n**SILENT_DEVIATIONS:** none\n\n**SILENT_NOTES:** \n- parry tests were red (not mine)\n\n**SILENT_QUESTION:** none" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const result = await new CliWorker(new BoldRunner()).start(job(), sink).done
+    expect(result.deviations).toEqual([])
+    expect(result.notes).toEqual(["parry tests were red (not mine)"])
+    expect(result.summary).toBe("Arena done.")
+  })
+
   it("moves environment-limit deviations into notes", async () => {
     expect(isEnvironmentLimit("Browser playthrough unavailable in this sandbox; pacing unverified.")).toBe(true)
     expect(isEnvironmentLimit("Sandbox kısıtı nedeniyle tarayıcı doğrulaması yapılmadı.")).toBe(true)

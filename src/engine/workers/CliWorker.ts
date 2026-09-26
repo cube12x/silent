@@ -116,19 +116,20 @@ export class CliWorker implements Worker {
         case "agentMessage": {
           const text = e.data.text
           if (!text.trim()) break
-          const q = text.match(/SILENT_QUESTION:\s*(.+)/)
-          if (q) question = q[1].trim()
-          const notesBlock = text.match(/SILENT_NOTES:\s*([\s\S]*?)(?:\n\s*\n|SILENT_DEVIATIONS:|$)/)
+          // Markers may arrive wrapped in markdown bold (**SILENT_QUESTION:** …); "none" is not a question.
+          const q = text.match(/SILENT_QUESTION:\**\s*(.+)/)
+          if (q && !/^(none|yok|hiçbiri|-)\.?\**$/i.test(q[1].trim())) question = q[1].trim().replace(/\*+$/, "").trim()
+          const notesBlock = text.match(/SILENT_NOTES:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_DEVIATIONS:|$)/)
           if (notesBlock) for (const line of notesBlock[1].split("\n")) {
-            const item = line.replace(/^\s*[-*•]\s*/, "").trim()
+            const item = line.replace(/^\s*[-*•]+\s*/, "").replace(/\*+$/, "").trim()
             if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri)\.?$/i.test(item)) notes.push(item)
           }
-          const dev = text.match(/SILENT_DEVIATIONS:\s*([\s\S]*?)(?:\n\s*\n|SILENT_NOTES:|$)/)
+          const dev = text.match(/SILENT_DEVIATIONS:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_NOTES:|$)/)
           if (dev) for (const line of dev[1].split("\n")) {
-            const item = line.replace(/^\s*[-*•]\s*/, "").trim()
+            const item = line.replace(/^\s*[-*•]+\s*/, "").replace(/\*+$/, "").trim()
             if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) (isEnvironmentLimit(item) ? notes : deviations).push(item)
           }
-          messages.push(text.replace(/SILENT_(DEVIATIONS|NOTES):[\s\S]*$/, "").replace(/SILENT_QUESTION:.*$/m, "").trim())
+          messages.push(text.replace(/\**SILENT_(DEVIATIONS|NOTES):[\s\S]*$/, "").replace(/\**SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)
           sink.log(text)
           break

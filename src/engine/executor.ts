@@ -315,9 +315,9 @@ export class Executor {
     await this.drain(limit)
     if (this.cancelled) return
     const summary = this.summaries.get(review.id) ?? ""
-    const score = Number(/SILENT_SCORE:\s*(\d+(?:\.\d+)?)/i.exec(summary)?.[1])
+    const score = Number(/SILENT_SCORE:\**\s*(\d+(?:\.\d+)?)/i.exec(summary)?.[1])
     this.polishScore = Number.isFinite(score) ? score : undefined
-    const fixesBlock = /SILENT_FIXES:\s*([\s\S]*?)(?:\n\s*\n|SILENT_DEVIATIONS:|$)/i.exec(summary)?.[1] ?? ""
+    const fixesBlock = /SILENT_FIXES:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_DEVIATIONS:|$)/i.exec(summary)?.[1] ?? ""
     let fixes = fixesBlock
       .split("\n")
       .map((l) => l.replace(/^\s*[-*•\d.)]+\s*/, "").trim())

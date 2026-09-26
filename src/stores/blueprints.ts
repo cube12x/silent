@@ -388,6 +388,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     const questions = (res.run.questions ?? []).map((q) => ({ ...q, answer: q.answer || "Decide yourself using best judgment; document the decision in README.md." }))
     const withAnswers = questions.length ? `${res.run.prompt}\n\nClarifications:\n${questions.map((q) => `- ${q.question} → ${q.answer}`).join("\n")}` : res.run.prompt
     executionId = res.run.id
+    // Expose the run id immediately: the node badge and the Σ header read live subtask tokens through it.
+    store.updateNode(bpId, aiId, { executionId })
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: () => runs.cancel(res.run.id) } }))
     await runs.start({ ...res.run, prompt: withAnswers, questions, manual: false })
     log(set, aiId, `run ${res.run.id}: ${res.run.plan.length} tasks`)
