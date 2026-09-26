@@ -15,14 +15,19 @@ interface BlueprintsState {
   logs: Record<string, string[]>
   /** Cancel handles of running nodes. */
   running: Record<string, () => Promise<void> | void>
+  /** Undo/redo snapshots per blueprint (graph edits only, coalesced ~1 s; not persisted). */
+  history: Record<string, Blueprint[]>
+  future: Record<string, Blueprint[]>
+  undo(id: string): void
+  redo(id: string): void
   load(): Promise<void>
   create(name: string): Promise<Blueprint>
   remove(id: string): Promise<void>
   rename(id: string, name: string): Promise<void>
   setActive(id: string | undefined): void
   byId(id: string | undefined): Blueprint | undefined
-  /** Immutable graph update + persist (debounced). */
-  update(id: string, mutate: (bp: Blueprint) => Blueprint): void
+  /** Immutable graph update + persist (debounced). `history: false` for run-state changes (status, execution ids). */
+  update(id: string, mutate: (bp: Blueprint) => Blueprint, opts?: { history?: boolean }): void
   addNode(id: string, type: BpNodeType, x: number, y: number, data?: Record<string, unknown>): BpNode | undefined
   /** `data` is merged into the node's data (fields of the node's own type). */
   updateNode(id: string, nodeId: string, patch: Partial<Omit<BpNode, "data">> & { data?: Record<string, unknown> }): void
@@ -55,6 +60,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   blueprints: [],
   logs: {},
   running: {},
+  history: {},
+  future: {},
   autorun: undefined,
 
   async load() {
@@ -82,10 +89,18 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   byId(id) {
     return id ? get().blueprints.find((b) => b.id === id) : undefined
   },
-  update(id, mutate) {
+  update(id, mutate, opts) {
     const current = get().byId(id)
     if (!current) return
     const next = { ...mutate(current), updatedAt: Date.now() }
+    if (opts?.history !== false) {
+      const stack = get().history[id] ?? []
+      const last = stack[stack.length - 1]
+      // Typing and dragging produce many updates; keep one snapshot per ~second.
+      const coalesce = last && Date.now() - last.updatedAt < 1000 && current.updatedAt - last.updatedAt < 1000
+      const history = coalesce ? stack : [...stack, current].slice(-50)
+      set({ history: { ...get().history, [id]: history }, future: { ...get().future, [id]: [] } })
+    }
     set({ blueprints: get().blueprints.map((b) => (b.id === id ? next : b)) })
     clearTimeout(persistTimers.get(id))
     persistTimers.set(
@@ -95,6 +110,22 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         if (latest) void getBackend().then((b) => b.db.blueprints.upsert(latest)).catch((err) => console.error("blueprint persist failed", err))
       }, 400),
     )
+  },
+  undo(id) {
+    const stack = get().history[id] ?? []
+    const current = get().byId(id)
+    const prev = stack[stack.length - 1]
+    if (!prev || !current) return
+    set({ history: { ...get().history, [id]: stack.slice(0, -1) }, future: { ...get().future, [id]: [...(get().future[id] ?? []), current] } })
+    get().update(id, () => prev, { history: false })
+  },
+  redo(id) {
+    const stack = get().future[id] ?? []
+    const current = get().byId(id)
+    const next = stack[stack.length - 1]
+    if (!next || !current) return
+    set({ future: { ...get().future, [id]: stack.slice(0, -1) }, history: { ...get().history, [id]: [...(get().history[id] ?? []), current] } })
+    get().update(id, () => next, { history: false })
   },
   addNode(id, type, x, y, data) {
     const bp = get().byId(id)
@@ -113,10 +144,16 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     return node
   },
   updateNode(id, nodeId, patch) {
-    get().update(id, (b) => ({
-      ...b,
-      nodes: b.nodes.map((n) => (n.id === nodeId ? { ...n, ...patch, data: { ...n.data, ...(patch.data ?? {}) } as BpNodeData } : n)),
-    }))
+    // Run state (status/note/executionId) is not an edit the user should undo.
+    const edit = "data" in patch || "x" in patch || "y" in patch
+    get().update(
+      id,
+      (b) => ({
+        ...b,
+        nodes: b.nodes.map((n) => (n.id === nodeId ? { ...n, ...patch, data: { ...n.data, ...(patch.data ?? {}) } as BpNodeData } : n)),
+      }),
+      { history: edit },
+    )
   },
   removeNode(id, nodeId) {
     get().update(id, (b) => ({ ...b, nodes: b.nodes.filter((n) => n.id !== nodeId), edges: b.edges.filter((e) => e.from !== nodeId && e.to !== nodeId) }))

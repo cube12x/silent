@@ -10,7 +10,7 @@ export const en: Dictionary = {
     new: "New blueprint",
     newName: "Blueprint {n}",
     none: "No blueprint yet. Create one and right-click the canvas.",
-    hint: "Right-click: add node · drag wires · Enter or double-click on a node: run",
+    hint: "Right-click: add node · drag wires · Enter or double-click on a node: run · ⌘Z undo",
     emptyCanvas: "Empty canvas. Right-click to add Prompt, AI, Build.",
     panelHint: "Select a node to edit it here; press Enter to run it.",
     node: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Photo", button: "Button", variable: "Variable", wizard: "Skill Wizard" },

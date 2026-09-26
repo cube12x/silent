@@ -8,7 +8,7 @@ export const tr = {
     new: "Yeni blueprint",
     newName: "Blueprint {n}",
     none: "Henüz blueprint yok. \"Yeni blueprint\" ile başla, tuvalde sağ tıkla.",
-    hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır",
+    hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır · ⌘Z geri al",
     emptyCanvas: "Boş tuval. Sağ tıklayıp Prompt, AI, Build ekleyin.",
     panelHint: "Bir kutu seçin: içeriğini burada düzenleyin, Enter ile çalıştırın.",
     node: { prompt: "Prompt", ai: "AI", build: "Build", buildPhoto: "Build Foto", button: "Buton", variable: "Değişken", wizard: "Yetenek Sihirbazı" },

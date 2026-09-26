@@ -129,8 +129,23 @@ function Canvas({ bpId }: { bpId: string }) {
     [bpId, triggerNode, t],
   )
 
+  // ⌘Z / ⇧⌘Z anywhere on the canvas screen (the pane itself never holds focus); fields keep their native undo.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return
+      if ((e.target as HTMLElement | null)?.closest?.("textarea, input, select, [contenteditable]")) return
+      e.preventDefault()
+      const st = useBlueprintsStore.getState()
+      if (e.shiftKey) st.redo(bpId)
+      else st.undo(bpId)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [bpId])
+
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && selectedId && !(e.target as HTMLElement).closest("textarea, input, select")) {
+    const inField = Boolean((e.target as HTMLElement).closest("textarea, input, select"))
+    if (e.key === "Enter" && selectedId && !inField) {
       const node = bp?.nodes.find((n) => n.id === selectedId)
       if (node) {
         e.preventDefault()
