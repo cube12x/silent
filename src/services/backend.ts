@@ -1,4 +1,4 @@
-import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 
 export interface AppInfo {
   name: string
@@ -29,6 +29,7 @@ export interface Repositories {
   runs: { list(): Promise<SilentCodeRun[]>; upsert(run: SilentCodeRun): Promise<void>; delete(id: string): Promise<void> }
   terminal: { listBySubtask(subtaskId: string): Promise<TerminalLine[]>; /** Batched insert; keeps at most `keep` newest lines per subtask. */ append(runId: string, subtaskId: string, lines: TerminalLine[], keep?: number): Promise<void> }
   memory: { list(): Promise<MemoryEntry[]>; upsert(entry: MemoryEntry): Promise<void>; delete(id: string): Promise<void> }
+  blueprints: { list(): Promise<Blueprint[]>; upsert(bp: Blueprint): Promise<void>; delete(id: string): Promise<void> }
 }
 
 /**
@@ -60,6 +61,11 @@ export interface Backend {
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
+  /** Blueprint build folders: create, stats, import dropped files, copy between builds. */
+  blueprintBuildDir(blueprint: string, build: string): Promise<string>
+  blueprintBuildStats(folder: string): Promise<{ fileCount: number; images: string[]; newestMs: number }>
+  blueprintBuildImport(folder: string, paths: string[], sub?: string): Promise<number>
+  blueprintBuildSend(from: string, to: string, sub?: string): Promise<number>
   /** Pending `silent run …` request from the terminal launcher (consumed on read). */
   autostartTake(): Promise<AutostartRequest | null>
   /** Shallow-clone reference repositories into `<repo>/.silent/refs/<name>` (host side, no sandbox). */

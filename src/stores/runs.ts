@@ -207,7 +207,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       const settings = useSettingsStore.getState().settings
       const all = useProvidersStore.getState().availableModels()
       const models = all.filter((m) => input.pool.includes(modelRef(m.providerId, m.id)))
-      const plannerModel = pickPlannerModel(models.length ? models : all)
+      // Workers stay inside the pool; the planner may come from the whole catalog when the pool has no planner-capable CLI.
+      const plannerModel = pickPlannerModel(models.length ? models : all) ?? pickPlannerModel(all)
       const heuristic = get().draft(input)
       if (!plannerModel) return { run: heuristic, source: "heuristic", error: "no model" }
       const repoPath = input.repoPath ?? agent?.repoPath

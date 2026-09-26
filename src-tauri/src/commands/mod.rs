@@ -1,5 +1,6 @@
 pub mod autostart;
 pub mod binaries;
+pub mod blueprint;
 pub mod cli;
 pub mod files;
 pub mod launcher;

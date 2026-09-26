@@ -71,6 +71,10 @@ pub fn run() {
             commands::files::repo_changed_files,
             commands::refs::refs_sync,
             commands::autostart::autostart_take,
+            commands::blueprint::blueprint_build_dir,
+            commands::blueprint::blueprint_build_stats,
+            commands::blueprint::blueprint_build_import,
+            commands::blueprint::blueprint_build_send,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Silent");

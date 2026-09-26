@@ -1,13 +1,14 @@
 import * as React from "react"
 import { NavLink } from "react-router"
 import { cn } from "cn"
-import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages } from "lucide-react"
+import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages, Workflow } from "lucide-react"
 import { SilentMark } from "./SilentMark"
 import { Kbd } from "@/components/ui/kbd"
 import { useUiStore } from "@/stores/ui"
 import { useChatsStore } from "@/stores/chats"
 import { useAgentsStore } from "@/stores/agents"
 import { useRunsStore } from "@/stores/runs"
+import { useBlueprintsStore } from "@/stores/blueprints"
 import { useSettingsStore } from "@/stores/settings"
 import { ModelLogo, RunStatusBadge } from "@/design-system"
 import { formatRelative } from "@/lib/format"
@@ -64,6 +65,7 @@ export function Sidebar() {
   const chats = useChatsStore((s) => s.chats)
   const agents = useAgentsStore((s) => s.agents)
   const runs = useRunsStore((s) => s.runs)
+  const blueprints = useBlueprintsStore((s) => s.blueprints)
   const language = useSettingsStore((s) => s.settings.language)
   const update = useSettingsStore((s) => s.update)
   const running = runs.filter((r) => r.status === "running").length
@@ -107,6 +109,12 @@ export function Sidebar() {
           ))}
         </Section>
 
+        <Section title={t("nav.blueprint")} count={blueprints.length} collapsed={collapsed} action={<NavLink to="/blueprint" className="text-text-3 hover:text-cyan"><Plus className="size-3" /></NavLink>}>
+          {blueprints.slice(0, 6).map((b) => (
+            <Item key={b.id} to={`/blueprint/${b.id}`} icon={<Workflow />} label={b.name} meta={`${b.nodes.length}`} collapsed={collapsed} />
+          ))}
+          {!blueprints.length && !collapsed && <NavLink to="/blueprint" className="mx-2 block rounded-lg px-2 py-1.5 text-[12px] text-text-3 hover:text-text-1">{t("bp.new")}</NavLink>}
+        </Section>
         <Section title={t("nav.agents")} count={agents.length} collapsed={collapsed} action={<button type="button" className="text-text-3 hover:text-cyan" onClick={() => openNewSession({ kind: "repo-agent" })}><Plus className="size-3" /></button>}>
           <Item to="/agents" end icon={<Bot />} label={t("nav.allAgents")} collapsed={collapsed} />
           {agents.slice(0, collapsed ? 3 : 6).map((a) => (

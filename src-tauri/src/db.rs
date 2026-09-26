@@ -40,5 +40,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0006_template_agents.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "v3.0 blueprints",
+            sql: include_str!("../migrations/0007_blueprints.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

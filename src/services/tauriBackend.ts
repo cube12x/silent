@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
-import type { Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, Repositories, RunHandle } from "./backend"
 
 type Row = Record<string, unknown>
@@ -84,6 +84,19 @@ export class TauriBackend implements Backend {
     return invoke<Array<{ name: string; path: string; ok: boolean; error?: string }>>("refs_sync", { repoPath, refs })
   }
 
+  blueprintBuildDir(blueprint: string, build: string) {
+    return invoke<string>("blueprint_build_dir", { blueprint, build })
+  }
+  blueprintBuildStats(folder: string) {
+    return invoke<{ fileCount: number; images: string[]; newestMs: number }>("blueprint_build_stats", { folder })
+  }
+  blueprintBuildImport(folder: string, paths: string[], sub?: string) {
+    return invoke<number>("blueprint_build_import", { folder, paths, sub: sub ?? null })
+  }
+  blueprintBuildSend(from: string, to: string, sub?: string) {
+    return invoke<number>("blueprint_build_send", { from, to, sub: sub ?? null })
+  }
+
   autostartTake() {
     return invoke<AutostartRequest | null>("autostart_take")
   }
@@ -120,6 +133,22 @@ export class TauriBackend implements Backend {
   }
 
   db: Repositories = {
+    blueprints: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM blueprints ORDER BY updated_at DESC")
+        return rows.map((r): Blueprint => ({ id: String(r.id), name: String(r.name), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at), ...(json<Partial<Blueprint>>(r.graph_json, {}) ?? {}), nodes: json<Blueprint>(r.graph_json, { nodes: [] } as unknown as Blueprint)?.nodes ?? [], edges: json<Blueprint>(r.graph_json, { edges: [] } as unknown as Blueprint)?.edges ?? [] }))
+      },
+      upsert: async (bp) => {
+        await (await this.conn()).execute(
+          `INSERT INTO blueprints (id, name, graph_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT(id) DO UPDATE SET name=$2, graph_json=$3, updated_at=$5`,
+          [bp.id, bp.name, JSON.stringify({ nodes: bp.nodes, edges: bp.edges, viewport: bp.viewport }), bp.createdAt, bp.updatedAt],
+        )
+      },
+      delete: async (id) => {
+        await (await this.conn()).execute("DELETE FROM blueprints WHERE id = $1", [id])
+      },
+    },
     chats: {
       list: async () => {
         const rows = await (await this.conn()).select<Row[]>("SELECT * FROM chats ORDER BY updated_at DESC")

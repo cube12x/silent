@@ -1,4 +1,4 @@
-import type { Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 import type { AppInfo, Backend, KvStore, Repositories, RunHandle } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
@@ -42,6 +42,19 @@ export class TestBackend implements Backend {
     return null
   }
   projectFiles: Record<string, string> = {}
+  blueprintsMem: Blueprint[] = []
+  async blueprintBuildDir(blueprint: string, build: string) {
+    return `/tmp/blueprints/${blueprint}/${build}`
+  }
+  async blueprintBuildStats() {
+    return { fileCount: 0, images: [] as string[], newestMs: 0 }
+  }
+  async blueprintBuildImport(_folder: string, paths: string[]) {
+    return paths.length
+  }
+  async blueprintBuildSend() {
+    return 0
+  }
   async autostartTake() {
     return null
   }
@@ -109,6 +122,15 @@ export class TestBackend implements Backend {
     set: async (key, value) => void this.kvData.set(key, value),
   }
   db: Repositories = {
+    blueprints: {
+      list: async () => this.blueprintsMem,
+      upsert: async (bp) => {
+        this.blueprintsMem = [bp, ...this.blueprintsMem.filter((b) => b.id !== bp.id)]
+      },
+      delete: async (id) => {
+        this.blueprintsMem = this.blueprintsMem.filter((b) => b.id !== id)
+      },
+    },
     chats: { list: async () => Array.from(this.chats.values()), upsert: async (c) => void this.chats.set(c.id, c), delete: async (id) => void this.chats.delete(id) },
     messages: { listByChat: async (chatId) => Array.from(this.messages.values()).filter((m) => m.chatId === chatId), upsert: async (m) => void this.messages.set(m.id, m) },
     agents: { list: async () => Array.from(this.agents.values()), upsert: async (a) => void this.agents.set(a.id, a), delete: async (id) => void this.agents.delete(id) },
