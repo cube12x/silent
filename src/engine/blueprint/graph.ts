@@ -91,6 +91,8 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
 export interface AutorunRef {
   ref: string
   node?: string
+  /** `silent bp answer …`: answer the node's blocked worker questions instead of triggering it. */
+  answer?: string
 }
 
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {

@@ -63,16 +63,25 @@ const RUN_PRELUDE: &str = r#"#!/bin/sh
 # Usage: silent                       open the app
 #        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>
 #        silent bp <blueprint name|id> [node title|id]    trigger a Blueprint node (default: its Start button)
+#        silent bp answer <blueprint> <node> <answer…>      answer a node's blocked worker question(s)
 if [ "$1" = "bp" ]; then
   shift
-  if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id]" >&2; exit 2; fi
+  answer=""
+  if [ "$1" = "answer" ]; then
+    shift
+    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then echo "usage: silent bp answer <blueprint name|id> <node title|id> <answer…>" >&2; exit 2; fi
+    bpref="$1"; node="$2"; shift 2; answer="$*"
+  else
+    if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id] | silent bp answer <blueprint> <node> <answer…>" >&2; exit 2; fi
+    bpref="$1"; node="$2"
+  fi
   dir="$HOME/Library/Application Support/com.silent.workstation"
   mkdir -p "$dir"
-  python3 - "$1" "$2" > "$dir/autostart.json" <<'PY'
+  python3 - "$bpref" "$node" "$answer" > "$dir/autostart.json" <<'PY'
 import json, sys
-print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None}}))
+print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None}}))
 PY
-  echo "queued blueprint: $1"
+  if [ -n "$answer" ]; then echo "queued answer for: $bpref / $node"; else echo "queued blueprint: $bpref"; fi
   set --
 fi
 if [ "$1" = "run" ]; then

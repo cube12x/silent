@@ -42,6 +42,8 @@ interface BlueprintsState {
   send(id: string, buttonId: string): Promise<void>
   /** What Enter / double-click / `silent bp` do for a node: Send copies, Reload re-runs with the wired AI's purpose, anything else runs forward. */
   trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string }): Promise<void>
+  /** Answer every blocked worker question of the node's orchestration run (SILENT_QUESTION); sessions resume. Returns how many were answered. */
+  answer(id: string, nodeId: string, text: string): number
   /** Pending `silent bp …` request from autostart.json; the Blueprint screen consumes it once loaded. */
   autorun?: AutorunRef
   importFiles(id: string, nodeId: string, paths: string[]): Promise<number>
@@ -69,6 +71,14 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const backend = await getBackend()
     const blueprints = await backend.db.blueprints.list()
     set({ blueprints, activeId: get().activeId ?? blueprints[0]?.id })
+    // A node left "running" has no executor after a restart (its run is marked cancelled by the runs store on load).
+    for (const b of blueprints) {
+      const stale = b.nodes.filter((n) => n.status === "running" && !get().running[n.id])
+      if (stale.length) {
+        get().update(b.id, (bp) => ({ ...bp, nodes: bp.nodes.map((n) => (stale.some((x) => x.id === n.id) ? { ...n, status: "failed", note: "interrupted (app restarted)" } : n)) }), { history: false })
+        for (const n of stale) log(set, n.id, "⚠ interrupted by an app restart — trigger again (sessions resume where possible)")
+      }
+    }
     // Folder counts and photo mirrors are derived from disk; refresh them in the background.
     for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
   },
@@ -192,6 +202,17 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const stop = get().running[nodeId]
     if (stop) await stop()
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
+  },
+  answer(id, nodeId, text) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    const runId = node?.executionId && !node.executionId.startsWith("session:") ? node.executionId : undefined
+    const run = runId ? useRunsStore.getState().byId(runId) : undefined
+    if (!run || !text.trim()) return 0
+    let n = 0
+    for (const st of run.plan) if (st.state === "blocked" && st.question && useRunsStore.getState().answer(run.id, st.id, text.trim())) n++
+    if (n) log(set, nodeId, `↩ answered ${n} question(s): ${text.trim().slice(0, 80)}`)
+    return n
   },
   async trigger(id, nodeId, opts) {
     const bp = get().byId(id)

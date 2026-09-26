@@ -218,7 +218,13 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
   const lang = useI18nStore((s) => s.language)
   const updateNode = useBlueprintsStore((s) => s.updateNode)
   const cancel = useBlueprintsStore((s) => s.cancel)
+  const answerNode = useBlueprintsStore((s) => s.answer)
   const running = useBlueprintsStore((s) => Boolean(s.running[node.id]))
+  // Blocked worker questions (SILENT_QUESTION) of this node's orchestration run; the run object is a stable store reference.
+  const runId = node.executionId && !node.executionId.startsWith("session:") ? node.executionId : undefined
+  const run = useRunsStore((s) => (runId ? s.byId(runId) : undefined))
+  const blocked = run?.plan.filter((st) => st.state === "blocked" && st.question) ?? []
+  const [answerText, setAnswerText] = React.useState("")
   const providers = useProvidersStore((s) => s.providers)
   const unavailable = useProvidersStore((s) => s.unavailable)
   const models = React.useMemo(() => selectAvailableModels(providers, unavailable), [providers, unavailable])
@@ -277,6 +283,16 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.purpose")}
             <Textarea value={d.purpose ?? ""} onChange={(e) => patch({ purpose: e.target.value })} rows={4} placeholder={d.type === "wizard" ? t("bp.wizardPurposePlaceholder") : t("bp.aiPurposePlaceholder")} className="text-[12px]" />
           </label>
+          {blocked.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-sm border border-warn/50 bg-warn/5 p-2 text-xs">
+              <div className="text-[10px] font-semibold tracking-[0.16em] text-warn uppercase">❓ {t("bp.questions", { n: blocked.length })}</div>
+              {blocked.map((st) => (
+                <div key={st.id} className="text-text-2"><span className="text-text-3">{st.title}:</span> {st.question}</div>
+              ))}
+              <Textarea value={answerText} onChange={(e) => setAnswerText(e.target.value)} rows={3} placeholder={t("bp.answerPlaceholder")} className="text-[12px]" />
+              <NeonButton size="sm" disabled={!answerText.trim()} onClick={() => { if (answerNode(bpId, node.id, answerText)) setAnswerText("") }}>{t("bp.answer")}</NeonButton>
+            </div>
+          )}
         </>
       )}
       {(d.type === "build" || d.type === "buildPhoto") && (
@@ -348,8 +364,13 @@ export function BlueprintScreen() {
         console.warn("[autostart] blueprint node not found", JSON.stringify(autorun))
         return
       }
-      console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
       navigate(`/blueprint/${target.bp.id}`)
+      if (autorun.answer) {
+        const n = st.answer(target.bp.id, target.node.id, autorun.answer)
+        console.warn("[autostart] blueprint answer", target.bp.id, target.node.id, `${n} question(s)`)
+        return
+      }
+      console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
       void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
     })()
   }, [loaded, autorun, navigate, t])

@@ -62,6 +62,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   const runId = n.executionId && !n.executionId.startsWith("session:") ? n.executionId : undefined
   // Live tokens of an orchestration run in flight (primitive selector: a number, never a fresh object).
   const live = useRunsStore((s) => (runId && n.status === "running" ? (s.byId(runId)?.plan ?? []).reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0))
+  const questions = useRunsStore((s) => (runId && n.status === "running" ? (s.byId(runId)?.plan ?? []).filter((st) => st.state === "blocked" && st.question).length : 0))
   const tokens = (d.tokens ?? 0) + live
   const extra = (d.pool ?? []).filter((p) => p !== d.modelRef)
   return (
@@ -71,6 +72,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
         {tokens > 0 && <span className="mono ml-auto shrink-0 text-[10px] text-text-3">{formatTokens(tokens)} tok</span>}
       </div>
+      {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
       {extra.length > 0 && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
     </Shell>
