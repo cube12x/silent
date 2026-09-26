@@ -54,7 +54,10 @@ export function modelStrengths(m: ProviderModel): string {
     if (/mini|fast/.test(id)) return "fast and cheap; mechanical work; sandboxed (no browser)"
     return "OpenAI model; sandboxed (no browser)"
   }
-  if (p === "grok") return /fast/.test(id) ? "fast iteration, cheap; implementation and tuning; can run a browser" : "frontier; creative content and effects; can run a browser"
+  if (p === "grok")
+    return /fast/.test(id)
+      ? "fast iteration, cheap; implementation and tuning; can run a browser; can GENERATE RASTER IMAGES (image_gen / image_edit tools)"
+      : "frontier; creative content and effects; can run a browser; can GENERATE RASTER IMAGES (image_gen / image_edit tools)"
   if (p === "antigravity")
     return /pro|opus/.test(id)
       ? "frontier Google/partner model; design and reviews; can run a browser; can GENERATE RASTER IMAGES (sprites, backgrounds, portraits, key art) with its built-in image tool — the only pool model that can draw"

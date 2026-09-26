@@ -113,7 +113,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installNpm: "npm install -g @xai-official/grok",
     loginCommand: "grok login",
     docsUrl: "https://docs.x.ai/build/overview",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false, image: true },
     parserMaturity: "verified",
     staticModels: [
       // Live catalog comes from `grok models` (~/.grok/models_cache.json); these are the 2026-09-25 defaults.
