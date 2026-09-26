@@ -76,7 +76,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       const stale = b.nodes.filter((n) => n.status === "running" && !get().running[n.id])
       if (stale.length) {
         get().update(b.id, (bp) => ({ ...bp, nodes: bp.nodes.map((n) => (stale.some((x) => x.id === n.id) ? { ...n, status: "failed", note: "interrupted (app restarted)" } : n)) }), { history: false })
-        for (const n of stale) log(set, n.id, "⚠ interrupted by an app restart — trigger again (sessions resume where possible)")
+        for (const n of stale) {
+          log(set, n.id, "⚠ interrupted by an app restart — trigger again (sessions resume where possible)")
+          // Credit what the interrupted run already consumed (the runs store is loaded before the screens).
+          const run = n.executionId && !n.executionId.startsWith("session:") ? useRunsStore.getState().byId(n.executionId) : undefined
+          if (run && n.data.type === "ai") addTokens(b.id, n.id, run.plan.reduce((acc, st) => acc + (st.tokens ?? 0), 0))
+        }
       }
     }
     // Folder counts and photo mirrors are derived from disk; refresh them in the background.
@@ -418,7 +423,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
   }
   if (buildFolders[0]) prompt = `Work inside the existing project at ${cwd} (it is already there; do not recreate it).\n\n${prompt}`
-  store.updateNode(bpId, aiId, { status: "running", note: undefined })
+  // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
+  store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)
 
   let ok: boolean
