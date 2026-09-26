@@ -15,6 +15,8 @@ export interface ProviderCapabilities {
   planner: boolean
   /** Accepts an effort/reasoning flag. */
   effort: boolean
+  /** The agent has a built-in raster image generation tool (Antigravity `generate_image`, verified 2026-09-26: a real PNG was saved). */
+  image?: boolean
 }
 
 export interface ProviderInfo {
@@ -227,7 +229,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     installScript: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
     loginCommand: "agy",
     docsUrl: "https://antigravity.google/docs/cli/install/",
-    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false },
+    capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false, image: true },
     parserMaturity: "beta",
     staticModels: [],
     color: "#7c9cff",

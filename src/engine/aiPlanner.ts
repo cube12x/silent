@@ -55,7 +55,10 @@ export function modelStrengths(m: ProviderModel): string {
     return "OpenAI model; sandboxed (no browser)"
   }
   if (p === "grok") return /fast/.test(id) ? "fast iteration, cheap; implementation and tuning; can run a browser" : "frontier; creative content and effects; can run a browser"
-  if (p === "antigravity") return /pro|opus/.test(id) ? "frontier Google/partner model; design and reviews; can run a browser" : "fast Google model; implementation, tests, docs; can run a browser"
+  if (p === "antigravity")
+    return /pro|opus/.test(id)
+      ? "frontier Google/partner model; design and reviews; can run a browser; can GENERATE RASTER IMAGES (sprites, backgrounds, portraits, key art) with its built-in image tool — the only pool model that can draw"
+      : "fast Google model; implementation, tests, docs; can run a browser; can GENERATE RASTER IMAGES with its built-in image tool"
   return `${m.tier} model`
 }
 
@@ -70,6 +73,7 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "- Produce ONLY subtasks that are genuinely needed for this request. Never add an 'algorithm', 'docs' or any other subtask just because it is common. If the user excluded something, do not include it and list it under `excluded`.",
     "- Size every subtask so ONE CLI session finishes it in at most ~25 minutes of work (weight 3 = the upper bound; a task that needs more is two tasks). Do not merge unrelated systems into one task (e.g. combat core, enemies+bosses and player controller are three tasks that run in parallel). Typical plan: 4–7 tasks, 9 maximum. Each CLI run costs minutes of startup, so do not split one coherent small piece either.",
     "- Set `dependsOn` ONLY when a task truly needs another task's output. Independent tasks run IN PARALLEL on different models — a long serial chain is the slowest possible plan. Typical fast shape: one architecture task (only if needed) → several independent build tasks split by area (they run at the same time) → tests and review that depend only on the build tasks (they run at the same time too).",
+    "- Artwork: when the request wants drawn/painted/pixel art assets, give the art tasks (sprites, backgrounds, portraits, key art as PNG files) to a model whose strengths say it can GENERATE RASTER IMAGES, and make the task description say to use the built-in image generation tool and save the PNGs under the project's assets folder. If no pool model can draw, art must be produced in code (vector/pixel drawing) and say so.",
     "- Set `needsBrowser: true` ONLY for a task that must launch a real browser (Playwright/E2E/visual QA). Such tasks are routed to a CLI that can launch one; all other tasks get `needsBrowser: false`. Local dev servers, curl and headless Node checks do NOT need it.",
     "- The FIRST task (architecture/foundation) owns EVERY root file (package.json, lockfile, tsconfig, vite/vitest/eslint configs, .gitignore, README.md, index.html) plus src/main.ts as a minimal bootable entry and docs/ARCHITECTURE-BRIEF.md, so `install`, `typecheck`, `test` and `build` are green before any parallel task starts. Its brief must use the SAME paths this plan assigns (write the ownership map into the brief).",
     "- Only tasks with `needsBrowser: true` may be asked to verify in a real browser; every other task verifies with unit tests, typecheck and headless checks of its own paths, and must not be asked for browser or playtest checks.",
