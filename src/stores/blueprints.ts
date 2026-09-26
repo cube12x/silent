@@ -349,6 +349,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   // Working folder: wired build (develop) or a new build folder named after the prompt.
   let outBuild = firstOutgoing(bp, aiId, "build")
+  let createdBuild = false // a build Silent created now takes the AI-chosen name; user-titled builds keep theirs
   let cwd = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
   const title = promptTitles.find(Boolean) || (ai.data.title ?? "") || "build"
   if (!cwd) {
@@ -362,6 +363,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     else {
       outBuild = store.addNode(bpId, "build", ai.x + 300, ai.y, { title, folderPath: cwd, kind: "code" })
       if (outBuild) store.addEdge(bpId, aiId, outBuild.id)
+      createdBuild = true
     }
   } else if (outBuild.data.type === "build" && !outBuild.data.folderPath) {
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
@@ -453,7 +455,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
       addTokens(bpId, aiId, res.tokens)
       const name = /NAME:\s*(.+)/i.exec(res.text)?.[1]?.trim()
       const summary = /SUMMARY:\s*(.+)/i.exec(res.text)?.[1]?.trim()
-      if (name || summary) store.updateNode(bpId, outBuild.id, { data: { title: outBuild.data.title === "build" && name ? name.slice(0, 40) : outBuild.data.title, description: summary?.slice(0, 200) } })
+      if (name || summary) store.updateNode(bpId, outBuild.id, { data: { title: (createdBuild || outBuild.data.title === "build") && name ? name.slice(0, 40) : outBuild.data.title, description: summary?.slice(0, 200) } })
     }
   }
   return ok

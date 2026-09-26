@@ -35,7 +35,7 @@ export function TopBar() {
   const providers = useProvidersStore((s) => s.providers)
   const active = useRunsStore((s) => s.activeCount())
   // Blueprint single sessions / wizards are not runs; orchestration AIs are already counted through the runs store.
-  const bpActive = useBlueprintsStore((s) => s.blueprints.reduce((n, b) => n + b.nodes.filter((x) => x.status === "running" && !(x.data.type === "ai" && x.data.mode === "orchestration")).length, 0))
+  const bpActive = useBlueprintsStore((s) => s.blueprints.reduce((n, b) => n + b.nodes.filter((x) => x.status === "running" && !(x.data.type === "ai" && x.data.mode === "orchestration" && x.executionId)).length, 0))
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
 
   return (
