@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Blueprint } from "@/domain"
-import { aiChainFrom, composeAiInput, lintBlueprint, validateEdge } from "./graph"
+import { aiChainFrom, composeAiInput, lintBlueprint, resolveAutorun, validateEdge } from "./graph"
 
 function bp(): Blueprint {
   return {
@@ -50,5 +50,18 @@ describe("blueprint graph", () => {
     const lint = lintBlueprint(g)
     expect(lint.r).toContain("button.unwired")
     expect(lint.a3).toEqual(expect.arrayContaining(["ai.noPrompt", "ai.noModel"]))
+  })
+  it("resolves a blueprint + node from CLI refs (id, name, title, default start)", () => {
+    const g = bp()
+    g.id = "bp_x"; g.name = "Örnek: Loki 2"
+    g.nodes.push({ id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } })
+    const ai = g.nodes.find((n) => n.id === "a")
+    if (ai?.data.type === "ai") ai.data.title = "Yapımcı"
+    const all = [g]
+    expect(resolveAutorun(all, { ref: "bp_x", node: "a" })?.node.id).toBe("a")
+    expect(resolveAutorun(all, { ref: "örnek: loki 2", node: "Yapımcı" })?.node.id).toBe("a")
+    expect(resolveAutorun(all, { ref: "Örnek: Loki 2" })?.node.id).toBe("s")
+    expect(resolveAutorun(all, { ref: "nope" })).toBeUndefined()
+    expect(resolveAutorun(all, { ref: "bp_x", node: "missing" })).toBeUndefined()
   })
 })

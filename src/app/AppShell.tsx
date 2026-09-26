@@ -2,6 +2,7 @@ import * as React from "react"
 import { Outlet, useLocation, useNavigate } from "react-router"
 import { getBackend } from "@/services"
 import { useRunsStore } from "@/stores/runs"
+import { useBlueprintsStore } from "@/stores/blueprints"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { CommandPalette } from "./CommandPalette"
@@ -26,8 +27,11 @@ export function AppShell() {
       try {
         const req = await (await getBackend()).autostartTake()
         if (req && !stopped) {
-          console.warn("[autostart] picked up", JSON.stringify({ folder: req.folder, promptLen: req.prompt?.length, kit: req.kit, cost: req.cost, polish: req.polish }))
-          if (req.prompt && req.folder) {
+          console.warn("[autostart] picked up", JSON.stringify({ folder: req.folder, promptLen: req.prompt?.length, kit: req.kit, cost: req.cost, polish: req.polish, blueprint: req.blueprint }))
+          if (req.blueprint?.ref) {
+            useBlueprintsStore.setState({ autorun: req.blueprint })
+            navigate(`/blueprint?auto=${Date.now()}`)
+          } else if (req.prompt && req.folder) {
             useRunsStore.setState({ autostart: req })
             navigate(`/code?auto=${Date.now()}`)
           }

@@ -48,6 +48,8 @@ export interface AutostartRequest {
   prefer?: string
   /** Expert (template) agent name or id whose run defaults apply (flags given explicitly win). */
   agent?: string
+  /** `silent bp "<blueprint name|id>" ["<node title|id>"]`: trigger a Blueprint node instead of a Silent Code run. */
+  blueprint?: { ref: string; node?: string }
 }
 
 export interface Backend {

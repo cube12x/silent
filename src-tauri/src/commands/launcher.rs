@@ -61,7 +61,20 @@ fn status() -> LauncherStatus {
 const RUN_PRELUDE: &str = r#"#!/bin/sh
 # Silent — opens the desktop app. Installed by Silent > Settings.
 # Usage: silent                       open the app
-#        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] <folder> <request…>
+#        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>
+#        silent bp <blueprint name|id> [node title|id]    trigger a Blueprint node (default: its Start button)
+if [ "$1" = "bp" ]; then
+  shift
+  if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id]" >&2; exit 2; fi
+  dir="$HOME/Library/Application Support/com.silent.workstation"
+  mkdir -p "$dir"
+  python3 - "$1" "$2" > "$dir/autostart.json" <<'PY'
+import json, sys
+print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None}}))
+PY
+  echo "queued blueprint: $1"
+  set --
+fi
 if [ "$1" = "run" ]; then
   shift
   kit=""; polish=""; cost=""; pool=""; prefer=""; agent=""

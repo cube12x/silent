@@ -86,3 +86,21 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
   }
   return out
 }
+
+/** `silent bp "<blueprint name|id>" ["<node title|id>"]` target; without a node the Start button (else the first prompt) runs. */
+export interface AutorunRef {
+  ref: string
+  node?: string
+}
+
+export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {
+  const norm = (v: string) => v.trim().toLocaleLowerCase("tr")
+  const bp = blueprints.find((b) => b.id === req.ref) ?? blueprints.find((b) => norm(b.name) === norm(req.ref))
+  if (!bp) return undefined
+  const titleOf = (n: BpNode) => ("title" in n.data && typeof n.data.title === "string" ? n.data.title : "")
+  const want = req.node?.trim()
+  const node = want
+    ? (bp.nodes.find((n) => n.id === want) ?? bp.nodes.find((n) => norm(titleOf(n)) === norm(want)))
+    : (bp.nodes.find((n) => n.data.type === "button" && n.data.kind === "start") ?? bp.nodes.find((n) => n.type === "prompt"))
+  return node ? { bp, node } : undefined
+}

@@ -4,7 +4,7 @@ import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
 import { useProvidersStore } from "./providers"
-import { aiChainFrom, composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge } from "@/engine/blueprint/graph"
+import { aiChainFrom, composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 
@@ -34,6 +34,10 @@ interface BlueprintsState {
   cancel(id: string, nodeId: string): Promise<void>
   /** Send button: copy the wired build's files into the wired targets. */
   send(id: string, buttonId: string): Promise<void>
+  /** What Enter / double-click / `silent bp` do for a node: Send copies, Reload re-runs with the wired AI's purpose, anything else runs forward. */
+  trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string }): Promise<void>
+  /** Pending `silent bp …` request from autostart.json; the Blueprint screen consumes it once loaded. */
+  autorun?: AutorunRef
   importFiles(id: string, nodeId: string, paths: string[]): Promise<number>
   refreshBuild(id: string, nodeId: string): Promise<void>
   /** Variable nodes: poll wired build folders and fire wizards/AIs on change. */
@@ -51,6 +55,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   blueprints: [],
   logs: {},
   running: {},
+  autorun: undefined,
 
   async load() {
     const backend = await getBackend()
@@ -147,6 +152,18 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const stop = get().running[nodeId]
     if (stop) await stop()
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
+  },
+  async trigger(id, nodeId, opts) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node) return
+    if (node.data.type === "button" && node.data.kind === "send") return get().send(id, nodeId)
+    if (node.data.type === "button" && node.data.kind === "reload") {
+      const target = firstOutgoing(bp, nodeId, "ai")
+      const purpose = target?.data.type === "ai" ? target.data.purpose : undefined
+      return get().run(id, nodeId, { purpose: purpose || opts?.reloadDefaultPurpose || "Re-run for the same goal and fix what is broken.", resume: true })
+    }
+    return get().run(id, nodeId)
   },
   async send(id, buttonId) {
     const bp = get().byId(id)

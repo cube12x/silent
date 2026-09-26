@@ -6,7 +6,7 @@ import { cn } from "cn"
 import { Plus, Play, Send, Trash2, FolderOpen, Sparkles } from "lucide-react"
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
-import { lintBlueprint } from "@/engine/blueprint/graph"
+import { lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
 import { NeonButton, PageHeader } from "@/design-system"
 import { Textarea } from "@/components/ui/textarea"
@@ -39,8 +39,7 @@ function Canvas({ bpId }: { bpId: string }) {
   const removeEdge = useBlueprintsStore((s) => s.removeEdge)
   const addEdge = useBlueprintsStore((s) => s.addEdge)
   const addNode = useBlueprintsStore((s) => s.addNode)
-  const run = useBlueprintsStore((s) => s.run)
-  const send = useBlueprintsStore((s) => s.send)
+  const triggerNode = useBlueprintsStore((s) => s.trigger)
   const importFiles = useBlueprintsStore((s) => s.importFiles)
   const { screenToFlowPosition } = useReactFlow()
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
@@ -125,15 +124,9 @@ function Canvas({ bpId }: { bpId: string }) {
 
   const trigger = React.useCallback(
     (node: BpNode) => {
-      if (node.type === "button" && node.data.type === "button" && node.data.kind === "send") void send(bpId, node.id)
-      else if (node.type === "button" && node.data.type === "button" && node.data.kind === "reload") {
-        const ai = useBlueprintsStore.getState().byId(bpId)?.edges.find((e) => e.from === node.id)
-        const target = ai && useBlueprintsStore.getState().byId(bpId)?.nodes.find((n) => n.id === ai.to)
-        const purpose = target?.data.type === "ai" ? target.data.purpose : undefined
-        void run(bpId, node.id, { purpose: purpose || t("bp.reloadDefaultPurpose"), resume: true })
-      } else void run(bpId, node.id)
+      void triggerNode(bpId, node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
     },
-    [bpId, run, send, t],
+    [bpId, triggerNode, t],
   )
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -307,6 +300,7 @@ export function BlueprintScreen() {
   const rename = useBlueprintsStore((s) => s.rename)
   const remove = useBlueprintsStore((s) => s.remove)
   const setActive = useBlueprintsStore((s) => s.setActive)
+  const autorun = useBlueprintsStore((s) => s.autorun)
   const [loaded, setLoaded] = React.useState(false)
   const id = bpId ?? activeId
 
@@ -317,6 +311,20 @@ export function BlueprintScreen() {
   React.useEffect(() => {
     if (id && id !== activeId) setActive(id)
   }, [id, activeId, setActive])
+  // `silent bp "<blueprint>" ["<node>"]` from the terminal (AppShell routed autostart.json here).
+  React.useEffect(() => {
+    if (!loaded || !autorun) return
+    const st = useBlueprintsStore.getState()
+    useBlueprintsStore.setState({ autorun: undefined })
+    const target = resolveAutorun(st.blueprints, autorun)
+    if (!target) {
+      console.warn("[autostart] blueprint node not found", JSON.stringify(autorun))
+      return
+    }
+    console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
+    navigate(`/blueprint/${target.bp.id}`)
+    void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
+  }, [loaded, autorun, navigate, t])
 
   const bp = blueprints.find((b) => b.id === id)
   const newBlueprint = async () => {
