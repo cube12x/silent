@@ -87,6 +87,9 @@ describe("router (CLI models)", () => {
     const browser = [{ ...tasks[0], id: "hb", needsBrowser: true }]
     const [r] = routeSubtasks({ subtasks: browser, pool: TEST_POOL, models: TEST_MODELS, costMode: "economy" })
     expect(r.primaryModelId.split(":")[0]).toBe("claude")
+    // A pool with no browser-capable CLI at all escalates the browser task to the catalog (Astra-only Blueprint node, 2026-09-27).
+    const [esc] = routeSubtasks({ subtasks: browser, pool: ["codex:gpt-6-astra"], models: TEST_MODELS, costMode: "economy" })
+    expect(esc.primaryModelId.split(":")[0]).toBe("claude")
     const [off] = routeSubtasks({ subtasks: [tasks[0]], pool: TEST_POOL, models: TEST_MODELS, costMode: "economy", honourHints: false })
     expect(off.reason).not.toMatch(/AI planner chose/)
   })

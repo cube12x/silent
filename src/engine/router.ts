@@ -57,7 +57,10 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
     const override = input.overrides?.[subtask.kind]
     // A task that must drive a real browser cannot run inside a sandbox that forbids launching one.
     const browserOk = poolModels.filter((m) => providerInfo(m.providerId).capabilities.browser)
-    const candidates = subtask.needsBrowser && browserOk.length ? browserOk : poolModels
+    // A pool without any browser-capable CLI (e.g. a Blueprint node pinned to Astra) still gets its browser task
+    // done: escalate to a browser-capable model from the catalog rather than sending it into a sandbox that cannot.
+    const catalogBrowser = browserOk.length ? browserOk : input.models.filter((m) => providerInfo(m.providerId).capabilities.browser)
+    const candidates = subtask.needsBrowser && catalogBrowser.length ? catalogBrowser : poolModels
     const ranked = candidates
       .map((model) => {
         const ref = modelRef(model.providerId, model.id)
