@@ -72,6 +72,8 @@ interface RunsState {
   /** Bind a working folder to an existing run (older runs may have none); persisted. */
   attachRepo(runId: string, repoPath: string): Promise<void>
   remove(runId: string): Promise<void>
+  /** Cancel everything that runs and delete every run record (terminal lines included). */
+  removeAll(): Promise<void>
   loadTerminal(runId: string, subtaskId: string): Promise<void>
   byId(id: string | undefined): SilentCodeRun | undefined
   activeCount(): number
@@ -386,6 +388,13 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     set({ runs: get().runs.filter((r) => r.id !== runId) })
     const backend = await getBackend()
     await backend.db.runs.delete(runId)
+  },
+  async removeAll() {
+    const ids = get().runs.map((r) => r.id)
+    for (const id of ids) get().cancel(id)
+    set({ runs: [] })
+    const backend = await getBackend()
+    for (const id of ids) await backend.db.runs.delete(id)
   },
   async loadTerminal(runId, subtaskId) {
     if (useTerminalStore.getState().lines[subtaskId]?.length || get().executors[runId]) return

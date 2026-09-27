@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router"
 import { cn } from "cn"
-import { AlertTriangle, Bot, Check, FolderGit2, FolderOpen, MessageSquare, Play, Route, Sparkles, Square, Workflow, Zap, RotateCcw, Wallet, GitBranch, Loader2 } from "lucide-react"
+import { AlertTriangle, Bot, Check, FolderGit2, FolderOpen, MessageSquare, Play, Route, Sparkles, Square, Workflow, Zap, RotateCcw, Wallet, GitBranch, Loader2, Trash2 } from "lucide-react"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useAgentsStore } from "@/stores/agents"
 import { useSettingsStore } from "@/stores/settings"
@@ -508,9 +508,13 @@ function RunView({ runId }: { runId: string }) {
         description={<span className="flex flex-wrap items-center gap-3 text-xs"><span className="mono text-text-2">“{run.prompt.length > 160 ? run.prompt.slice(0, 157) + "…" : run.prompt}”</span>{run.repoPath && <span className="mono flex items-center gap-1"><FolderGit2 className="size-3" />{run.repoPath}</span>}{run.parentRunId && <button type="button" onClick={() => navigate(`/code/${run.parentRunId}`)} className="flex items-center gap-1 text-text-2 hover:text-text-1"><GitBranch className="size-3" />{t("code.continuesRun", { title: useRunsStore.getState().byId(run.parentRunId)?.title ?? "…" })}</button>}</span>}
         actions={
           run.status === "running" ? (
-            <NeonButton variant="outline" onClick={() => cancel(run.id)} className="border-danger/40 text-danger hover:border-danger hover:text-danger"><Square />{t("code.cancelRun")}</NeonButton>
+            <>
+              <NeonButton variant="outline" onClick={() => cancel(run.id)} className="border-danger/40 text-danger hover:border-danger hover:text-danger"><Square />{t("code.cancelRun")}</NeonButton>
+              <DeleteRunButton runId={run.id} />
+            </>
           ) : (
             <>
+              <DeleteRunButton runId={run.id} />
               {!run.repoPath && <NeonButton variant="outline" onClick={attachFolder} className="border-warn/50 text-warn hover:border-warn"><FolderOpen />{t("code.attachFolder")}</NeonButton>}
               <NeonButton variant="outline" onClick={askProject}><MessageSquare />{t("code.askProject")}</NeonButton>
               <NeonButton onClick={() => navigate(`/code?continue=${run.id}`)}><Zap />{t("code.develop")}</NeonButton>
@@ -561,6 +565,35 @@ function RunView({ runId }: { runId: string }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/** Two-click delete (the webview has no confirm()): first click arms for 4 s, second click cancels + deletes the run. */
+function DeleteRunButton({ runId }: { runId: string }) {
+  const t = useT()
+  const navigate = useNavigate()
+  const remove = useRunsStore((s) => s.remove)
+  const [armed, setArmed] = React.useState(false)
+  React.useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [armed])
+  return (
+    <NeonButton
+      variant="outline"
+      onClick={() => {
+        if (!armed) {
+          setArmed(true)
+          return
+        }
+        void remove(runId).then(() => navigate("/code"))
+      }}
+      className={armed ? "border-danger bg-danger/15 text-danger" : "border-line text-text-3 hover:border-danger/60 hover:text-danger"}
+    >
+      <Trash2 />
+      {armed ? t("code.confirmDelete") : t("code.deleteRun")}
+    </NeonButton>
   )
 }
 

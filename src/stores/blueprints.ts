@@ -197,6 +197,13 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       log(set, nodeId, "⚠ no AI wired forward from this node")
       return
     }
+    // Double-trigger guard: Enter pressed twice or `silent bp` repeated must not start a second run of the same node
+    // (three concurrent orchestrations on one folder happened on 2026-09-26).
+    const busy = chain.find((ai) => get().running[ai.id])
+    if (busy) {
+      log(set, nodeId, `⚠ ${busy.data.type === "ai" && busy.data.title ? busy.data.title : busy.id} is already running — wait or cancel it first`)
+      return
+    }
     for (const ai of chain) {
       const ok = await execAi(id, ai.id, opts)
       if (!ok) break
@@ -403,6 +410,16 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   // Working folder: wired build (develop) or a new build folder named after the prompt.
   let outBuild = firstOutgoing(bp, aiId, "build")
+  if (ai.data.mode === "orchestration") {
+    // One orchestration per folder: parallel workers of two runs would overwrite each other's files.
+    const wired = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
+    const clash = wired && useRunsStore.getState().runs.find((r) => r.status === "running" && r.repoPath === wired)
+    if (clash) {
+      log(set, aiId, `⚠ another run is already active on ${wired} (${clash.id}); wait for it or cancel it`)
+      store.updateNode(bpId, aiId, { status: "failed", note: "folder busy: another run is active" })
+      return false
+    }
+  }
   let createdBuild = false // a build Silent created now takes the AI-chosen name; user-titled builds keep theirs
   let cwd = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
   const title = promptTitles.find(Boolean) || (ai.data.title ?? "") || "build"

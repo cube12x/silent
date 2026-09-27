@@ -86,6 +86,7 @@ export const en: Dictionary = {
     failedN: "{n} failed",
     activeModels: "active models",
     cancelRun: "Cancel run",
+    deleteRun: "Delete", confirmDelete: "Sure? Click again", deleteAll: "Delete all runs", confirmDeleteAll: "Every run will be deleted — click again to confirm",
     rerun: "Re-run",
     newRun: "New run",
     history: "History",

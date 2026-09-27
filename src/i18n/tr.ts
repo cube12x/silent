@@ -84,6 +84,7 @@ export const tr = {
     failedN: "{n} başarısız",
     activeModels: "aktif modeller",
     cancelRun: "Çalıştırmayı iptal et",
+    deleteRun: "Sil", confirmDelete: "Emin misin? Tekrar tıkla", deleteAll: "Tüm çalıştırmaları sil", confirmDeleteAll: "Tüm çalıştırmalar silinecek — onaylamak için tekrar tıkla",
     rerun: "Tekrar çalıştır",
     newRun: "Yeni çalıştırma",
     history: "Geçmiş",

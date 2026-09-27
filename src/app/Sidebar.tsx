@@ -1,7 +1,7 @@
 import * as React from "react"
-import { NavLink } from "react-router"
+import { NavLink, useNavigate } from "react-router"
 import { cn } from "cn"
-import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages, Workflow } from "lucide-react"
+import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages, Workflow, Trash2 } from "lucide-react"
 import { SilentMark } from "./SilentMark"
 import { Kbd } from "@/components/ui/kbd"
 import { useUiStore } from "@/stores/ui"
@@ -56,6 +56,36 @@ function Item({ to, icon, label, meta, collapsed, badge, end }: { to: string; ic
   )
 }
 
+/** Two-click "delete every run" (the webview has no confirm()): arms for 4 s, then cancels and deletes all runs. */
+function DeleteAllRunsButton() {
+  const t = useT()
+  const navigate = useNavigate()
+  const removeAll = useRunsStore((s) => s.removeAll)
+  const [armed, setArmed] = React.useState(false)
+  React.useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [armed])
+  return (
+    <button
+      type="button"
+      title={armed ? t("code.confirmDeleteAll") : t("code.deleteAll")}
+      aria-label={armed ? t("code.confirmDeleteAll") : t("code.deleteAll")}
+      onClick={() => {
+        if (!armed) {
+          setArmed(true)
+          return
+        }
+        void removeAll().then(() => navigate("/code"))
+      }}
+      className={armed ? "text-danger" : "text-text-3 hover:text-danger"}
+    >
+      <Trash2 className="size-3" />
+    </button>
+  )
+}
+
 export function Sidebar() {
   const t = useT()
   const collapsed = useUiStore((s) => s.sidebarCollapsed)
@@ -102,7 +132,7 @@ export function Sidebar() {
           {chats.length === 0 && !collapsed && <div className="px-4 py-1 text-[11px] text-text-3">{t("common.none")}</div>}
         </Section>
 
-        <Section title={t("nav.silentCode")} count={runs.length} collapsed={collapsed} action={<NavLink to="/code" className="text-text-3 hover:text-cyan"><Plus className="size-3" /></NavLink>}>
+        <Section title={t("nav.silentCode")} count={runs.length} collapsed={collapsed} action={<span className="flex items-center gap-2">{runs.length > 0 && <DeleteAllRunsButton />}<NavLink to="/code" className="text-text-3 hover:text-cyan"><Plus className="size-3" /></NavLink></span>}>
           <Item to="/code" end icon={<Zap />} label={t("code.newRun")} collapsed={collapsed} meta={running || undefined} />
           {runs.slice(0, collapsed ? 3 : 8).map((r) => (
             <Item key={r.id} to={`/code/${r.id}`} icon={r.parentRunId ? <GitBranch /> : <Cpu />} label={`${r.parentRunId ? "↳ " : ""}${r.title}`} collapsed={collapsed} badge={!collapsed ? <RunStatusBadge status={r.status} size="xs" label={runLabel(r.status)} /> : undefined} />
