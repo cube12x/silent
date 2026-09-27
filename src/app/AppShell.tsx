@@ -28,6 +28,10 @@ export function AppShell() {
         const req = await (await getBackend()).autostartTake()
         if (req && !stopped) {
           console.warn("[autostart] picked up", JSON.stringify({ folder: req.folder, promptLen: req.prompt?.length, kit: req.kit, cost: req.cost, polish: req.polish, blueprint: req.blueprint }))
+          if (req.reload) {
+            window.location.reload()
+            return
+          }
           if (req.blueprint?.ref) {
             useBlueprintsStore.setState({ autorun: req.blueprint })
             navigate(`/blueprint?auto=${Date.now()}`)

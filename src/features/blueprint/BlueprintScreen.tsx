@@ -371,7 +371,7 @@ export function BlueprintScreen() {
         return
       }
       console.warn("[autostart] blueprint trigger", target.bp.id, target.node.id)
-      void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
+      void st.trigger(target.bp.id, target.node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose"), only: autorun.only })
     })()
   }, [loaded, autorun, navigate, t])
 

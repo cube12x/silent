@@ -64,9 +64,19 @@ const RUN_PRELUDE: &str = r#"#!/bin/sh
 #        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>
 #        silent bp <blueprint name|id> [node title|id]    trigger a Blueprint node (default: its Start button)
 #        silent bp answer <blueprint> <node> <answer…>      answer a node's blocked worker question(s)
+#        silent bp only <blueprint> <node>                  run just that node (not the AIs wired after it)
+#        silent reload                                      reload the app page (blank/black window)
+if [ "$1" = "reload" ]; then
+  dir="$HOME/Library/Application Support/com.silent.workstation"
+  mkdir -p "$dir"
+  printf '{"folder":"","prompt":"","reload":true}' > "$dir/autostart.json"
+  echo "queued: reload"
+  set --
+fi
 if [ "$1" = "bp" ]; then
   shift
-  answer=""
+  answer=""; only=""
+  if [ "$1" = "only" ]; then shift; only="1"; fi
   if [ "$1" = "answer" ]; then
     shift
     if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then echo "usage: silent bp answer <blueprint name|id> <node title|id> <answer…>" >&2; exit 2; fi
@@ -77,9 +87,9 @@ if [ "$1" = "bp" ]; then
   fi
   dir="$HOME/Library/Application Support/com.silent.workstation"
   mkdir -p "$dir"
-  python3 - "$bpref" "$node" "$answer" > "$dir/autostart.json" <<'PY'
+  python3 - "$bpref" "$node" "$answer" "$only" > "$dir/autostart.json" <<'PY'
 import json, sys
-print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None}}))
+print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None, "only": bool(sys.argv[4])}}))
 PY
   if [ -n "$answer" ]; then echo "queued answer for: $bpref / $node"; else echo "queued blueprint: $bpref"; fi
   set --

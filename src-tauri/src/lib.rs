@@ -32,6 +32,8 @@ fn fit_main_window_to_monitor(app: &tauri::App) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+use tauri::Manager;
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(
@@ -76,6 +78,25 @@ pub fn run() {
             commands::blueprint::blueprint_build_import,
             commands::blueprint::blueprint_build_send,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Silent");
+        .on_window_event(|window, event| {
+            // Closing the main window must not destroy the webview: orchestrations run inside it.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building Silent")
+        .run(|app, event| {
+            // Dock click / `open -a Silent` with the window hidden or minimized: bring it back.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+        });
 }

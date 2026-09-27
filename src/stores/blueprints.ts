@@ -36,12 +36,12 @@ interface BlueprintsState {
   addEdge(id: string, from: string, to: string): string | null
   removeEdge(id: string, edgeId: string): void
   /** Execute from a node forward (Start/Enter): every AI reachable through wires, in order. */
-  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean }): Promise<void>
+  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean }): Promise<void>
   cancel(id: string, nodeId: string): Promise<void>
   /** Send button: copy the wired build's files into the wired targets. */
   send(id: string, buttonId: string): Promise<void>
   /** What Enter / double-click / `silent bp` do for a node: Send copies, Reload re-runs with the wired AI's purpose, anything else runs forward. */
-  trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string }): Promise<void>
+  trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string; only?: boolean }): Promise<void>
   /** Answer every blocked worker question of the node's orchestration run (SILENT_QUESTION); sessions resume. Returns how many were answered. */
   answer(id: string, nodeId: string, text: string): number
   /** Pending `silent bp …` request from autostart.json; the Blueprint screen consumes it once loaded. */
@@ -192,7 +192,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   async run(id, nodeId, opts) {
     const bp = get().byId(id)
     if (!bp) return
-    const chain = aiChainFrom(bp, nodeId)
+    let chain = aiChainFrom(bp, nodeId)
+    if (opts?.only) chain = chain.slice(0, 1)
     if (!chain.length) {
       log(set, nodeId, "⚠ no AI wired forward from this node")
       return
@@ -234,9 +235,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     if (node.data.type === "button" && node.data.kind === "reload") {
       const target = firstOutgoing(bp, nodeId, "ai")
       const purpose = target?.data.type === "ai" ? target.data.purpose : undefined
-      return get().run(id, nodeId, { purpose: purpose || opts?.reloadDefaultPurpose || "Re-run for the same goal and fix what is broken.", resume: true })
+      return get().run(id, nodeId, { purpose: purpose || opts?.reloadDefaultPurpose || "Re-run for the same goal and fix what is broken.", resume: true, only: opts?.only })
     }
-    return get().run(id, nodeId)
+    return get().run(id, nodeId, { only: opts?.only })
   },
   async send(id, buttonId) {
     const bp = get().byId(id)

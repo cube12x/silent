@@ -49,7 +49,9 @@ export interface AutostartRequest {
   /** Expert (template) agent name or id whose run defaults apply (flags given explicitly win). */
   agent?: string
   /** `silent bp "<blueprint name|id>" ["<node title|id>"]`: trigger a Blueprint node instead of a Silent Code run. */
-  blueprint?: { ref: string; node?: string }
+  blueprint?: { ref: string; node?: string; answer?: string; only?: boolean }
+  /** `silent reload`: reload the webview page (recovers a blank/black window; running orchestrations are lost). */
+  reload?: boolean
 }
 
 export interface Backend {

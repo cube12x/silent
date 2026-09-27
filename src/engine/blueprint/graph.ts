@@ -93,6 +93,8 @@ export interface AutorunRef {
   node?: string
   /** `silent bp answer …`: answer the node's blocked worker questions instead of triggering it. */
   answer?: string
+  /** `silent bp only …`: run just this node, not the AIs wired after it. */
+  only?: boolean
 }
 
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {
