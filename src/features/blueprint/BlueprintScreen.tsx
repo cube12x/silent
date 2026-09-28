@@ -44,7 +44,7 @@ function Canvas({ bpId }: { bpId: string }) {
   const addNode = useBlueprintsStore((s) => s.addNode)
   const triggerNode = useBlueprintsStore((s) => s.trigger)
   const importFiles = useBlueprintsStore((s) => s.importFiles)
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, fitView } = useReactFlow()
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
   const [menu, setMenu] = React.useState<{ x: number; y: number; left: number; top: number } | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
@@ -182,6 +182,9 @@ function Canvas({ bpId }: { bpId: string }) {
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="rgba(255,255,255,0.12)" />
         </ReactFlow>
+        {bp.nodes.length > 0 && (
+          <button type="button" onClick={() => void fitView({ padding: 0.2, maxZoom: 1 })} title={t("bp.fit")} aria-label={t("bp.fit")} className="absolute right-3 bottom-3 z-20 rounded-sm border border-line bg-ink-2 px-2 py-1 text-[11px] text-text-2 hover:text-text-1">⤢ {t("bp.fit")}</button>
+        )}
         {bp.nodes.length === 0 && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-text-3">{t("bp.emptyCanvas")}</div>}
         {menu && (
           <div className="absolute z-30 w-52 rounded-sm border border-line bg-ink-2 p-1 text-xs shadow-xl" style={{ left: menu.left, top: menu.top }}>

@@ -9,6 +9,7 @@ export const tr = {
     newName: "Blueprint {n}",
     none: "Henüz blueprint yok. \"Yeni blueprint\" ile başla, tuvalde sağ tıkla.",
     hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır · ⌘Z geri al",
+    fit: "Sığdır",
     auto: "AI ile oluştur", autoRun: "Oluştur", autoWorking: "Claude blueprint'i kuruyor…", autoPlaceholder: "Ne yapılsın? Örn: \"Cuphead tarzı boss oyunu; mimari Opus 5.5, görseller Astra, arka planlar Grok, sesler Astra; 1 saatlik oyun\"", autoHint: "Bağlı Claude CLI kutuları, prompt'ları, modelleri ve kabloları tasarlar; sonra elle düzenleyebilirsin (terminal: silent bp auto \"…\")",
     questions: "{n} soru bekliyor", answer: "Cevapla", answerPlaceholder: "İşçinin sorusuna cevap yaz; oturum kaldığı yerden devam eder (terminal: silent bp answer \"<blueprint>\" \"<kutu>\" \"<cevap>\")",
     pool: "Model havuzu", poolHint: "Planlayıcı her görevi bu modellerden birine atar; ana model her zaman dahildir.", totalTokens: "Σ {n} token", tokensHint: "Bu blueprint'in AI kutularının harcadığı token (önbelleksiz giriş + çıkış)",
