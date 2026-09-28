@@ -52,6 +52,9 @@ export class TestBackend implements Backend {
   async blueprintBuildImport(_folder: string, paths: string[]) {
     return paths.length
   }
+  async blueprintWriteTool(folder: string, name: string) {
+    return `${folder}/.silent/tools/${name}`
+  }
   async blueprintBuildSend() {
     return 0
   }

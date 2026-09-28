@@ -239,6 +239,19 @@ pub fn blueprint_build_send(
     copy_recursive(&src, &dst).map_err(|e| e.to_string())
 }
 
+/// Drop a helper script into `<folder>/.silent/tools/<name>` (the Uydurma placeholder tool for workers).
+#[tauri::command]
+pub fn blueprint_write_tool(folder: String, name: String, content: String) -> Result<String, String> {
+    if name.contains('/') || name.contains("..") || name.is_empty() {
+        return Err("invalid tool name".into());
+    }
+    let dir = PathBuf::from(&folder).join(".silent").join("tools");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(&name);
+    std::fs::write(&path, content).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

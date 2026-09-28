@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
-import { Bot, FileText, FolderGit2, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable } from "lucide-react"
+import { Bot, FileText, FolderGit2, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
 import { formatTokens } from "@/lib/format"
@@ -129,4 +129,16 @@ export function WizardNode({ data }: NodeProps<BpFlowNode>) {
   )
 }
 
-export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode }
+export function StubNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "stub" ? n.data : { kinds: [], folder: "" }
+  return (
+    <Shell node={n} icon={<Package />} title={n.data.type === "stub" && n.data.title ? n.data.title : t("bp.node.stub")} warnings={data.warnings} className="w-[200px] border-dashed">
+      <div className="mono truncate text-[10px] text-text-3">{d.folder || "assets/uydurma"}</div>
+      <div className="mt-1 text-[10px] text-text-2">{d.kinds.length ? d.kinds.join(" · ") : t("bp.stubEmpty")}</div>
+    </Shell>
+  )
+}
+
+export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode }

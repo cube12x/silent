@@ -1,4 +1,4 @@
-import type { Blueprint, BpEdge, BpNode, BpNodeType } from "@/domain"
+import type { Blueprint, BpEdge, BpNode, BpNodeType, BpStubData } from "@/domain"
 import { canConnect } from "@/domain"
 
 /** Pure graph helpers for the Blueprint executor and UI (no React, no backend). */
@@ -55,14 +55,17 @@ export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
 }
 
 /** Build the prompt text an AI node receives: its wired prompts (in wire order) + wired build folders as context. */
-export function composeAiInput(bp: Blueprint, aiId: string): { prompt: string; buildFolders: string[]; promptTitles: string[] } {
+export function composeAiInput(bp: Blueprint, aiId: string): { prompt: string; buildFolders: string[]; promptTitles: string[]; stubs: BpStubData[]; fills: BpStubData[] } {
   const prompts = incoming(bp, aiId).filter((n) => n.type === "prompt")
   const builds = incoming(bp, aiId).filter((n) => n.type === "build" || n.type === "buildPhoto")
   // Builds wired into a prompt that feeds this AI also count as context.
   const viaPrompt = prompts.flatMap((p) => incoming(bp, p.id).filter((n) => n.type === "build" || n.type === "buildPhoto"))
   const folders = Array.from(new Set([...builds, ...viaPrompt].map((b) => (b.data.type === "build" || b.data.type === "buildPhoto" ? b.data.folderPath : "")).filter(Boolean)))
   const text = prompts.map((p) => (p.data.type === "prompt" ? `${p.data.title ? `# ${p.data.title}\n` : ""}${p.data.text}` : "")).filter(Boolean).join("\n\n")
-  return { prompt: text, buildFolders: folders, promptTitles: prompts.map((p) => (p.data.type === "prompt" ? p.data.title : "")) }
+  // Uydurma: stub → ai makes this AI a placeholder producer; ai → stub makes it the filler.
+  const stubs = incoming(bp, aiId).flatMap((n) => (n.data.type === "stub" ? [n.data] : []))
+  const fills = outgoing(bp, aiId).flatMap((n) => (n.data.type === "stub" ? [n.data] : []))
+  return { prompt: text, buildFolders: folders, promptTitles: prompts.map((p) => (p.data.type === "prompt" ? p.data.title : "")), stubs, fills }
 }
 
 /** Warnings the canvas shows on nodes (wiring that cannot work). */
@@ -76,6 +79,7 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       if (!incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
     }
+    if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {
       if (!outgoing(bp, n.id).length) add(n.id, "button.unwired")
       if (n.data.kind === "reload" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "reload.noAi")

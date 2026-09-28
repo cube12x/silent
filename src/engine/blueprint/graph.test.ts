@@ -67,3 +67,32 @@ describe("blueprint graph", () => {
     expect(resolveAutorun(all, { ref: "bp_x", node: "missing" })).toBeUndefined()
   })
 })
+
+describe("uydurma (placeholder) wiring", () => {
+  it("composeAiInput reports producer stubs and fill jobs, lint flags an unwired stub", () => {
+    const g: Blueprint = {
+      id: "b", name: "t", createdAt: 0, updatedAt: 0,
+      nodes: [
+        { id: "p", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "GDD", text: "Build" } },
+        { id: "s", type: "stub", x: 0, y: 0, data: { type: "stub", kinds: ["image", "sfx"], folder: "assets/uydurma" } },
+        { id: "a", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:opus", mode: "orchestration" } },
+        { id: "f", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "grok:grok-4.7", mode: "single" } },
+        { id: "lonely", type: "stub", x: 0, y: 0, data: { type: "stub", kinds: ["music"], folder: "assets/uydurma" } },
+      ],
+      edges: [
+        { id: "e1", from: "p", to: "a" }, { id: "e2", from: "s", to: "a" }, { id: "e3", from: "f", to: "s" },
+      ],
+    }
+    expect(validateEdge(g, { from: "s", to: "a" })).toBe("duplicate")
+    expect(validateEdge(g, { from: "p", to: "s" })).toMatch(/no-rule/)
+    const producer = composeAiInput(g, "a")
+    expect(producer.stubs.map((x) => x.kinds)).toEqual([["image", "sfx"]])
+    expect(producer.fills).toEqual([])
+    const filler = composeAiInput(g, "f")
+    expect(filler.fills).toHaveLength(1)
+    expect(filler.stubs).toEqual([])
+    const lint = lintBlueprint(g)
+    expect(lint.lonely).toContain("stub.unwired")
+    expect(lint.s).toBeUndefined()
+  })
+})

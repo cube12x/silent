@@ -18,7 +18,8 @@ import { ModelPicker } from "@/features/chat/ModelPicker"
 import { BUILTIN_KITS } from "@/domain/kits"
 import { getBackend } from "@/services"
 import { isTauri } from "@/services/backend"
-import { modelRef, parseModelRef, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
+import { modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
+import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
 
 const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: string }> = [
@@ -31,6 +32,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "button", data: { kind: "reload" }, key: "button.reload" },
   { type: "wizard", key: "wizard" },
   { type: "variable", key: "variable" },
+  { type: "stub", data: { kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" }, key: "stub" },
 ]
 
 function Canvas({ bpId }: { bpId: string }) {
@@ -316,6 +318,24 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           </select>
           <span>{t(`bp.buttonHint.${d.kind}` as const)}</span>
         </label>
+      )}
+      {d.type === "stub" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.stub")} />
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.stubFolder")}
+            <Input value={d.folder} onChange={(e) => patch({ folder: e.target.value })} placeholder="assets/uydurma" className="mono" />
+          </label>
+          <div className="text-xs text-text-3">{t("bp.stubKinds")}</div>
+          <div className="grid grid-cols-2 gap-1 text-xs">
+            {BP_STUB_KINDS.map((k) => (
+              <label key={k} className="flex items-center gap-2 text-text-2">
+                <input type="checkbox" checked={d.kinds.includes(k)} onChange={(e) => patch({ kinds: e.target.checked ? [...d.kinds, k] : d.kinds.filter((x) => x !== k) })} />
+                {STUB_KIND_LABELS[k][lang]}
+              </label>
+            ))}
+          </div>
+          <span className="text-[11px] text-text-3">{t("bp.stubHint")}</span>
+        </>
       )}
       {d.type === "variable" && (
         <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.variableFilter")}

@@ -77,6 +77,7 @@ pub fn run() {
             commands::blueprint::blueprint_build_stats,
             commands::blueprint::blueprint_build_import,
             commands::blueprint::blueprint_build_send,
+            commands::blueprint::blueprint_write_tool,
         ])
         .on_window_event(|window, event| {
             // Closing the main window must not destroy the webview: orchestrations run inside it.

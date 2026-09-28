@@ -1,5 +1,6 @@
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, ProviderModel } from "@/domain"
-import { canConnect, modelRef } from "@/domain"
+import { BP_STUB_KINDS, canConnect, modelRef } from "@/domain"
+import type { BpStubKind } from "@/domain"
 import type { ExpertKit } from "@/domain/kits"
 import { newId } from "@/lib/ids"
 import { providerInfo } from "@/providers/registry"
@@ -10,7 +11,7 @@ import type { CliRunRequest, RuntimeEvent } from "@/domain"
 
 export const AUTO_BLUEPRINT_TIMEOUT_SECS = 240
 
-const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard"]
+const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub"]
 
 /** Structured output the CLI must return (Gemini-compatible: string enums only). */
 export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
@@ -41,6 +42,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           kitId: { type: "string" },
           kind: { type: "string", enum: ["start", "send", "reload"], description: "button only" },
           filter: { type: "string", description: "variable only: glob such as *.png" },
+          kinds: { type: "array", items: { type: "string", enum: ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"] }, description: "stub only" },
+          folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
         },
       },
     },
@@ -61,6 +64,8 @@ export interface AutoBlueprintNode {
   kitId?: string
   kind?: "start" | "send" | "reload"
   filter?: string
+  kinds?: string[]
+  folder?: string
 }
 export interface AutoBlueprintResult {
   name: string
@@ -84,7 +89,8 @@ const RULES = `Node types and what they do:
 - button start: runs the chain forward. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
 - variable: watches a build/photo folder (glob filter) and fires the wired wizard/ai when files change.
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
-Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai; build|buildPhoto→prompt|button|ai|variable; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai.
+- stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
+Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai|stub; build|buildPhoto→prompt|button|ai|variable; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai; stub→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
 Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → follow-up prompts → role AIs (visuals, audio, art, integration) each wired back into the same Build; add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
@@ -210,6 +216,9 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
         break
       case "variable":
         data = { type: "variable", filter: n.filter || "*.png" }
+        break
+      case "stub":
+        data = { type: "stub", title: n.title, kinds: (n.kinds ?? []).filter((k): k is BpStubKind => (BP_STUB_KINDS as string[]).includes(k)), folder: n.folder || "assets/uydurma" }
         break
     }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }

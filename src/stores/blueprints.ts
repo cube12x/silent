@@ -9,6 +9,7 @@ import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
 import { BUILTIN_KITS } from "@/domain/kits"
+import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE, stubFillerPolicy, stubProducerPolicy } from "@/engine/blueprint/uydurma"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -187,6 +188,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       button: { type: "button", kind: "start" },
       variable: { type: "variable" },
       wizard: { type: "wizard", modelRef: "", purpose: "" },
+      stub: { type: "stub", kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" },
     }
     const node: BpNode = { id: newId("n"), type, x: Math.round(x), y: Math.round(y), data: { ...defaults[type], ...(data ?? {}) } as BpNodeData, status: "idle" }
     get().update(id, (b) => ({ ...b, nodes: [...b.nodes, node] }))
@@ -433,9 +435,9 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     return false
   }
   const backend = await getBackend()
-  const { prompt: wired, buildFolders, promptTitles } = composeAiInput(bp, aiId)
+  const { prompt: wired, buildFolders, promptTitles, stubs, fills } = composeAiInput(bp, aiId)
   let prompt = [opts?.purpose ? `Purpose: ${opts.purpose}` : "", wired, opts?.extraPrompt ?? ""].filter(Boolean).join("\n\n")
-  if (!prompt.trim()) {
+  if (!prompt.trim() && !fills.length) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no prompt" })
     log(set, aiId, "⚠ wire a prompt into this AI")
     return false
@@ -472,6 +474,13 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
   }
   if (buildFolders[0]) prompt = `Work inside the existing project at ${cwd} (it is already there; do not recreate it).\n\n${prompt}`
+  if (stubs.length || fills.length) {
+    // Uydurma: ship the placeholder tool into the build and prepend the policy.
+    await backend.blueprintWriteTool(cwd, UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE)
+    if (stubs.length) prompt = `${stubProducerPolicy(stubs)}\n\n${prompt}`
+    if (fills.length) prompt = `${stubFillerPolicy(fills)}\n\n${prompt}`
+    log(set, aiId, stubs.length ? `uydurma: placeholder policy (${Array.from(new Set(stubs.flatMap((s) => s.kinds))).join(", ")})` : "uydurma: fill job")
+  }
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)

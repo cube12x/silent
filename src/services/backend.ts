@@ -71,6 +71,8 @@ export interface Backend {
   /** `skipExisting`: mirror semantics — a file with the same name and size is not copied again. */
   blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean): Promise<number>
   blueprintBuildSend(from: string, to: string, sub?: string): Promise<number>
+  /** Write a helper script under `<folder>/.silent/tools/<name>` (Uydurma placeholder tool). Returns the path. */
+  blueprintWriteTool(folder: string, name: string, content: string): Promise<string>
   /** Pending `silent run …` request from the terminal launcher (consumed on read). */
   autostartTake(): Promise<AutostartRequest | null>
   /** Shallow-clone reference repositories into `<repo>/.silent/refs/<name>` (host side, no sandbox). */

@@ -93,6 +93,9 @@ export class TauriBackend implements Backend {
   blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean) {
     return invoke<number>("blueprint_build_import", { folder, paths, sub: sub ?? null, skipExisting: skipExisting ?? false })
   }
+  blueprintWriteTool(folder: string, name: string, content: string) {
+    return invoke<string>("blueprint_write_tool", { folder, name, content })
+  }
   blueprintBuildSend(from: string, to: string, sub?: string) {
     return invoke<number>("blueprint_build_send", { from, to, sub: sub ?? null })
   }

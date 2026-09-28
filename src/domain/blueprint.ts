@@ -4,7 +4,10 @@
  */
 import type { CostMode } from "./runs"
 
-export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard"
+export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub"
+/** Asset kinds a Uydurma (placeholder) node can stand in for. */
+export type BpStubKind = "image" | "sprite" | "tileset" | "sfx" | "music" | "voice" | "text" | "font" | "model3d" | "video"
+export const BP_STUB_KINDS: BpStubKind[] = ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"]
 export type BpButtonKind = "start" | "send" | "reload"
 export type BpAiMode = "orchestration" | "single"
 export type BpNodeStatus = "idle" | "running" | "done" | "failed" | "listening"
@@ -26,6 +29,13 @@ export interface BpAiData {
   pool?: string[]
   /** Uncached tokens this node's runs consumed so far (accumulates across runs). */
   tokens?: number
+}
+/** Uydurma: assets are registered as prompt-named placeholders (the name is the prompt); a cheaper AI fills them later. */
+export interface BpStubData {
+  title?: string
+  kinds: BpStubKind[]
+  /** Folder (relative to the build) holding the placeholders and uydurma.json. */
+  folder: string
 }
 export interface BpBuildData {
   title: string
@@ -59,6 +69,7 @@ export type BpNodeData =
   | ({ type: "button" } & BpButtonData)
   | ({ type: "variable" } & BpVariableData)
   | ({ type: "wizard" } & BpWizardData)
+  | ({ type: "stub" } & BpStubData)
 
 export interface BpNode {
   id: string
@@ -91,12 +102,14 @@ export interface Blueprint {
 /** Which node types may wire into which. */
 export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
   prompt: ["ai", "wizard"],
-  ai: ["build", "buildPhoto", "ai"],
+  ai: ["build", "buildPhoto", "ai", "stub"],
   build: ["prompt", "button", "ai", "variable"],
   buildPhoto: ["prompt", "button", "ai", "variable"],
   button: ["ai", "build", "buildPhoto", "prompt"],
   variable: ["wizard", "ai"],
   wizard: ["ai"],
+  // stub → ai: that AI must produce placeholders instead of real assets; ai → stub: that AI fills the placeholders.
+  stub: ["ai"],
 }
 
 export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
@@ -104,4 +117,4 @@ export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
 }
 
 /** Human labels used by the context menu and node headers (translated in the UI). */
-export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard"]
+export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub"]
