@@ -11,6 +11,7 @@ const RAW = JSON.stringify({
     { key: "build", type: "build", title: "Oyun" },
     { key: "ressam", type: "ai", title: "Ressam", modelRef: "ghost:x", mode: "single" },
     { key: "reload", type: "button", title: "Reload", kind: "reload" },
+    { key: "photo", type: "buildPhoto", title: "Kareler" },
   ],
   edges: [
     { from: "gdd", to: "mimar" },
@@ -26,15 +27,16 @@ describe("auto blueprint", () => {
   it("parses the CLI answer even with prose around the JSON", () => {
     const r = parseAutoBlueprint(`Here you go:\n${RAW}\nDone.`)
     expect(r?.name).toBe("Örnek")
-    expect(r?.nodes).toHaveLength(5)
+    expect(r?.nodes).toHaveLength(6)
     expect(r?.edges).toHaveLength(6)
   })
   it("materializes: ids, layout columns, illegal/duplicate wires dropped, unknown models replaced, Start added", () => {
     const r = parseAutoBlueprint(RAW)!
     const m = materializeAutoBlueprint(r, TEST_MODELS)
-    expect(m.nodes).toHaveLength(6) // + Start
+    expect(m.nodes).toHaveLength(7) // + Start
     expect(m.nodes[0].data.type).toBe("button")
-    expect(m.edges).toHaveLength(5) // 4 legal + start→gdd
+    expect(m.edges).toHaveLength(6) // 4 legal + start→gdd + auto-wired photo source
+    expect(m.warnings.join("\n")).toMatch(/photo build had no producing AI/)
     expect(m.warnings.join("\n")).toMatch(/illegal wire prompt → build/)
     const ressam = m.nodes.find((n) => n.data.type === "ai" && n.data.title === "Ressam")!
     expect(ressam.data.type === "ai" && ressam.data.modelRef).not.toBe("ghost:x")
@@ -50,6 +52,15 @@ describe("auto blueprint", () => {
     )
     expect(pos.get("a")!.x).toBeLessThan(pos.get("b")!.x)
     expect(pos.get("b")!.x).toBeLessThan(pos.get("c")!.x)
+  })
+  it("keeps cycles compact: a Build wired back from its follow-up AIs stays in its column", () => {
+    const pos = layoutAutoBlueprint(
+      [{ key: "s", type: "button", title: "s" }, { key: "p", type: "prompt", title: "p" }, { key: "a", type: "ai", title: "a" }, { key: "b", type: "build", title: "b" }, { key: "p2", type: "prompt", title: "p2" }, { key: "a2", type: "ai", title: "a2" }],
+      [{ from: "s", to: "p" }, { from: "p", to: "a" }, { from: "a", to: "b" }, { from: "b", to: "p2" }, { from: "p2", to: "a2" }, { from: "a2", to: "b" }],
+    )
+    expect(pos.get("b")!.x).toBe(40 + 3 * 300)
+    expect(pos.get("a2")!.x).toBe(40 + 5 * 300)
+    expect(Math.max(...Array.from(pos.values()).map((p) => p.x))).toBeLessThan(2000)
   })
   it("prefers a Claude planner model", () => {
     expect(pickAutoBlueprintModel(TEST_MODELS)?.providerId).toBe("claude")

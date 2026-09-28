@@ -86,7 +86,7 @@ const RULES = `Node types and what they do:
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
 Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai; build|buildPhoto→prompt|button|ai|variable; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
-Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved); then Build → follow-up prompts → role AIs (visuals, audio, art, integration) each wired back into the same Build; add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → integrator ai. Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
+Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → follow-up prompts → role AIs (visuals, audio, art, integration) each wired back into the same Build; add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
 export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
   const catalog = ctx.models
@@ -130,22 +130,21 @@ export function parseAutoBlueprint(text: string): AutoBlueprintResult | null {
   return null
 }
 
-/** Layered layout: BFS depth → column, order within the column → row. */
+/** Layered layout: first-visit BFS depth → column, order within the column → row. Back-edges (Build → prompt → AI → Build) never push a node further right. */
 export function layoutAutoBlueprint(nodes: AutoBlueprintNode[], edges: Array<{ from: string; to: string }>): Map<string, { x: number; y: number }> {
   const incoming = new Map<string, number>()
   for (const n of nodes) incoming.set(n.key, 0)
   for (const e of edges) incoming.set(e.to, (incoming.get(e.to) ?? 0) + 1)
   const depth = new Map<string, number>()
-  const queue = nodes.filter((n) => (incoming.get(n.key) ?? 0) === 0).map((n) => n.key)
+  const roots = nodes.filter((n) => (incoming.get(n.key) ?? 0) === 0).map((n) => n.key)
+  const queue = roots.length ? roots : nodes.slice(0, 1).map((n) => n.key)
   for (const k of queue) depth.set(k, 0)
   while (queue.length) {
     const k = queue.shift()!
     for (const e of edges.filter((e) => e.from === k)) {
-      const d = (depth.get(k) ?? 0) + 1
-      if ((depth.get(e.to) ?? -1) < d && d < 20) {
-        depth.set(e.to, d)
-        queue.push(e.to)
-      }
+      if (depth.has(e.to)) continue
+      depth.set(e.to, (depth.get(k) ?? 0) + 1)
+      queue.push(e.to)
     }
   }
   for (const n of nodes) if (!depth.has(n.key)) depth.set(n.key, 0)
@@ -230,6 +229,17 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     if (seen.has(sig)) continue
     seen.add(sig)
     edges.push({ id: newId("e"), from: ids.get(e.from)!, to: ids.get(e.to)! })
+  }
+  // A photo build with no producing AI never fills: wire the image-capable AI (else the main orchestration AI) into it.
+  for (const photo of nodes.filter((n) => n.type === "buildPhoto")) {
+    if (edges.some((e) => e.to === photo.id && nodes.find((n) => n.id === e.from)?.type === "ai")) continue
+    const ais = nodes.filter((n) => n.data.type === "ai")
+    const painter = ais.find((n) => n.data.type === "ai" && [n.data.modelRef, ...(n.data.pool ?? [])].some((ref) => providerInfo(ref.split(":")[0] as ProviderModel["providerId"]).capabilities.image))
+    const source = painter ?? ais.find((n) => n.data.type === "ai" && n.data.mode === "orchestration") ?? ais[0]
+    if (source) {
+      edges.push({ id: newId("e"), from: source.id, to: photo.id })
+      warnings.push(`wired ${source.data.type === "ai" ? source.data.title : source.id} → ${photo.data.type === "buildPhoto" ? photo.data.title : photo.id} (photo build had no producing AI)`)
+    }
   }
   if (!nodes.some((n) => n.data.type === "button" && n.data.kind === "start")) {
     // Always give the user a Start: wire it into the first prompt.
