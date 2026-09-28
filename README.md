@@ -86,10 +86,13 @@ Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ek
 | **Start / Send / Reload** | ileri doğru çalıştır / dosyaları başka Build'e veya AI inbox'ına kopyala / bağlı AI'ı amaçla yeniden çalıştır (aynı oturum) |
 | **Değişken** | bir Build klasörünü izler (3 sn); dosya gelince/değişince bağlı Sihirbaz/AI'ı tetikler |
 | **Yetenek Sihirbazı** | model + amaç; olay gelince bağlı AI'a kısa talimat yazar ve oturumu devam ettirir |
+| **Uydurma** | maliyet düşürücü: → AI bağlanınca o AI gerçek asset yerine **adı prompt olan yer tutucular** üretir (`assets/uydurma/<tür>__<prompt-slug>.png|wav|json…`, PNG üstünde adı yazar, ses kısa ton, `uydurma.json` prompt/durum tutar; araç: `.silent/tools/uydurma.py`); AI → Uydurma bağlanınca o AI manifestteki prompt'lardan gerçek asset'leri üretip aynı yola yazar. Türler: görsel, sprite sheet, tileset, sfx, müzik, seslendirme, metin/diyalog, font, 3D model, video |
 
 Kablo kuralları `src/domain/blueprint.ts` (`BP_EDGE_RULES`); yanlış kablo reddedilir, eksik bağlantılar kutuda ▲ ile uyarılır. Build → Prompt → AI zinciri mevcut klasör üzerinde geliştirme yapar ve aynı Build'i günceller. Grafik `blueprints` tablosunda JSON olarak saklanır (migration 0007).
 
 AI kutusunda **model havuzu** (orkestrasyonda planlayıcı görev başına havuzdan seçer) ve **token sayacı** (kutu rozeti + başlıkta Σ toplam) vardır.
+
+**AI ile oluştur**: başlıktaki düğme (veya `silent bp auto "<amaç>"`) bağlı Claude CLI'a tüm blueprint'i tasarlatır (kutular, İngilizce brief'ler, model/havuz seçimleri, kablolar); sonra elle düzenlenir.
 
 Terminalden tetikleme (launcher):
 
