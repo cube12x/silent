@@ -19,6 +19,8 @@ pub fn autostart_take() -> Result<Option<serde_json::Value>, String> {
     }
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&path);
+    // Rust-side evidence (independent of the webview log bridge): a request was taken.
+    log::info!("autostart taken ({} bytes): {}", text.len(), text.chars().take(160).collect::<String>());
     let value: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("autostart.json: {e}"))?;
     Ok(Some(value))

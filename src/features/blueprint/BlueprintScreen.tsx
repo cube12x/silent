@@ -112,8 +112,16 @@ function Canvas({ bpId }: { bpId: string }) {
         }
         void importFiles(bpId, node.id, event.payload.paths).then((n) => setToast(t("bp.imported", { n })))
       })
-      if (cancelled) off()
-      else unlisten = off
+      // Tauri rejects an unlisten that races its own registration; the listener is gone either way.
+      const safeOff = () => {
+        try {
+          void Promise.resolve(off()).catch(() => undefined)
+        } catch {
+          /* already gone */
+        }
+      }
+      if (cancelled) safeOff()
+      else unlisten = safeOff
     })
     return () => {
       cancelled = true
