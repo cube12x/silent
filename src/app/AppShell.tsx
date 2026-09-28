@@ -32,7 +32,7 @@ export function AppShell() {
             window.location.reload()
             return
           }
-          if (req.blueprint?.ref) {
+          if (req.blueprint?.ref || req.blueprint?.auto) {
             useBlueprintsStore.setState({ autorun: req.blueprint })
             navigate(`/blueprint?auto=${Date.now()}`)
           } else if (req.prompt && req.folder) {

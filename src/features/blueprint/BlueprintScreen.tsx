@@ -3,7 +3,7 @@ import "@xyflow/react/dist/style.css"
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type EdgeChange, type NodeChange, type Edge } from "@xyflow/react"
 import { useNavigate, useParams } from "react-router"
 import { cn } from "cn"
-import { Plus, Play, Send, Trash2, FolderOpen, Sparkles } from "lucide-react"
+import { Plus, Play, Send, Trash2, FolderOpen, Sparkles, Loader2 } from "lucide-react"
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
@@ -341,6 +341,24 @@ export function BlueprintScreen() {
   const remove = useBlueprintsStore((s) => s.remove)
   const setActive = useBlueprintsStore((s) => s.setActive)
   const autorun = useBlueprintsStore((s) => s.autorun)
+  const autoCreate = useBlueprintsStore((s) => s.autoCreate)
+  const autoStatus = useBlueprintsStore((s) => s.autoStatus)
+  const autoSummary = useBlueprintsStore((s) => s.autoSummary)
+  const [autoOpen, setAutoOpen] = React.useState(false)
+  const [autoText, setAutoText] = React.useState("")
+  const [autoError, setAutoError] = React.useState<string | null>(null)
+  const runAuto = async () => {
+    if (!autoText.trim() || autoStatus) return
+    setAutoError(null)
+    try {
+      const created = await autoCreate(autoText.trim())
+      setAutoOpen(false)
+      setAutoText("")
+      navigate(`/blueprint/${created.id}`)
+    } catch (err) {
+      setAutoError(err instanceof Error ? err.message : String(err))
+    }
+  }
   const [loaded, setLoaded] = React.useState(false)
   const id = bpId ?? activeId
 
@@ -355,6 +373,14 @@ export function BlueprintScreen() {
   React.useEffect(() => {
     if (!loaded || !autorun) return
     useBlueprintsStore.setState({ autorun: undefined })
+    if (autorun.auto) {
+      void useBlueprintsStore
+        .getState()
+        .autoCreate(autorun.auto)
+        .then((created) => navigate(`/blueprint/${created.id}`))
+        .catch((err: unknown) => console.warn("[autostart] auto blueprint failed", err instanceof Error ? err.message : String(err)))
+      return
+    }
     void (async () => {
       // Re-read the DB first: the request may reference a blueprint written by a script after this screen mounted.
       await useBlueprintsStore.getState().load()
@@ -393,10 +419,23 @@ export function BlueprintScreen() {
         </select>
         {bp && <Input value={bp.name} onChange={(e) => void rename(bp.id, e.target.value)} className="h-7 w-48 text-xs" />}
         <NeonButton size="sm" onClick={() => void newBlueprint()}><Plus />{t("bp.new")}</NeonButton>
+        <NeonButton size="sm" variant="outline" onClick={() => setAutoOpen((v) => !v)} disabled={Boolean(autoStatus)}><Sparkles />{autoStatus ? t("bp.autoWorking") : t("bp.auto")}</NeonButton>
         {bp && <button type="button" onClick={() => { void remove(bp.id); navigate("/blueprint") }} className="ml-auto rounded-sm border border-line px-2 py-1 text-xs text-text-3 hover:text-danger">{t("common.delete")}</button>}
         {bp && <span className="mono shrink-0 rounded-sm border border-line px-2 py-0.5 text-[11px] whitespace-nowrap text-text-2" title={t("bp.tokensHint")}>{t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>}
         <span className="text-[11px] text-text-3">{t("bp.hint")}</span>
       </div>
+      {autoOpen && (
+        <div className="flex flex-col gap-2 border-b border-line bg-ink-1 px-4 py-3">
+          <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t("bp.auto")}</div>
+          <Textarea value={autoText} onChange={(e) => setAutoText(e.target.value)} rows={4} placeholder={t("bp.autoPlaceholder")} className="text-[12px]" disabled={Boolean(autoStatus)} />
+          <div className="flex items-center gap-3">
+            <NeonButton size="sm" onClick={() => void runAuto()} disabled={!autoText.trim() || Boolean(autoStatus)}>{autoStatus ? <Loader2 className="animate-spin" /> : <Sparkles />}{autoStatus ? t("bp.autoWorking") : t("bp.autoRun")}</NeonButton>
+            <span className="mono text-[11px] text-text-3">{autoStatus ?? t("bp.autoHint")}</span>
+            {autoError && <span className="text-[11px] text-danger">{autoError}</span>}
+          </div>
+        </div>
+      )}
+      {autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
       {bp ? (
         <ReactFlowProvider>
           <Canvas key={bp.id} bpId={bp.id} />

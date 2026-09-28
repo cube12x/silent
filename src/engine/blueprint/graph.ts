@@ -95,6 +95,8 @@ export interface AutorunRef {
   answer?: string
   /** `silent bp only …`: run just this node, not the AIs wired after it. */
   only?: boolean
+  /** `silent bp auto "<goal>"`: let a planner-capable CLI design a new blueprint from this description. */
+  auto?: string
 }
 
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {

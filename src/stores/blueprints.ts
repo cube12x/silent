@@ -7,6 +7,9 @@ import { useProvidersStore } from "./providers"
 import { aiChainFrom, composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
+import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
+import { BUILTIN_KITS } from "@/domain/kits"
+import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
 interface BlueprintsState {
@@ -44,6 +47,12 @@ interface BlueprintsState {
   trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string; only?: boolean }): Promise<void>
   /** Answer every blocked worker question of the node's orchestration run (SILENT_QUESTION); sessions resume. Returns how many were answered. */
   answer(id: string, nodeId: string, text: string): number
+  /** "AI ile oluştur": a planner-capable CLI (Claude first) designs a whole blueprint from a description. */
+  autoCreate(description: string): Promise<Blueprint>
+  /** Progress line of the auto-creation (undefined when idle). */
+  autoStatus?: string
+  /** Summary the designer wrote for the last auto-created blueprint. */
+  autoSummary?: string
   /** Pending `silent bp …` request from autostart.json; the Blueprint screen consumes it once loaded. */
   autorun?: AutorunRef
   importFiles(id: string, nodeId: string, paths: string[]): Promise<number>
@@ -66,6 +75,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   history: {},
   future: {},
   autorun: undefined,
+  autoStatus: undefined,
+  autoSummary: undefined,
 
   async load() {
     const backend = await getBackend()
@@ -86,6 +97,26 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     // Folder counts and photo mirrors are derived from disk; refresh them in the background.
     for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
+  },
+  async autoCreate(description) {
+    const models = useProvidersStore.getState().availableModels()
+    const model = pickAutoBlueprintModel(models)
+    if (!model) throw new Error("no planner-capable CLI (Claude or Codex) is installed")
+    set({ autoStatus: `${model.displayName}…`, autoSummary: undefined })
+    try {
+      const backend = await getBackend()
+      const language = useI18nStore.getState().language
+      const { result } = await requestAutoBlueprint(backend, { request: description, language, models, kits: BUILTIN_KITS }, model, (line) => set({ autoStatus: line.slice(0, 120) }))
+      const materialized = materializeAutoBlueprint(result, models)
+      const bp = blueprintFromAuto(result.name, materialized)
+      set({ blueprints: [bp, ...get().blueprints], activeId: bp.id, autoStatus: undefined, autoSummary: result.summary })
+      await backend.db.blueprints.upsert(bp)
+      for (const w of materialized.warnings) log(set, bp.id, `⚠ ${w}`)
+      return bp
+    } catch (err) {
+      set({ autoStatus: undefined })
+      throw err
+    }
   },
   async create(name) {
     const now = Date.now()

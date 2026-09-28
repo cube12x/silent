@@ -66,6 +66,7 @@ const RUN_PRELUDE: &str = r#"#!/bin/sh
 #        silent bp answer <blueprint> <node> <answer…>      answer a node's blocked worker question(s)
 #        silent bp only <blueprint> <node>                  run just that node (not the AIs wired after it)
 #        silent reload                                      reload the app page (blank/black window)
+#        silent bp auto <description…>                      let the connected Claude design a new blueprint
 if [ "$1" = "reload" ]; then
   dir="$HOME/Library/Application Support/com.silent.workstation"
   mkdir -p "$dir"
@@ -75,23 +76,27 @@ if [ "$1" = "reload" ]; then
 fi
 if [ "$1" = "bp" ]; then
   shift
-  answer=""; only=""
+  answer=""; only=""; auto=""
   if [ "$1" = "only" ]; then shift; only="1"; fi
-  if [ "$1" = "answer" ]; then
+  if [ "$1" = "auto" ]; then
+    shift
+    if [ -z "$1" ]; then echo "usage: silent bp auto <what you want built…>" >&2; exit 2; fi
+    auto="$*"; bpref=""; node=""
+  elif [ "$1" = "answer" ]; then
     shift
     if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then echo "usage: silent bp answer <blueprint name|id> <node title|id> <answer…>" >&2; exit 2; fi
     bpref="$1"; node="$2"; shift 2; answer="$*"
   else
-    if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id] | silent bp answer <blueprint> <node> <answer…>" >&2; exit 2; fi
+    if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…>" >&2; exit 2; fi
     bpref="$1"; node="$2"
   fi
   dir="$HOME/Library/Application Support/com.silent.workstation"
   mkdir -p "$dir"
-  python3 - "$bpref" "$node" "$answer" "$only" > "$dir/autostart.json" <<'PY'
+  python3 - "$bpref" "$node" "$answer" "$only" "$auto" > "$dir/autostart.json" <<'PY'
 import json, sys
-print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None, "only": bool(sys.argv[4])}}))
+print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None, "only": bool(sys.argv[4]), "auto": sys.argv[5] or None}}))
 PY
-  if [ -n "$answer" ]; then echo "queued answer for: $bpref / $node"; else echo "queued blueprint: $bpref"; fi
+  if [ -n "$auto" ]; then echo "queued auto blueprint"; elif [ -n "$answer" ]; then echo "queued answer for: $bpref / $node"; else echo "queued blueprint: $bpref"; fi
   set --
 fi
 if [ "$1" = "run" ]; then
