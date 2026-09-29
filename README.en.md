@@ -4,7 +4,7 @@
 
 ## Install
 
-Packages are on the **Releases** page: https://github.com/OWNER/silent/releases/latest
+Packages are on the **Releases** page: https://github.com/cube12x/silent/releases/latest
 
 | OS | File | Note |
 |---|---|---|

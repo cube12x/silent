@@ -7,7 +7,7 @@
 
 ## Kurulum (son kullanıcı)
 
-Hazır paketler **Releases** sayfasında: https://github.com/OWNER/silent/releases/latest
+Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/releases/latest
 
 | Sistem | Dosya | Not |
 |---|---|---|
