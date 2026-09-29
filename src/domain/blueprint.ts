@@ -8,7 +8,7 @@ export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "
 /** Asset kinds a Uydurma (placeholder) node can stand in for. */
 export type BpStubKind = "image" | "sprite" | "tileset" | "sfx" | "music" | "voice" | "text" | "font" | "model3d" | "video"
 export const BP_STUB_KINDS: BpStubKind[] = ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"]
-export type BpButtonKind = "start" | "send" | "reload"
+export type BpButtonKind = "start" | "send" | "reload" | "parallel"
 export type BpAiMode = "orchestration" | "single"
 export type BpNodeStatus = "idle" | "running" | "done" | "failed" | "listening"
 

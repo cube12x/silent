@@ -40,7 +40,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           mode: { type: "string", enum: ["orchestration", "single"] },
           costMode: { type: "string", enum: ["economy", "balanced", "max-quality"] },
           kitId: { type: "string" },
-          kind: { type: "string", enum: ["start", "send", "reload"], description: "button only" },
+          kind: { type: "string", enum: ["start", "send", "reload", "parallel"], description: "button only" },
           filter: { type: "string", description: "variable only: glob such as *.png" },
           kinds: { type: "array", items: { type: "string", enum: ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"] }, description: "stub only" },
           folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
@@ -62,7 +62,7 @@ export interface AutoBlueprintNode {
   mode?: "orchestration" | "single"
   costMode?: CostMode
   kitId?: string
-  kind?: "start" | "send" | "reload"
+  kind?: "start" | "send" | "reload" | "parallel"
   filter?: string
   kinds?: string[]
   folder?: string
@@ -86,13 +86,13 @@ const RULES = `Node types and what they do:
 - ai: a run. mode "orchestration" = Silent's planner splits the brief into tasks executed in parallel by workers + a polish round (use for building things); mode "single" = one CLI session (cheap follow-ups, integrations). modelRef = main model; pool = additional models the planner may assign per task (orchestration only). The planner picks a planner-capable model from the pool, so an orchestration pool MUST contain a planner-capable model.
 - build: the real project folder the AI writes into. One Build per project; an AI wired into it develops that folder. Wire Build → prompt → ai for follow-up stages on the same project.
 - buildPhoto: collects images produced by the wired AI (and workers' screenshots).
-- button start: runs the chain forward. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
+- button start: runs the chain forward, one AI after another. button parallel ("Paralel"): every prompt/AI wired after it starts AT THE SAME TIME and the chain continues only when all are done — wire Build → parallel → the independent role prompts (audio, models, textures, text) so they do not queue. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
 - variable: watches a build/photo folder (glob filter) and fires the wired wizard/ai when files change.
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
 - stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
 Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai|stub; build|buildPhoto→prompt|button|ai|variable; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai; stub→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
-Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → follow-up prompts → role AIs (visuals, audio, art, integration) each wired back into the same Build; add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
+Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → a parallel button → follow-up prompts → independent role AIs (visuals, audio, art, text) each wired back into the same Build, and Build → integration prompt → integrator AI (runs after the fan-out); add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
 export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
   const catalog = ctx.models

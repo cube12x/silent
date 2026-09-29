@@ -30,6 +30,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "button", data: { kind: "start" }, key: "button.start" },
   { type: "button", data: { kind: "send" }, key: "button.send" },
   { type: "button", data: { kind: "reload" }, key: "button.reload" },
+  { type: "button", data: { kind: "parallel" }, key: "button.parallel" },
   { type: "wizard", key: "wizard" },
   { type: "variable", key: "variable" },
   { type: "stub", data: { kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" }, key: "stub" },
@@ -347,7 +348,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
       {d.type === "button" && (
         <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.buttonKind")}
           <select value={d.kind} onChange={(e) => patch({ kind: e.target.value })} className="rounded-sm border border-line bg-ink-2 px-1.5 py-1 text-text-1">
-            {(["start", "send", "reload"] as const).map((k) => <option key={k} value={k}>{t(`bp.button.${k}` as const)}</option>)}
+            {(["start", "send", "reload", "parallel"] as const).map((k) => <option key={k} value={k}>{t(`bp.button.${k}` as const)}</option>)}
           </select>
           <span>{t(`bp.buttonHint.${d.kind}` as const)}</span>
         </label>

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
-import { Bot, FileText, FolderGit2, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package } from "lucide-react"
+import { Bot, FileText, FolderGit2, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
 import { formatTokens } from "@/lib/format"
@@ -97,9 +97,9 @@ export function ButtonNode({ data }: NodeProps<BpFlowNode>) {
   const t = useT()
   const n = data.node
   const kind = n.data.type === "button" ? n.data.kind : "start"
-  const icon = kind === "start" ? <Play /> : kind === "send" ? <Send /> : <RotateCcw />
+  const icon = kind === "start" ? <Play /> : kind === "send" ? <Send /> : kind === "parallel" ? <Split /> : <RotateCcw />
   return (
-    <Shell node={n} icon={icon} title={t(`bp.button.${kind}` as never)} warnings={data.warnings} className="w-[160px]">
+    <Shell node={n} icon={icon} title={t(`bp.button.${kind}` as never)} warnings={data.warnings} className={cn("w-[160px]", kind === "parallel" && "border-accent/50")}>
       <div className="text-[10px] text-text-3">{t(`bp.buttonHint.${kind}` as never)}</div>
     </Shell>
   )

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Blueprint } from "@/domain"
-import { aiChainFrom, composeAiInput, lintBlueprint, resolveAutorun, validateEdge } from "./graph"
+import { aiChainFrom, composeAiInput, lintBlueprint, resolveAutorun, validateEdge, walkPlan } from "./graph"
 
 function bp(): Blueprint {
   return {
@@ -95,4 +95,73 @@ describe("uydurma (placeholder) wiring", () => {
     expect(lint.lonely).toContain("stub.unwired")
     expect(lint.s).toBeUndefined()
   })
+  it("a Paralel button fans out its AIs at once and the chain continues after all of them", () => {
+    const g = team()
+    const plan = walkPlan(g, "s")
+    expect(plan.map((st) => (st.kind === "ai" ? st.node.id : `par:${st.heads.map((h) => h.id).join("+")}`))).toEqual(["mimar", "par:ses+model+doku", "int"])
+    expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
+  })
+  it("triggering the Paralel button itself fans out first, then runs what is wired after it", () => {
+    const plan = walkPlan(team(), "par")
+    expect(plan[0]?.kind).toBe("parallel")
+    expect(plan.map((st) => (st.kind === "ai" ? st.node.id : "par"))).toEqual(["par", "int"])
+  })
+  it("a Paralel button wired straight to an AI (no prompt) still counts it as a head", () => {
+    const g = team()
+    g.edges.push({ id: "ex", from: "par", to: "extra" })
+    g.nodes.push({ id: "extra", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "grok:grok-4.7", mode: "single" } })
+    const step = walkPlan(g, "par")[0]
+    expect(step?.kind === "parallel" && step.heads.map((h) => h.id)).toEqual(["ses", "model", "doku", "extra"])
+  })
+  it("lints an unwired Paralel button", () => {
+    const g = team()
+    g.edges = g.edges.filter((e) => e.from !== "par")
+    expect(lintBlueprint(g).par).toEqual(["button.unwired"])
+  })
 })
+
+/** Start → Tasarım → Mimar → Build → Paralel → 3 filler prompts → 3 filler AIs → Build → Entegrasyon → Entegratör. */
+function team(): Blueprint {
+  const ai = (id: string): Blueprint["nodes"][number] => ({ id, type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "kimi:kimi-code/x", mode: "single" } })
+  const prompt = (id: string): Blueprint["nodes"][number] => ({ id, type: "prompt", x: 0, y: 0, data: { type: "prompt", title: id, text: id } })
+  return {
+    id: "bp2",
+    name: "team",
+    createdAt: 0,
+    updatedAt: 0,
+    nodes: [
+      { id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } },
+      prompt("gdd"),
+      ai("mimar"),
+      { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "game", folderPath: "/tmp/game", kind: "code" } },
+      { id: "par", type: "button", x: 0, y: 0, data: { type: "button", kind: "parallel" } },
+      prompt("p_ses"),
+      ai("ses"),
+      prompt("p_model"),
+      ai("model"),
+      prompt("p_doku"),
+      ai("doku"),
+      prompt("p_int"),
+      ai("int"),
+    ],
+    edges: [
+      { id: "e1", from: "s", to: "gdd" },
+      { id: "e2", from: "gdd", to: "mimar" },
+      { id: "e3", from: "mimar", to: "b" },
+      // The integration prompt is wired from Build BEFORE the Paralel button: order must still be fillers → integrator.
+      { id: "e4", from: "b", to: "p_int" },
+      { id: "e5", from: "p_int", to: "int" },
+      { id: "e6", from: "b", to: "par" },
+      { id: "e7", from: "par", to: "p_ses" },
+      { id: "e8", from: "p_ses", to: "ses" },
+      { id: "e9", from: "par", to: "p_model" },
+      { id: "e10", from: "p_model", to: "model" },
+      { id: "e11", from: "par", to: "p_doku" },
+      { id: "e12", from: "p_doku", to: "doku" },
+      { id: "e13", from: "ses", to: "b" },
+      { id: "e14", from: "model", to: "b" },
+      { id: "e15", from: "doku", to: "b" },
+      { id: "e16", from: "int", to: "b" },
+    ],
+  }
+}

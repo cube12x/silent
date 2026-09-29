@@ -4,7 +4,7 @@ import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
 import { useProvidersStore } from "./providers"
-import { aiChainFrom, composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, type AutorunRef } from "@/engine/blueprint/graph"
+import { composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
@@ -225,22 +225,35 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   async run(id, nodeId, opts) {
     const bp = get().byId(id)
     if (!bp) return
-    let chain = aiChainFrom(bp, nodeId)
-    if (opts?.only) chain = chain.slice(0, 1)
-    if (!chain.length) {
+    let plan = walkPlan(bp, nodeId)
+    if (opts?.only) plan = plan.slice(0, 1)
+    if (!plan.length) {
       log(set, nodeId, "⚠ no AI wired forward from this node")
       return
     }
     // Double-trigger guard: Enter pressed twice or `silent bp` repeated must not start a second run of the same node
     // (three concurrent orchestrations on one folder happened on 2026-09-26).
-    const busy = chain.find((ai) => get().running[ai.id])
+    const ais = plan.flatMap((st) => (st.kind === "ai" ? [st.node] : st.heads))
+    const busy = ais.find((ai) => get().running[ai.id])
     if (busy) {
       log(set, nodeId, `⚠ ${busy.data.type === "ai" && busy.data.title ? busy.data.title : busy.id} is already running — wait or cancel it first`)
       return
     }
-    for (const ai of chain) {
-      const ok = await execAi(id, ai.id, opts)
-      if (!ok) break
+    for (const step of plan) {
+      if (step.kind === "ai") {
+        const ok = await execAi(id, step.node.id, opts)
+        if (!ok) break
+      } else {
+        // Paralel button: every head starts now; the chain continues only when all of them are done.
+        const names = step.heads.map((h) => (h.data.type === "ai" && h.data.title ? h.data.title : h.id))
+        log(set, step.button.id, `⇉ ${step.heads.length} AI at once: ${names.join(", ")}`)
+        get().updateNode(id, step.button.id, { status: "running", note: undefined })
+        const results = await Promise.all(step.heads.map((h) => execAi(id, h.id, { ...opts, parallel: true })))
+        const failed = results.filter((ok) => !ok).length
+        get().updateNode(id, step.button.id, { status: failed ? "failed" : "done", note: failed ? `${failed}/${results.length} failed` : undefined })
+        log(set, step.button.id, failed ? `✗ ${failed} of ${results.length} failed` : `✓ all ${results.length} done`)
+        if (failed) break
+      }
       opts = undefined
     }
   },
@@ -422,7 +435,7 @@ function addTokens(bpId: string, nodeId: string, delta: number) {
   )
 }
 
-async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean }): Promise<boolean> {
+async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean }): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   let bp = store.byId(bpId)
@@ -444,8 +457,9 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   // Working folder: wired build (develop) or a new build folder named after the prompt.
   let outBuild = firstOutgoing(bp, aiId, "build")
-  if (ai.data.mode === "orchestration") {
+  if (ai.data.mode === "orchestration" && !opts?.parallel) {
     // One orchestration per folder: parallel workers of two runs would overwrite each other's files.
+    // A Paralel button is a deliberate fan-out, so it bypasses this guard.
     const wired = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
     const clash = wired && useRunsStore.getState().runs.find((r) => r.status === "running" && r.repoPath === wired)
     if (clash) {

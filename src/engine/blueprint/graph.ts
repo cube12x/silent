@@ -33,13 +33,33 @@ export function validateEdge(bp: Blueprint, edge: Omit<BpEdge, "id">): string | 
   return null
 }
 
+/** One step of a blueprint run: a single AI, or a Paralel button starting several AIs at once. */
+export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] }
+
+function isParallel(n: BpNode | undefined): boolean {
+  return Boolean(n && n.data.type === "button" && n.data.kind === "parallel")
+}
+
+/** The AIs a Paralel button drives directly: wired AIs plus the AIs of its wired prompts (wire order). */
+export function parallelHeads(bp: Blueprint, buttonId: string): BpNode[] {
+  const heads: BpNode[] = []
+  for (const t of outgoing(bp, buttonId)) {
+    if (t.type === "ai") heads.push(t)
+    else if (t.type === "prompt") heads.push(...outgoing(bp, t.id).filter((n) => n.type === "ai"))
+  }
+  return Array.from(new Map(heads.map((h) => [h.id, h])).values())
+}
+
 /**
- * The AI node a Start/Reload button (or a prompt) drives: follow wires forward until an AI is found.
- * Returns the ordered chain of AI nodes reachable from `startId` (each AI feeds the next through its build).
+ * The ordered steps a Start/Reload button (or a prompt, or a Paralel button) drives: follow wires forward
+ * breadth-first; every AI met runs in turn, except that a Paralel button met on the way starts all of its heads
+ * at once (its step is taken before sibling wires, so what is wired after a shared Build still waits for the
+ * fan-out to finish). AIs already started by a fan-out are not run a second time.
  */
-export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
+export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
   const seen = new Set<string>()
-  const result: BpNode[] = []
+  const started = new Set<string>()
+  const plan: BpStep[] = []
   const queue = [startId]
   while (queue.length) {
     const id = queue.shift()!
@@ -47,11 +67,26 @@ export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
     seen.add(id)
     const node = nodeById(bp, id)
     if (!node) continue
-    if (node.type === "ai" && id !== startId) result.push(node)
-    if (node.type === "ai" && id === startId) result.push(node)
-    for (const next of outgoing(bp, id)) queue.push(next.id)
+    if (isParallel(node)) {
+      const heads = parallelHeads(bp, id).filter((h) => !started.has(h.id))
+      if (heads.length) {
+        plan.push({ kind: "parallel", button: node, heads })
+        for (const h of heads) started.add(h.id)
+      }
+    } else if (node.type === "ai" && !started.has(id)) {
+      plan.push({ kind: "ai", node })
+      started.add(id)
+    }
+    const next = outgoing(bp, id)
+    // Paralel buttons first: they are a barrier for everything else hanging off the same node.
+    queue.push(...next.filter((n) => isParallel(n)).map((n) => n.id), ...next.filter((n) => !isParallel(n)).map((n) => n.id))
   }
-  return result
+  return plan
+}
+
+/** Every AI node `walkPlan` would run from `startId`, flattened in start order. */
+export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
+  return walkPlan(bp, startId).flatMap((s) => (s.kind === "ai" ? [s.node] : s.heads))
 }
 
 /** Build the prompt text an AI node receives: its wired prompts (in wire order) + wired build folders as context. */
