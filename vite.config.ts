@@ -18,7 +18,7 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   server: {
     port: 5173,
-    strictPort: true,
+    strictPort: false,
     host: host || false,
     watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"] },
   },

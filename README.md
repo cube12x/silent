@@ -5,6 +5,28 @@
 > v2.2 (2026-09-24): planlama artık gerçek CLI'daki AI ile (Codex `--output-schema` / Claude `--json-schema`), Görev → Plan (sorular + editör + onay) → Başlat akışı, çalışanlar yapamadıklarını `SILENT_QUESTION` ile sorup bekler ve sapmaları raporlar, "Projeye sor" (uzman proje sohbeti) ve "Geliştir" (artımlı devam), manuel katman politikası, hesabın reddettiği modeller otomatik yedeğe düşer.
 > v2.1 (2026-09-24): monokrom "Monolith" tema, arcade hayalet logo, plan editörü (manuel görev atama, effort, süre limiti), tür→katman yönlendirme politikası, timeout'ta oturumu devam ettirme, olumsuzlama anlayan planner ("algoritma yazma"), toplu terminal yazımı.
 
+## Kurulum (son kullanıcı)
+
+Hazır paketler **Releases** sayfasında: https://github.com/OWNER/silent/releases/latest
+
+| Sistem | Dosya | Not |
+|---|---|---|
+| macOS (Apple Silicon + Intel) | `Silent_x.y.z_universal.dmg` | DMG'yi aç, Silent'ı Applications'a sürükle |
+| Windows 10/11 | `Silent_x.y.z_x64-setup.exe` | yönetici hakkı istemez (kullanıcı kurulumu) |
+| Linux (Ubuntu 22.04+/Debian) | `silent_x.y.z_amd64.deb` | `sudo apt install ./silent_x.y.z_amd64.deb` |
+| Linux (diğer) | `silent_x.y.z_amd64.AppImage` | `chmod +x` ve çalıştır (`libfuse2` gerekebilir) |
+
+**İmzasız uygulama uyarıları** (ücretli sertifika yok):
+- macOS: "Silent hasarlı / açılamıyor" derse Terminal'de `xattr -dr com.apple.quarantine /Applications/Silent.app` çalıştır, ya da Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç**.
+- Windows: SmartScreen penceresinde **Daha fazla bilgi → Yine de çalıştır**.
+- Linux: AppImage için `chmod +x Silent_*.AppImage`; pencere boş kalırsa `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./Silent_*.AppImage`.
+
+**Gereksinimler:** Node.js LTS + npm (CLI'ları kurmak için), git (referans repolar), isteğe bağlı python3 (Uydurma yer tutucu aracı). İlk açılışta **Kurulum** ekranı bunları kontrol eder, önerilen 5 CLI'ı (Codex, Claude Code, Kimi, Grok, Antigravity) tek tıkla kurar ve **Giriş yap** düğmesi login komutunu yeni bir terminal penceresinde açar. Devam etmek için Codex veya Claude Code kurulu olmalı (planlama onlarla yapılır).
+
+**Terminal komutu:** Ayarlar → CLI'lar → `silent` komutunu kur. `silent run <klasör> "<istek>"`, `silent bp "<blueprint>"`, `silent reload`. Klasör PATH'te değilse gösterilen satırı kabuk profiline ekle (Windows: `%LOCALAPPDATA%\Silent\bin`).
+
+**Sorun giderme:** günlükler macOS `~/Library/Logs/com.silent.workstation/`, Linux `~/.local/share/com.silent.workstation/logs/`, Windows `%LOCALAPPDATA%\com.silent.workstation\logs\`. `npm install -g` "EACCES" verirse Kurulum ekranındaki **~/.npm-global kullan ve tekrar dene** düğmesi. nvm ile kurulu Node'u Silent otomatik bulur (`~/.nvm/versions/node/*/bin`). Windows'ta Codex'in yerel sandbox'ı deneysel: planlayıcı olarak Claude Code'u tercih et. `curl | bash` kurulumları Windows'ta yok; npm paketi olan CLI'lar kurulur, diğerleri (Antigravity, Cursor) belgelerinden elle.
+
 ## Desteklenen CLI'lar
 
 | CLI | Binary | Kur | Ayrıştırıcı |
@@ -20,7 +42,7 @@
 | Cursor Agent | `agent` | `curl https://cursor.com/install -fsS \| bash` | beta |
 | Amp (Sourcegraph) | `amp` | `npm i -g @ampcode/cli` | beta |
 
-Kurulu olmayanlar Ayarlar > CLI'lar'da **Kur** butonuyla kurulur (çıktı uygulama içinde akar), **Giriş yap** Terminal.app'te ilgili login komutunu açar. Her CLI'ın modelleri kendi yerel kataloğundan okunur (Codex `models_cache.json`, Kimi `config.toml`, Claude alias + `settings.json`); istediğin model kimliğini elle ekleyebilir, sohbette `/model <id>` veya `/cli <ad>` ile anında değiştirebilirsin. "beta" ayrıştırıcılar dokümana göre yazıldı; tanınmayan satırlar terminale ham düşer, asla çökmez.
+Kurulu olmayanlar Ayarlar > CLI'lar'da **Kur** butonuyla kurulur (çıktı uygulama içinde akar), **Giriş yap** yeni bir terminal penceresinde ilgili login komutunu açar. Her CLI'ın modelleri kendi yerel kataloğundan okunur (Codex `models_cache.json`, Kimi `config.toml`, Claude alias + `settings.json`); istediğin model kimliğini elle ekleyebilir, sohbette `/model <id>` veya `/cli <ad>` ile anında değiştirebilirsin. "beta" ayrıştırıcılar dokümana göre yazıldı; tanınmayan satırlar terminale ham düşer, asla çökmez.
 
 ## Çalıştırma
 
@@ -81,7 +103,7 @@ Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ek
 | --- | --- |
 | **Prompt** | başlık + metin; AI'a kablolanır |
 | **AI** | model + mod (**Orkestrasyon**: planlayıcı + paralel worker + cila; **Tek oturum**: tek CLI oturumu, hızlı/ucuz) + maliyet + kit + amaç |
-| **Build** | gerçek klasör (`~/CubeCode/blueprints/<blueprint>/<build>`); AI çıktısı buraya düşer, Silent adlandırır (NAME/SUMMARY); dosya sürükle-bırak → klasöre kopyalanır |
+| **Build** | gerçek klasör (`<çalışma klasörü>/blueprints/<blueprint>/<build>`, varsayılan `~/CubeCode`, Ayarlar → Çalışma klasörü); AI çıktısı buraya düşer, Silent adlandırır (NAME/SUMMARY); dosya sürükle-bırak → klasöre kopyalanır |
 | **Build Foto** | AI'ın ürettiği yeni görseller toplanır |
 | **Start / Send / Reload** | ileri doğru çalıştır / dosyaları başka Build'e veya AI inbox'ına kopyala / bağlı AI'ı amaçla yeniden çalıştır (aynı oturum) |
 | **Paralel** | bağlı bütün prompt/AI'ları **aynı anda** başlatır (fan-out); hepsi bitince zincir Build'in ötesinden devam eder. Start zinciri bir Paralel'e rastlayınca onu kardeş kablolardan önce işler: `Build → Paralel → 4 doldurucu` + `Build → Entegrasyon → Entegratör` sırası doldurucular → entegratör olur. Orkestrasyon AI'ları için klasör-meşgul koruması Paralel'de kapalıdır |
@@ -110,3 +132,13 @@ silent bp "Örnek: Loki 2" "Geliştirici" # belirli bir kutu (başlık veya id)
 - **Ağ erişimi:** yazma izinli (workspace-write) görevlerde çalışanın kabuğu ağa çıkabilir (`npm install`, `git fetch`, HTTP); Codex için `sandbox_workspace_write.network_access=true` verilir. Salt-okunur çalışmalar (planlayıcı, "Projeye sor") ağsızdır. Ajanlarda "Network access" izni kapatılırsa o ajanın görevleri de ağsız çalışır ve brief bunu söyler.
 
 Onaylar her zaman kapalı (`-a never` / `--permission-prompts none`), sandbox tavanı workspace-write (Codex'te gerçek sandbox; diğerlerinde salt-okunur brief ile), gizli anahtarlar çıktıya ulaşmadan maskelenir, ham akıl yürütme metni gösterilmez. Git push varsayılan kapalı ve bir Gateway promptuyla asla açılamaz. Silent hiçbir kimlik bilgisi saklamaz; her CLI kendi girişini kullanır.
+
+## Bakım (sürüm çıkarma)
+
+```
+gh auth login                                  # bir kez
+gh repo create silent --public --source=. --remote=origin --push   # ilk kez
+npm version 0.3.1 --no-git-tag-version        # + src-tauri/Cargo.toml ve tauri.conf.json aynı sürüm
+git commit -am "0.3.1" && git tag v0.3.1 && git push origin main --tags
+```
+`release.yml` etiketle tetiklenir: macOS (universal DMG), Ubuntu (deb + AppImage), Windows (NSIS) derlenir ve **taslak** release açılır; artefaktlar denendikten sonra yayınlanır. `ci.yml` her push/PR'da üç işletim sisteminde typecheck/lint/test/cargo test/tauri build çalıştırır.

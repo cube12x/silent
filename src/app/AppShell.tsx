@@ -8,6 +8,7 @@ import { TopBar } from "./TopBar"
 import { CommandPalette } from "./CommandPalette"
 import { NewSessionModal } from "@/features/new-session-modal/NewSessionModal"
 import { TerminalDrawer } from "@/features/silent-code/TerminalDrawer"
+import { Toasts } from "./Toasts"
 import { useUiStore } from "@/stores/ui"
 import { useProvidersStore } from "@/stores/providers"
 import { useSettingsStore } from "@/stores/settings"
@@ -37,6 +38,7 @@ export function AppShell() {
   // hand it to the composer, which plans, approves and starts without clicks.
   React.useEffect(() => {
     let stopped = false
+    let warned = false
     const poll = async () => {
       try {
         const req = await (await getBackend()).autostartTake()
@@ -54,8 +56,12 @@ export function AppShell() {
             navigate(`/code?auto=${Date.now()}`)
           }
         }
-      } catch {
-        /* dev backend has none */
+      } catch (e) {
+        // The dev backend has no autostart; in Tauri a broken autostart.json would otherwise fail silently every 3 s.
+        if (!warned) {
+          warned = true
+          console.warn("[autostart] poll failed", e)
+        }
       }
     }
     void poll()
@@ -103,6 +109,7 @@ export function AppShell() {
       <CommandPalette />
       <NewSessionModal />
       <TerminalDrawer />
+      <Toasts />
     </div>
   )
 }

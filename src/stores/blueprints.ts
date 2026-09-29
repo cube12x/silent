@@ -4,6 +4,7 @@ import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
 import { useSettingsStore } from "./settings"
+import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
 import { composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
@@ -340,7 +341,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         }
         const n = await backend.blueprintBuildSend(source.data.folderPath, cwd, "inbox")
         log(set, buttonId, `→ ${target.id} inbox: ${n} files`)
-        void get().run(id, target.id, { extraPrompt: `New files were delivered into ./inbox (${n} files from "${source.data.title}"). Use them for the task.`, resume: true })
+        void get().run(id, target.id, { extraPrompt: `New files were delivered into ./inbox (${n} files from "${source.data.title}"). Use them for the task.`, resume: true }).catch((e) => reportError(e, "blueprint"))
       }
     }
   },
@@ -421,9 +422,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
             prompt: `You are a skill wizard with this purpose: ${target.data.purpose}\nEvent: ${hits.length} file(s) changed in ${watched.data.folderPath}: ${hits.slice(0, 20).join(", ")}.\nWrite ONLY the short instruction (1–3 sentences, with exact file paths) that the working AI needs to continue its task using these files. No preamble.`,
           }, (line, stream) => log(set, target.id, line, stream)).done
           get().updateNode(id, target.id, { status: res.ok ? "done" : "failed" })
-          if (res.ok && res.text) void get().run(id, ai.id, { extraPrompt: res.text, resume: true })
+          if (res.ok && res.text) void get().run(id, ai.id, { extraPrompt: res.text, resume: true }).catch((e) => reportError(e, "blueprint"))
         } else if (target.type === "ai") {
-          void get().run(id, target.id, { extraPrompt: `Files changed in ${watched.data.folderPath}: ${hits.slice(0, 20).join(", ")}. Use them and continue.`, resume: true })
+          void get().run(id, target.id, { extraPrompt: `Files changed in ${watched.data.folderPath}: ${hits.slice(0, 20).join(", ")}. Use them and continue.`, resume: true }).catch((e) => reportError(e, "blueprint"))
         }
       }
     }
@@ -629,6 +630,6 @@ export function startBlueprintWatchers(): void {
   if (watcherTimer) return
   watcherTimer = setInterval(() => {
     const { activeId, tickWatchers } = useBlueprintsStore.getState()
-    if (activeId) void tickWatchers(activeId)
+    if (activeId) void tickWatchers(activeId).catch((e) => reportError(e, "blueprint watcher"))
   }, 3000)
 }

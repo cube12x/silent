@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from "react-router"
 import { AppShell } from "./AppShell"
+import { RouteError } from "./ErrorBoundary"
 import { ChatScreen } from "@/features/chat/ChatScreen"
 import { AgentsScreen } from "@/features/agents/AgentsScreen"
 import { AgentDetailScreen } from "@/features/agents/AgentDetailScreen"
@@ -12,6 +13,7 @@ export const router = createBrowserRouter([
   {
     path: "/",
     Component: AppShell,
+    errorElement: <RouteError />,
     children: [
       { index: true, Component: ChatScreen },
       { path: "chat/:chatId", Component: ChatScreen },

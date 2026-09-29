@@ -13,6 +13,7 @@ import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/ai
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
 import { getBackend } from "@/services"
+import { reportError } from "./notify"
 import { newId } from "@/lib/ids"
 import { TIER_RANK } from "@/engine/capabilities"
 import { kitById, renderKitBrief } from "@/domain/kits"
@@ -313,7 +314,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const persist = (r: SilentCodeRun) => {
       chain = chain.then(() => backend.db.runs.upsert(r)).catch((err: unknown) => console.error("run upsert failed", err))
     }
-    if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true })
+    if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true }).catch(() => undefined)
 
     const pending: Record<string, TerminalLine[]> = {}
     const keep = useSettingsStore.getState().settings.logs.keepTerminalLines || 2000
@@ -321,7 +322,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       for (const [subtaskId, lines] of Object.entries(pending)) {
         if (!lines.length) continue
         pending[subtaskId] = []
-        void backend.db.terminal.append(run.id, subtaskId, lines, keep)
+        void backend.db.terminal.append(run.id, subtaskId, lines, keep).catch(() => undefined)
       }
     }
     const flushTimer = setInterval(flush, 3000)
@@ -354,11 +355,11 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         delete executors[run.id]
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
         persist(final)
-        if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" })
+        if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" }).catch(() => undefined)
       } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.assigned" || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
         persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") {
-          void loadContext()
+          void loadContext().catch((e) => reportError(e, "context"))
           const done = updated.plan.find((s) => s.id === e.subtaskId)
           const since = done?.attempts[0]?.startedAt
           if (done && !done.files.length && run.repoPath && since) {
@@ -374,7 +375,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         }
       }
     })
-    void executor.start()
+    void executor.start().catch((e) => reportError(e, "run"))
   },
 
   answer(runId, subtaskId, text) {
