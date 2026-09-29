@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName } from "./prompt"
+import { aiTaskText, buildAiPrompt, effectivePurpose, extractReport, isRepoUrl, repoName } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -79,6 +79,13 @@ describe("Dönüştürücü prompt", () => {
     const both = aiTaskText({ wired: "fix", reports: [{ title: "B", report: "# FINDINGS\n- x", kind: "bilinc" }, { title: "D", report: "# CONVERTED\n- y", kind: "donusturucu" }] })
     expect(both.indexOf("EYLEM")).toBeGreaterThanOrEqual(0)
     expect(both.indexOf("Converted assets")).toBeGreaterThan(both.indexOf("EYLEM"))
+  })
+  it("a Dönüştürücü's own purpose is its task; other roles keep purpose for Reload only", () => {
+    expect(effectivePurpose("donusturucu", "  32x32 frames ", undefined)).toBe("32x32 frames")
+    expect(effectivePurpose("donusturucu", "32x32 frames", "reload text")).toBe("reload text")
+    expect(effectivePurpose(undefined, "regenerate art", undefined)).toBeUndefined()
+    expect(effectivePurpose("bilinc", "look", undefined)).toBeUndefined()
+    expect(effectivePurpose("donusturucu", "   ", undefined)).toBeUndefined()
   })
   it("extractReport keeps a # CONVERTED manifest", () => {
     expect(extractReport("chatter\n# CONVERTED\n- x → y · convert\n# UNRESOLVED\n- none")).toMatch(/^# CONVERTED/)

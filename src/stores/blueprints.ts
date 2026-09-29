@@ -14,7 +14,7 @@ import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, re
 import { BUILTIN_KITS } from "@/domain/kits"
 import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
 import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
-import { type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
+import { effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
 import { clampEffort } from "@/engine/effort"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
@@ -517,7 +517,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     if (n.data.role === "donusturucu") return [{ title: n.data.title || n.id, report: n.data.report, kind: "donusturucu" }]
     return []
   })
-  const task = aiTaskText({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, reports })
+  const purpose = effectivePurpose(role, ai.data.purpose, opts?.purpose)
+  const task = aiTaskText({ purpose, wired, extraPrompt: opts?.extraPrompt, reports })
   if (!task && !fills.length) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no prompt" })
     log(set, aiId, "⚠ wire a prompt into this AI")
@@ -581,7 +582,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } catch (e) {
     log(set, aiId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`)
   }
-  const prompt = buildAiPrompt({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool, role, reports })
+  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool, role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a

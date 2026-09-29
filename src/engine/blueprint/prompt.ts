@@ -85,6 +85,17 @@ export interface AiPromptInput {
   converterTool?: boolean
 }
 
+/**
+ * The purpose an AI run works from: an explicit override (Reload / wizard) wins; otherwise only a Dönüştürücü uses its own
+ * purpose field as the task (it usually has no wired prompt — the wired nodes are asset folders). Other roles keep the
+ * purpose for Reload only.
+ */
+export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
+  if (override) return override
+  const own = nodePurpose?.trim()
+  return role === "donusturucu" && own ? own : undefined
+}
+
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
   return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
