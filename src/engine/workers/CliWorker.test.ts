@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CliRunRequest, RuntimeEvent } from "@/domain"
-import { CliWorker, isEnvironmentLimit, type CliRunner } from "./CliWorker"
+import { CliWorker, isEnvironmentLimit, isModelRejected, type CliRunner } from "./CliWorker"
 import type { WorkerJob, WorkerSink } from "./Worker"
 
 /** Captures the request the worker hands to the host and completes the run immediately. */
@@ -106,5 +106,12 @@ describe("CliWorker request shape", () => {
     const result = await new CliWorker(new R()).start(job(), sink).done
     expect(result.deviations).toEqual(["Skipped the optional docs page"])
     expect(result.notes).toEqual(["Browser validation unavailable in this sandbox; no browser launch attempted."])
+  })
+  it("treats model access/auth/quota errors as a rejected model (fallback, never a same-model retry)", () => {
+    expect(isModelRejected("exit_nonzero: error: failed to run prompt: provider.auth_error: 401 Your current subscription does not have access to kimi-for-coding-highspeed. Upgrade to higher-tier Kimi Code plans.")).toBe(true)
+    expect(isModelRejected("Error 429: RESOURCE_EXHAUSTED quota exceeded for generate_image")).toBe(true)
+    expect(isModelRejected("model gpt-9 is not supported")).toBe(true)
+    expect(isModelRejected("codex exited with code 1")).toBe(false)
+    expect(isModelRejected("tests failed: 3 of 40")).toBe(false)
   })
 })

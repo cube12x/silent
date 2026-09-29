@@ -3,9 +3,9 @@ import { parseModelRef } from "@/domain"
 import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./Worker"
 
 /** The CLI rejected the model itself (plan/account restriction, unknown id): try another model, and let the UI mark it. */
-export function isModelRejected(message: string): boolean {
-  return /model.{0,40}(is not supported|not supported|unsupported|not available|unavailable|does not exist|unknown model|invalid model)|unsupported model|invalid_model|model_not_found/i.test(message)
-}
+import { isModelRejected } from "../modelErrors"
+
+export { isModelRejected }
 
 /**
  * Files a shell command obviously writes (`cat > path <<EOF`, `tee path`, `cp/mv … path`, `sed -i … path`).

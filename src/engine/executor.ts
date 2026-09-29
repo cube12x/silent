@@ -1,3 +1,4 @@
+import { isModelRejected } from "./modelErrors"
 import { providerInfo } from "@/providers/registry"
 import { parseModelRef, type ProviderId } from "@/domain"
 import type { Attempt, ProviderModel, RoutingDecision, RunReport, SilentCodeRun, Subtask, WorkerState } from "@/domain"
@@ -230,7 +231,9 @@ export class Executor {
         this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `⏱ time limit reached — not a failure: resuming the same session where it left off (continuation ${continuations}/${maxContinuations})` } })
         result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId)
       }
-      while (!result.ok && result.retryable && !result.timedOut && retriesOnModel < maxRetries && !this.cancelled) {
+      // A model the CLI cannot use (no access, auth, quota) will not start working on the second try: skip straight to the next model.
+      const rejected = (r: WorkerResult) => !r.ok && isModelRejected(r.error ?? "")
+      while (!result.ok && result.retryable && !result.timedOut && !rejected(result) && retriesOnModel < maxRetries && !this.cancelled) {
         retriesOnModel += 1
         attemptNo += 1
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: result.error ?? "failed", at: this.now() })
@@ -256,7 +259,7 @@ export class Executor {
         this.setState(subtask, "failed", subtask.progress, result.question)
         return
       }
-      if (!next || (!result.retryable && !result.timedOut)) {
+      if (!next || (!result.retryable && !result.timedOut && !rejected(result))) {
         this.setState(subtask, "failed", subtask.progress, result.error)
         return
       }

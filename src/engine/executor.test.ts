@@ -12,9 +12,9 @@ import type { Worker, WorkerHandle, WorkerJob, WorkerSink } from "./workers/Work
 class ScriptedWorker implements Worker {
   readonly id = "scripted"
   private cursor = new Map<SubtaskKind, number>()
-  private readonly script: Partial<Record<SubtaskKind, Array<"ok" | "fail">>>
+  private readonly script: Partial<Record<SubtaskKind, Array<"ok" | "fail" | "reject">>>
   private readonly hang: boolean
-  constructor(script: Partial<Record<SubtaskKind, Array<"ok" | "fail">>> = {}, hang = false) {
+  constructor(script: Partial<Record<SubtaskKind, Array<"ok" | "fail" | "reject">>> = {}, hang = false) {
     this.script = script
     this.hang = hang
   }
@@ -42,7 +42,13 @@ class ScriptedWorker implements Worker {
             }
           }, 5)
         })
-      : Promise.resolve(outcome === "ok" ? { ok: true, summary: `${job.subtask.kind} done by ${job.modelId}` } : { ok: false, summary: "failed", error: `${job.subtask.kind} failed`, retryable: true })
+      : Promise.resolve(
+          outcome === "ok"
+            ? { ok: true, summary: `${job.subtask.kind} done by ${job.modelId}` }
+            : outcome === "reject"
+              ? { ok: false, summary: "failed", error: `exit_nonzero: provider.auth_error: 401 Your current subscription does not have access to ${job.modelId}`, retryable: false }
+              : { ok: false, summary: "failed", error: `${job.subtask.kind} failed`, retryable: true },
+        )
     return { done, cancel: () => (cancelled = true) }
   }
 }
@@ -82,6 +88,19 @@ describe("executor", () => {
     const backend = exec.snapshot.find((s) => s.kind === "backend")!
     expect(backend.attempts.map((a) => a.cause)).toEqual(["initial", "retry", "fallback"])
     expect(backend.attempts[2].modelId.split(":")[0]).not.toBe(backend.attempts[0].modelId.split(":")[0])
+    expect(events.some((e) => e.type === "subtask.fallback")).toBe(true)
+  })
+
+  it("a model the CLI cannot use (401/no access) is skipped at once: no same-model retry, straight to the next model", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:sonnet", "claude:opus"], "sequential")
+    const bus = new EventBus()
+    const events = collect(bus)
+    const worker = new ScriptedWorker({ backend: ["reject", "ok"] })
+    const exec = new Executor(run, () => worker, bus, { maxRetriesPerModel: 1, models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    const backend = exec.snapshot.find((s) => s.kind === "backend")!
+    expect(backend.attempts.map((a) => a.cause)).toEqual(["initial", "fallback"])
+    expect(backend.attempts[1].modelId).not.toBe(backend.attempts[0].modelId)
     expect(events.some((e) => e.type === "subtask.fallback")).toBe(true)
   })
 
