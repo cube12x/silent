@@ -20,6 +20,8 @@ describe("Özel AI prompt", () => {
     expect(at("Purpose: fix what is broken")).toBeGreaterThan(at("# Base instructions"))
     expect(at("# Mod isteği")).toBeGreaterThan(at("Purpose:"))
     expect(at("New files in ./inbox")).toBeGreaterThan(at("# Mod isteği"))
+    expect(at("Module shadowing")).toBeGreaterThan(at("Work inside"))
+    expect(buildAiPrompt({ wired: "Build a game" })).not.toContain("Module shadowing")
   })
   it("skips empty blocks and keeps a plain wired prompt as-is", () => {
     expect(buildAiPrompt({ wired: "Build a game" })).toBe("Build a game")

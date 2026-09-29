@@ -213,6 +213,7 @@ describe("executor", () => {
       expect(b).toMatch(/Run plan \(\d+ tasks/)
       expect(b).toMatch(/owns src\/mod\d+\/\*\*/)
       expect(b).toMatch(/Verification scope:/)
+      expect(b).toMatch(/Module shadowing:/)
     }
   })
 
