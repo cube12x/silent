@@ -136,6 +136,18 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(img(self.out("hero_0.png")).size, (32, 24))
         self.assertIn("· grid ·", so)
 
+    def test_never_overwrites_an_existing_output_unless_forced(self):
+        code, _, se = run("convert", "art/photo.jpg", "--to", "png", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        first = os.path.getmtime(self.out("photo.png"))
+        code, so, se = run("resize", "art/photo.jpg", "--scale", "2", cwd=self.root)  # would also write photo.png
+        self.assertEqual(code, 1)
+        self.assertIn("exists", se)
+        self.assertEqual(os.path.getmtime(self.out("photo.png")), first)
+        code, _, se = run("--force", "resize", "art/photo.jpg", "--scale", "2", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        self.assertEqual(img(self.out("photo.png")).size, (80, 80))
+
     def test_usage_error_exit_code(self):
         code, _, _ = run("resize", "art/hero.png", cwd=self.root)  # neither --scale nor --size
         self.assertEqual(code, 2)

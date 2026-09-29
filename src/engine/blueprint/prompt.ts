@@ -37,14 +37,14 @@ export const DONUSTURUCU_POLICY = `You are the DÖNÜŞTÜRÜCÜ (converter) ste
   python3 .silent/tools/donusturucu.py inspect <folder> [--json]      # what is there: size, mode, alpha, frame guess, colours
   python3 .silent/tools/donusturucu.py --help                        # convert · resize · trim · crop · removebg · split · grid · pack · palette · wav
 AI-generated sheets (a big JPG/PNG with a grid of labelled cells): LOOK at the image first (read it), measure the cell size, origin, gap and caption strip, then: grid --cols … --rows … --cell WxH --origin x,y --gap g --label h --names … ; then removebg on the cells (dark/plain cell background); then resize --size to the frame size the game uses; then pack --name … for a sheet + JSON atlas.
-Rules: the source folder is read-only; write only under assets/converted/ (or the folder the Purpose names, via --out). Pixel art is resized nearest-neighbour (default). removebg uses rembg when installed, otherwise a corner flood-fill — say which one ran. Convert only what the next step needs; do not invent assets. Finish with the manifest and nothing after it:
+Rules: the source folder is read-only; write only under assets/converted/ (or the folder the Purpose names, via --out). The tool refuses to overwrite an existing output (another step may own it): pick another name or an --out subfolder instead of --force. Pixel art is resized nearest-neighbour (default). removebg uses rembg when installed, otherwise a corner flood-fill — say which one ran. Convert only what the next step needs; do not invent assets. Finish with the manifest and nothing after it:
 # CONVERTED
 - <source> → <output> · <operation> · <why the next step needs it>
 # UNRESOLVED
 - what you could not convert and what the next step should do about it`
 
 /** One paragraph for every AI working inside a project: convert on demand instead of reporting an asset unusable. */
-export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/grid/pack/palette/wav; Pillow + numpy). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/ with this tool and use the result — do not report it unusable."
+export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/grid/pack/palette/wav; Pillow + numpy). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/<your-step>/ with this tool (it refuses to overwrite another step's files) and use the result — do not report it unusable."
 
 /** Converted-asset manifests of the Dönüştürücü nodes wired into an AI. */
 export function convertedBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {

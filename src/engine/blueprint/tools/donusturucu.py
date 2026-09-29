@@ -17,7 +17,8 @@ manifest that the next AI reads.
   python3 .silent/tools/donusturucu.py palette a.png --colors 16
   python3 .silent/tools/donusturucu.py wav a.wav [--rate 44100] [--bits 16] [--mono] [--normalize] [--trim-silence]
 
-Exit codes: 0 ok · 1 failure (missing library, unreadable file) · 2 usage error.
+Existing output files are never overwritten unless --force is given (one step must not clobber another's work).
+Exit codes: 0 ok · 1 failure (missing library, unreadable file, output exists) · 2 usage error.
 """
 import argparse, json, math, os, struct, sys, wave
 
@@ -47,6 +48,8 @@ def out_path(args, src, stem=None, ext=None):
     inside_out = os.path.abspath(src).startswith(os.path.abspath(args.out) + os.sep)
     if not inside_out and os.path.abspath(os.path.dirname(dst)) == os.path.abspath(os.path.dirname(src)):
         raise SystemExit("donusturucu: refusing to write next to the source; pick another --out")
+    if os.path.exists(dst) and not getattr(args, "force", False):
+        raise SystemExit(f"donusturucu: {rel(dst)} exists (another step may have made it) — pick another --out or name, or pass --force before the command")
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     return dst
 
@@ -380,6 +383,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", default="assets/converted", help="output folder (default assets/converted); never the source folder")
     p.add_argument("--no-manifest", action="store_true", help="do not print the # CONVERTED manifest")
+    p.add_argument("--force", action="store_true", help="overwrite existing output files (default: refuse, so one step never clobbers another)")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("inspect"); s.add_argument("paths", nargs="+"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_inspect)
     s = sub.add_parser("convert"); s.add_argument("paths", nargs="+"); s.add_argument("--to", required=True, choices=["png", "jpg", "webp", "bmp", "gif"]); s.set_defaults(fn=cmd_convert)
