@@ -105,7 +105,13 @@ function Canvas({ bpId }: { bpId: string }) {
     [bpId, addEdge, t],
   )
 
-  // Tauri: files dropped from the desktop onto a build node are copied into its folder.
+  // Tauri: files dropped from the desktop onto a build node are copied into its folder. Registered once per canvas
+  // mount (not per blueprint): every register/unregister cycle of Tauri's drag-drop listeners raced its own
+  // registration and logged "listeners[eventId].handlerId" rejections (2026-09-28/29).
+  const dropCtx = React.useRef({ bpId, importFiles, t })
+  React.useEffect(() => {
+    dropCtx.current = { bpId, importFiles, t }
+  }, [bpId, importFiles, t])
   React.useEffect(() => {
     if (!isTauri()) return
     let unlisten: (() => void) | undefined
@@ -113,16 +119,17 @@ function Canvas({ bpId }: { bpId: string }) {
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
       const off = await getCurrentWebview().onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return
+        const { bpId: id0, importFiles: doImport, t: tr } = dropCtx.current
         const scale = window.devicePixelRatio || 1
         const el = document.elementFromPoint(event.payload.position.x / scale, event.payload.position.y / scale)
         const nodeEl = el?.closest<HTMLElement>("[data-id]")
         const id = nodeEl?.dataset.id
-        const node = id && useBlueprintsStore.getState().byId(bpId)?.nodes.find((n) => n.id === id)
+        const node = id && useBlueprintsStore.getState().byId(id0)?.nodes.find((n) => n.id === id)
         if (!node || (node.type !== "build" && node.type !== "buildPhoto")) {
-          setToast(t("bp.dropOnBuild"))
+          setToast(tr("bp.dropOnBuild"))
           return
         }
-        void importFiles(bpId, node.id, event.payload.paths).then((n) => setToast(t("bp.imported", { n })))
+        void doImport(id0, node.id, event.payload.paths).then((n) => setToast(tr("bp.imported", { n })))
       })
       // Tauri rejects an unlisten that races its own registration; the listener is gone either way.
       const safeOff = () => {
@@ -139,7 +146,7 @@ function Canvas({ bpId }: { bpId: string }) {
       cancelled = true
       unlisten?.()
     }
-  }, [bpId, importFiles, t])
+  }, [])
 
   React.useEffect(() => {
     if (!toast) return
