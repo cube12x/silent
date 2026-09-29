@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0] — unreleased
+## [0.3.0] — 2026-09-29
 
 ### Added
 - Blueprint: **Bilinç → Eylem** roles (read-only investigator on an expensive model writes a report; a cheap model applies it).
