@@ -30,8 +30,32 @@ Investigate the task thoroughly, then reply with a report and nothing else:
 1. numbered, concrete, minimal edits another AI will apply verbatim: file, what to change, expected result, how to verify
 Keep the report self-contained; the next AI has not seen this conversation.`
 
+export type BpReportKind = "bilinc" | "donusturucu"
+
+/** Dönüştürücü: converts the wired assets into the format the next step needs, with the bundled tool, and reports a manifest. */
+export const DONUSTURUCU_POLICY = `You are the DÖNÜŞTÜRÜCÜ (converter) step. Your job: bring the assets wired into you (folders, sheets, photos, WAVs) into the exact format the next step needs — the Purpose and the wired prompts say what that is. Use the bundled tool for every conversion; never hand-write image or audio bytes:
+  python3 .silent/tools/donusturucu.py inspect <folder> [--json]      # what is there: size, mode, alpha, frame guess, colours
+  python3 .silent/tools/donusturucu.py --help                        # convert · resize · trim · crop · removebg · split · pack · palette · wav
+Rules: the source folder is read-only; write only under assets/converted/ (or the folder the Purpose names, via --out). Pixel art is resized nearest-neighbour (default). removebg uses rembg when installed, otherwise a corner flood-fill — say which one ran. Convert only what the next step needs; do not invent assets. Finish with the manifest and nothing after it:
+# CONVERTED
+- <source> → <output> · <operation> · <why the next step needs it>
+# UNRESOLVED
+- what you could not convert and what the next step should do about it`
+
+/** One paragraph for every AI working inside a project: convert on demand instead of reporting an asset unusable. */
+export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/pack/palette/wav; Pillow + numpy). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/ with this tool and use the result — do not report it unusable."
+
+/** Converted-asset manifests of the Dönüştürücü nodes wired into an AI. */
+export function convertedBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind === "donusturucu")
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `Converted assets (produced by the converter step below; use these files, they are already in the needed format):\n${body}`
+}
+
 /** Eylem: the brief that turns Bilinç reports into work. */
-export function eylemBrief(reports: Array<{ title: string; report: string }>): string {
+export function eylemBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind !== "donusturucu")
   if (!reports.length) return ""
   const body = reports.map((r) => `## Report from ${r.title}\n${r.report.trim()}`).join("\n\n")
   return `You are the EYLEM (action) step: apply the ACTIONS of the read-only reports below exactly, in order, verifying each as the report says. Do not re-investigate what the reports already settled; if an action is impossible, say why in your summary.\n\n${body}`
@@ -52,15 +76,17 @@ export interface AiPromptInput {
   /** Uydurma: stub → ai (placeholder producer) / ai → stub (filler). */
   stubs?: BpStubData[]
   fills?: BpStubData[]
-  /** Bilinç / Eylem role of this node. */
-  role?: "bilinc" | "eylem"
-  /** Eylem: reports of the Bilinç nodes wired into it. */
-  reports?: Array<{ title: string; report: string }>
+  /** Bilinç / Eylem / Dönüştürücü role of this node. */
+  role?: "bilinc" | "eylem" | "donusturucu"
+  /** Reports of the Bilinç (work order) and Dönüştürücü (converted assets) nodes wired into it. */
+  reports?: Array<{ title: string; report: string; kind?: BpReportKind }>
+  /** The converter tool is shipped into the working folder: tell the AI it may convert assets on demand. */
+  converterTool?: boolean
 }
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
-  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
+  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
 
 /**
@@ -79,6 +105,8 @@ export function buildAiPrompt(i: AiPromptInput): string {
     )
   }
   if (i.role === "bilinc") blocks.push(BILINC_POLICY)
+  if (i.role === "donusturucu") blocks.push(DONUSTURUCU_POLICY)
+  else if (i.converterTool && i.role !== "bilinc") blocks.push(CONVERTER_TOOLKIT)
   const instructions = i.instructions?.trim()
   if (instructions) blocks.push(`# Base instructions\n${instructions}`)
   const task = aiTaskText(i)
@@ -86,9 +114,10 @@ export function buildAiPrompt(i: AiPromptInput): string {
   return blocks.join("\n\n")
 }
 
-/** The report part of a Bilinç reply: from the last `# FINDINGS` heading on (the running commentary before it is dropped). */
+/** The report part of a Bilinç (`# FINDINGS`) or Dönüştürücü (`# CONVERTED`) reply: from the last heading on; the commentary before it is dropped. */
 export function extractReport(text: string): string {
   const t = text.trim()
-  const idx = t.toUpperCase().lastIndexOf("# FINDINGS")
+  const upper = t.toUpperCase()
+  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"))
   return idx >= 0 ? t.slice(idx).trim() : t
 }

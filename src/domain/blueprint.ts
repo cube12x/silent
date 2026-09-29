@@ -40,7 +40,7 @@ export interface BpAiData {
   /** Bilinç: the report of the last run (findings + numbered actions). */
   report?: string
 }
-export type BpAiRole = "bilinc" | "eylem"
+export type BpAiRole = "bilinc" | "eylem" | "donusturucu"
 export interface BpAiRepo {
   /** `https://…` or `git@…` */
   url: string

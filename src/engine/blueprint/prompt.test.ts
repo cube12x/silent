@@ -56,3 +56,32 @@ describe("Özel AI prompt", () => {
     expect(extractReport("no headings at all")).toBe("no headings at all")
   })
 })
+
+describe("Dönüştürücü prompt", () => {
+  it("role donusturucu gets the converter policy after 'Work inside' and before base instructions", () => {
+    const p = buildAiPrompt({ wired: "Sprites for the game", role: "donusturucu", existingProjectAt: "/p", converterTool: true, instructions: "persona" })
+    const at = (s: string) => p.indexOf(s)
+    expect(at("DÖNÜŞTÜRÜCÜ")).toBeGreaterThan(at("Work inside"))
+    expect(at("# Base instructions")).toBeGreaterThan(at("DÖNÜŞTÜRÜCÜ"))
+    expect(p).toContain("# CONVERTED")
+  })
+  it("converterTool adds the on-demand toolkit line to any AI, and only then", () => {
+    expect(buildAiPrompt({ wired: "x", existingProjectAt: "/p", converterTool: true })).toContain("Converter toolkit")
+    expect(buildAiPrompt({ wired: "x", existingProjectAt: "/p" })).not.toContain("Converter toolkit")
+    // the role block already explains the tool; no duplicate toolkit line
+    expect(buildAiPrompt({ wired: "x", role: "donusturucu", converterTool: true }).split("donusturucu.py --help").length).toBe(2)
+  })
+  it("converted manifests reach the next AI as 'Converted assets', not as an Eylem work order", () => {
+    const t = aiTaskText({ wired: "integrate", reports: [{ title: "Dönüştürücü", report: "# CONVERTED\n- a.png → assets/converted/a.png · removebg", kind: "donusturucu" }] })
+    expect(t).toContain("Converted assets")
+    expect(t).toContain("assets/converted/a.png")
+    expect(t).not.toContain("EYLEM")
+    const both = aiTaskText({ wired: "fix", reports: [{ title: "B", report: "# FINDINGS\n- x", kind: "bilinc" }, { title: "D", report: "# CONVERTED\n- y", kind: "donusturucu" }] })
+    expect(both.indexOf("EYLEM")).toBeGreaterThanOrEqual(0)
+    expect(both.indexOf("Converted assets")).toBeGreaterThan(both.indexOf("EYLEM"))
+  })
+  it("extractReport keeps a # CONVERTED manifest", () => {
+    expect(extractReport("chatter\n# CONVERTED\n- x → y · convert\n# UNRESOLVED\n- none")).toMatch(/^# CONVERTED/)
+    expect(extractReport("# FINDINGS\n- a\n\nlater # CONVERTED\n- b")).toMatch(/^# CONVERTED/)
+  })
+})
