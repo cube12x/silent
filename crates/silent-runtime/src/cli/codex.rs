@@ -369,7 +369,7 @@ mod tests {
             .expect("writable roots");
         assert_eq!(args[pos - 1], "-c");
         assert!(pos > args.iter().position(|a| a == "exec").unwrap());
-        assert!(args[pos].contains("/.npm\""));
+        assert!(args[pos].contains(if cfg!(windows) { "npm-cache" } else { "/.npm\"" }));
         let ro = CliRunRequest {
             sandbox: SandboxMode::ReadOnly,
             ..req(ProviderId::Codex)

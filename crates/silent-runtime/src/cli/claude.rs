@@ -352,10 +352,7 @@ mod tests {
 
     #[test]
     fn write_turn_args() {
-        let tmp = std::env::temp_dir()
-            .to_string_lossy()
-            .trim_end_matches('/')
-            .to_string();
+        let tmp = crate::paths::temp_dir_str();
         let mut expected: Vec<&str> = vec![
             "-p",
             "do the thing",

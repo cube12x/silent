@@ -250,7 +250,8 @@ mod tests {
 
     #[test]
     fn user_bin_dirs_unix_keeps_path_first_then_fixed_then_home() {
-        let e = env(&[("PATH", "/custom/bin:/usr/bin")]);
+        let path = std::env::join_paths(["/custom/bin", "/usr/bin"]).unwrap().to_string_lossy().into_owned();
+        let e = env(&[("PATH", path.as_str())]);
         let dirs = user_bin_dirs_for(&e, Some(Path::new("/home/a")), Os::Linux);
         assert_eq!(dirs[0], PathBuf::from("/custom/bin"));
         assert!(dirs.contains(&PathBuf::from("/snap/bin")));
