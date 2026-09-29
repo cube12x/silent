@@ -545,6 +545,9 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   const prompt = buildAiPrompt({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
+  // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a
+  // second orchestration on the same folder (2026-09-29, two runs 12 s apart). The real cancel handle replaces this.
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: s.running[aiId] ?? (() => undefined) } }))
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)
 
   let ok: boolean
