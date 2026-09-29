@@ -2,6 +2,7 @@
 //! OpenCode, Copilot, Cursor, Amp) and normalizes their output into `RuntimeEvent`s.
 //! No Tauri dependency; fully testable with `cargo test -p silent-runtime`.
 
+pub mod children;
 pub mod cli;
 pub mod error;
 pub mod events;

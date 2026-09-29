@@ -106,7 +106,7 @@ pub enum SetupFix {
 }
 
 #[tauri::command]
-pub async fn setup_fix(registry: State<'_, RunRegistry>, fix: SetupFix, on_event: Channel<RuntimeEvent>) -> Result<String, String> {
+pub async fn setup_fix(app: tauri::AppHandle, registry: State<'_, RunRegistry>, fix: SetupFix, on_event: Channel<RuntimeEvent>) -> Result<String, String> {
     let command = match fix {
         SetupFix::NpmUserPrefix => {
             if cfg!(windows) {
@@ -118,6 +118,8 @@ pub async fn setup_fix(registry: State<'_, RunRegistry>, fix: SetupFix, on_event
     let mut config = super::shell::shell_config(command);
     config.timeout = Duration::from_secs(120);
     let run_id = format!("setup:{}", std::process::id());
+    config.children_registry = crate::app_paths::children_registry(&app);
+    config.run_id = run_id.clone();
     let parser: silent_runtime::LineParser = Box::new(|line: &str| if line.trim().is_empty() { Vec::new() } else { vec![RuntimeEvent::stdout(line)] });
     super::cli::spawn_registered(&registry, run_id, config, parser, on_event)
 }

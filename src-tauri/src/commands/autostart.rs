@@ -47,6 +47,14 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
             }
             (String::new(), None, None, Some(desc))
         }
+        Some("edit") => {
+            let bpref = rest.get(i + 1).cloned().unwrap_or_default();
+            let desc = rest[(i + 2).min(rest.len())..].join(" ");
+            if bpref.is_empty() || desc.trim().is_empty() {
+                return Err("usage: silent bp edit <blueprint name|id> <what to change…>".into());
+            }
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "edit": desc } }));
+        }
         Some("answer") => {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let node = rest.get(i + 2).cloned().unwrap_or_default();
@@ -179,6 +187,9 @@ mod tests {
         let v = parse_argv(&argv("bp auto a pixel art game"), None).unwrap().unwrap();
         assert_eq!(v["blueprint"]["auto"], "a pixel art game");
         assert_eq!(v["blueprint"]["ref"], "");
+        let v = parse_argv(&argv("bp edit Alien add an effort setting to the main AI"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["edit"], "add an effort setting to the main AI");
+        assert_eq!(v["blueprint"]["ref"], "Alien");
         let v = parse_argv(&argv("reload"), None).unwrap().unwrap();
         assert_eq!(v["reload"], true);
         assert_eq!(v["folder"], "");

@@ -34,6 +34,10 @@ pub struct SpawnConfig {
     /// When set, every raw stdout line (and stderr, prefixed `!! `) is appended here (capped at 20 MB)
     /// so parser gaps can be diagnosed from evidence instead of guesses.
     pub raw_log: Option<PathBuf>,
+    /// When set, the child is listed here while alive (see `children`) so a quit or the next start can kill it.
+    pub children_registry: Option<PathBuf>,
+    /// Run id recorded next to the child (evidence in the registry).
+    pub run_id: String,
 }
 
 impl SpawnConfig {
@@ -48,6 +52,8 @@ impl SpawnConfig {
             shutdown_grace: Duration::from_secs(3),
             max_line_bytes: 4 * 1024 * 1024,
             raw_log: None,
+            children_registry: None,
+            run_id: String::new(),
         }
     }
 }
@@ -227,7 +233,13 @@ where
     configure_child(&mut command);
 
     let mut child = match command.spawn() {
-        Ok(child) => child,
+        Ok(child) => {
+            if let (Some(reg), Some(pid)) = (&config.children_registry, child.id()) {
+                let started_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                let _ = crate::children::record(reg, &crate::children::ChildRecord { pid, program: config.program.to_string_lossy().into_owned(), run_id: config.run_id.clone(), started_ms });
+            }
+            child
+        }
         Err(error) => {
             sink(RuntimeEvent::Failed {
                 code: "spawn_failed".into(),
@@ -238,6 +250,7 @@ where
             return Err(RuntimeError::Io(error));
         }
     };
+    let child_pid = child.id();
     let stdout = child
         .stdout
         .take()
@@ -397,6 +410,9 @@ where
         }
     }
     sink(RuntimeEvent::Exited { code });
+    if let (Some(reg), Some(pid)) = (&config.children_registry, child_pid) {
+        let _ = crate::children::forget(reg, pid);
+    }
     Ok(exit)
 }
 

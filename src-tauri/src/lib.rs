@@ -73,6 +73,8 @@ pub fn run() {
             let argv: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().ok();
             commands::autostart::queue_from_argv(app.handle(), &argv, cwd.as_deref());
+            // A crash or `kill -9` leaves CLI workers running: kill what the previous instance recorded.
+            commands::cli::reap_orphans(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -126,13 +128,19 @@ pub fn run() {
                 tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => {
                     let registry = app.state::<commands::cli::RunRegistry>();
                     let active = registry.cancel_all();
-                    if active > 0 {
+                    let listed = commands::cli::reap_count(app);
+                    if active > 0 || listed > 0 {
                         api.prevent_exit();
                         let handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let started = std::time::Instant::now();
-                            while handle.state::<commands::cli::RunRegistry>().active() > 0 && started.elapsed() < std::time::Duration::from_secs(3) {
+                            while handle.state::<commands::cli::RunRegistry>().active() > 0 && started.elapsed() < std::time::Duration::from_secs(5) {
                                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            }
+                            // Whatever did not stop cooperatively (and everything it spawned) dies now.
+                            let killed = commands::cli::kill_remaining_children(&handle);
+                            if killed > 0 {
+                                log::warn!("quit: killed {killed} lingering child process(es)");
                             }
                             handle.exit(0);
                         });

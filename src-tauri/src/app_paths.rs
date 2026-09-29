@@ -34,6 +34,11 @@ pub fn raw_run_log(app: &AppHandle, run_id: &str) -> Option<PathBuf> {
     Some(dir.join(format!("{safe}.jsonl")))
 }
 
+/// Live CLI children Silent spawned (`<log dir>/children.jsonl`), killed on quit and reaped on the next start.
+pub fn children_registry(app: &AppHandle) -> Option<PathBuf> {
+    log_dir(app).map(|d| d.join("children.jsonl"))
+}
+
 /// Projects/blueprint builds root: the folder the user picked in Settings, else `~/CubeCode`.
 pub fn workspace_root(override_dir: Option<&str>) -> Result<PathBuf, String> {
     if let Some(dir) = override_dir.map(str::trim).filter(|d| !d.is_empty()) {

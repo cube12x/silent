@@ -150,6 +150,8 @@ pub async fn cli_run_start(
     config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
     // Raw JSONL evidence per run: <app log dir>/raw/<run id>.jsonl
     config.raw_log = crate::app_paths::raw_run_log(&app, &request.run_id);
+    config.children_registry = crate::app_paths::children_registry(&app);
+    config.run_id = request.run_id.clone();
     let run_id = request.run_id.clone();
     // Codex's schema file was written by `build_args`; drop it once the run is over.
     let temp_files = if request.provider_id == ProviderId::Codex && request.schema().is_some() {
@@ -185,6 +187,7 @@ pub enum InstallMethod {
 /// Run the provider's install command through a login shell, streaming its output as `stdout` lines.
 #[tauri::command]
 pub async fn provider_install(
+    app: tauri::AppHandle,
     registry: State<'_, RunRegistry>,
     provider_id: ProviderId,
     method: InstallMethod,
@@ -204,6 +207,8 @@ pub async fn provider_install(
     let mut config = super::shell::shell_config(command);
     config.timeout = Duration::from_secs(15 * 60);
     let run_id = format!("install:{provider_id}:{}", std::process::id());
+    config.children_registry = crate::app_paths::children_registry(&app);
+    config.run_id = run_id.clone();
     let parser: silent_runtime::LineParser = Box::new(|line: &str| {
         if line.trim().is_empty() {
             Vec::new()
@@ -220,4 +225,29 @@ pub async fn provider_install(
 pub async fn provider_login(provider_id: ProviderId) -> Result<(), String> {
     let spec = registry::spec(provider_id);
     super::terminal::open_in_terminal(&format!("Silent - {} login", spec.name), spec.login_command).await
+}
+
+/// Kill children a previous instance left behind (crash, `kill -9`): only pids that are alive AND still run
+/// the recorded program. Called once at startup.
+pub fn reap_orphans(app: &tauri::AppHandle) -> usize {
+    let Some(path) = crate::app_paths::children_registry(app) else { return 0 };
+    let n = silent_runtime::children::sweep(&path, silent_runtime::children::is_ours, |rec| {
+        log::warn!("reaping orphan {} ({} from run {})", rec.pid, rec.program, rec.run_id);
+        silent_runtime::children::kill_tree(rec.pid);
+    });
+    if n > 0 {
+        log::info!("reaped {n} orphan child process(es)");
+    }
+    n
+}
+
+/// Last step of a quit: whatever is still listed gets killed with its whole tree.
+pub fn kill_remaining_children(app: &tauri::AppHandle) -> usize {
+    let Some(path) = crate::app_paths::children_registry(app) else { return 0 };
+    silent_runtime::children::sweep(&path, silent_runtime::children::is_ours, |rec| silent_runtime::children::kill_tree(rec.pid))
+}
+
+/// How many children are currently listed (alive or not); used to decide whether a quit must wait.
+pub fn reap_count(app: &tauri::AppHandle) -> usize {
+    crate::app_paths::children_registry(app).map(|p| silent_runtime::children::load(&p).len()).unwrap_or(0)
 }
