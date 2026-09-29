@@ -13,6 +13,7 @@ import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/ai
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
 import { getBackend } from "@/services"
+import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
 import { reportError } from "./notify"
 import { newId } from "@/lib/ids"
 import { TIER_RANK } from "@/engine/capabilities"
@@ -270,6 +271,14 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const network = sandbox === "workspace-write" && (agent ? agent.permissions.network : true)
     const t0 = Date.now()
     const mark = (label: string) => console.warn(`[start] ${label} +${((Date.now() - t0) / 1000).toFixed(1)}s`)
+    // Dönüştürücü: every run gets the converter tool, so workers convert assets on demand (the brief points at it).
+    if (run.repoPath) {
+      try {
+        await backend.blueprintWriteTool(run.repoPath, DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE)
+      } catch (e) {
+        console.warn("converter tool not written", e)
+      }
+    }
     // Expert kit: clone the reference repositories (host side, outside any CLI sandbox) and tell workers where they are.
     const kit = kitById(run.kitId)
     const refSpecs = [

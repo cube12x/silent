@@ -1,3 +1,4 @@
+import { CONVERTER_TOOLKIT } from "./blueprint/prompt"
 import { shellNotes } from "@/lib/platform"
 import { isModelRejected } from "./modelErrors"
 import { providerInfo } from "@/providers/registry"
@@ -440,6 +441,7 @@ export class Executor {
       "Scratch files (bots, probes, screenshots): write them under <repo>/.silent/tmp/ (git-ignored) or the OS temp dir; writes elsewhere are denied.",
       "Editing: prefer your native file-edit tool (Codex: apply_patch; Claude: Edit/Write) over shell heredocs, so every changed file is tracked and reviewable.",
       "Module shadowing: a file `x.ts` beside a folder `x/` wins the import `./x` and silently replaces `x/index.ts`. Never create such a file; when you integrate or review, look for these pairs and for dead scaffold that shadows a real module, and delete them.",
+      CONVERTER_TOOLKIT,
       shellNotes(),
       providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
       ...(providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.image ? ["You have a built-in raster IMAGE GENERATION tool (generate_image / image_gen, plus image_edit where available). For artwork (sprites, sprite sheets, backgrounds, portraits, key art, UI cards) use it and save the PNG files under the project's assets folder, then wire them into the code; prefer generated images over hand-coding pixel data when the task asks for drawn art. Keep a consistent style across the images you generate (same palette, outline weight and era)."] : []),
