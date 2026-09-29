@@ -140,6 +140,8 @@ export interface SilentCodeRun {
   refs?: string[]
   /** Run a polish review + fix round after all subtasks complete. */
   polish?: boolean
+  /** User-chosen effort for every task of this run (Blueprint AI box); absent = per-task policy. */
+  effort?: Effort
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

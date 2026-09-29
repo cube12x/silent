@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { SubtaskKind, CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine } from "@/domain"
+import type { SubtaskKind, CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine, Effort } from "@/domain"
 import { modelRef } from "@/domain"
 import { EventBus, type RunEvent } from "@/engine/events"
 import { Executor } from "@/engine/executor"
@@ -38,6 +38,8 @@ export interface DraftInput {
   answers?: Array<{ id: string; question: string; why?: string; answer?: string }>
   /** Expert kit id ("" = none). */
   kitId?: string
+  /** Effort every task starts with (overrides the per-kind policy; clamped per CLI at spawn time). */
+  effort?: Effort
   /** Extra reference repository URLs. */
   refs?: string[]
   /** Polish review + fix round at the end (default true). */
@@ -137,6 +139,8 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     if (row?.modelRef && input.pool.includes(row.modelRef)) overrides[s.kind] = row.modelRef
     if (row?.effort && !s.effort) s.effort = row.effort
     if (row?.timeoutMin && !s.timeoutSecs) s.timeoutSecs = row.timeoutMin * 60
+    // The Blueprint box's explicit effort wins over the policy ceiling (the user asked for it).
+    if (input.effort) s.effort = input.effort
   }
   const routing = routeSubtasks({ subtasks: plan, pool: input.pool, models, costMode: input.costMode, overrides, policy, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined })
   const title = plan[0]?.title.replace(/^Architecture & task decomposition for /, "") ?? input.prompt
@@ -149,6 +153,7 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     modelPool: input.pool,
     executionMode: input.executionMode,
     costMode: input.costMode,
+    effort: input.effort,
     plan,
     routing,
     status: "planned",

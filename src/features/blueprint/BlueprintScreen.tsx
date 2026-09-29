@@ -19,6 +19,7 @@ import { BUILTIN_KITS } from "@/domain/kits"
 import { getBackend } from "@/services"
 import { isTauri } from "@/services/backend"
 import { isRepoUrl } from "@/engine/blueprint/prompt"
+import { PROVIDERS } from "@/providers/registry"
 import { modKey } from "@/lib/platform"
 import { NodeTerminal } from "./NodeTerminal"
 import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
@@ -340,6 +341,21 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                   <option value="">{t("code.kitAuto")}</option>
                   {BUILTIN_KITS.map((k) => <option key={k.id} value={k.id}>{k.name[lang]}</option>)}
                 </select>
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.effort")}
+                <div className="flex flex-wrap gap-1">
+                  {(["auto", "low", "medium", "high", "xhigh"] as const).map((lvl) => {
+                    const providers = Array.from(new Set([d.modelRef, ...(d.mode === "orchestration" ? d.pool ?? [] : [])].filter(Boolean).map((r) => parseModelRef(r).providerId as ProviderId)))
+                    const supported = lvl === "auto" || providers.some((p) => (PROVIDERS[p]?.efforts ?? []).includes(lvl))
+                    const on = (d.effort ?? "auto") === lvl
+                    return (
+                      <button key={lvl} type="button" disabled={!supported} onClick={() => patch({ effort: lvl === "auto" ? undefined : lvl })} title={supported ? undefined : t("bp.effortUnsupported")} className={cn("rounded-sm border px-2 py-0.5 text-[11px]", on ? "border-text-1 bg-ink-3 text-text-1" : "border-line text-text-2 hover:text-text-1", !supported && "opacity-40")}>
+                        {lvl === "auto" ? t("bp.effortAuto") : lvl}
+                      </button>
+                    )
+                  })}
+                </div>
+                <span className="text-[10px]">{t("bp.effortHint")}</span>
               </label>
               {d.mode === "orchestration" && (
                 <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.pool")}

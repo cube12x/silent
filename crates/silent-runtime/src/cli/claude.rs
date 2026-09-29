@@ -71,8 +71,9 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         args.push(model.into());
     }
     if let Some(effort) = req.effort() {
+        // Claude Code's top level is `max`; Silent's scale ends at `xhigh`.
         args.push("--effort".into());
-        args.push(effort.into());
+        args.push(if effort == "xhigh" { "max".into() } else { effort.into() });
     }
     if let Some(schema) = req.schema() {
         args.push("--json-schema".into());

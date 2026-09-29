@@ -34,6 +34,7 @@ export function ModelSelectorGrid({ models, selected, onToggle, className, compa
             <div className="min-w-0">
               <div className={cn("truncate font-heading font-semibold text-text-1", compact ? "text-xs" : "text-sm")}>{m.displayName}</div>
               <div className="mono truncate text-[10px] text-text-3">{info.name} · {m.id}</div>
+              {info.efforts && <div className="mono truncate text-[9px] text-text-3">effort {info.efforts.join(" · ")}</div>}
             </div>
             {!compact && (
               <div className="flex flex-wrap items-center gap-1">

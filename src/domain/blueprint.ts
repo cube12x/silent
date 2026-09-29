@@ -2,7 +2,7 @@
  * Blueprint: a node/wire canvas where prompts, AIs, builds (folders) and buttons are wired together and
  * executed by real CLIs. Persisted as one JSON graph per blueprint.
  */
-import type { CostMode } from "./runs"
+import type { CostMode, Effort } from "./runs"
 
 export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub"
 /** Asset kinds a Uydurma (placeholder) node can stand in for. */
@@ -35,6 +35,8 @@ export interface BpAiData {
   repos?: BpAiRepo[]
   /** Bilinç = read-only investigator that writes a report; Eylem = applies the reports of the Bilinç nodes wired into it. */
   role?: BpAiRole
+  /** Reasoning effort the run starts with (absent = Silent's per-task policy). Clamped to what each CLI accepts. */
+  effort?: Effort
   /** Bilinç: the report of the last run (findings + numbered actions). */
   report?: string
 }

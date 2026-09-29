@@ -38,6 +38,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
           role: { type: "string", enum: ["bilinc", "eylem"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports" },
+          effort: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "ai: reasoning effort the run starts with (omit for Silent's per-task policy)" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
@@ -64,6 +65,7 @@ export interface AutoBlueprintNode {
   instructions?: string
   repos?: string[]
   role?: "bilinc" | "eylem"
+  effort?: "low" | "medium" | "high" | "xhigh"
   modelRef?: string
   pool?: string[]
   mode?: "orchestration" | "single"
@@ -209,7 +211,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" ? n.role : undefined }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" ? n.role : undefined, effort: n.effort }
         break
       }
       case "wizard":

@@ -43,6 +43,8 @@ export interface ProviderInfo {
   color: string
   /** Short honest note shown in settings. */
   note?: string
+  /** Reasoning-effort levels the CLI accepts (verified against its flags); absent = no effort flag. */
+  efforts?: Array<"low" | "medium" | "high" | "xhigh">
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
@@ -57,6 +59,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     loginCommand: "codex login",
     docsUrl: "https://developers.openai.com/codex/cli",
     capabilities: { streamJson: true, resume: true, readOnlySandbox: true, modelFlag: true, effort: true, browser: false, planner: true },
+    efforts: ["low", "medium", "high", "xhigh"],
     parserMaturity: "verified",
     staticModels: [],
     color: "#39d2ff",
@@ -72,6 +75,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     loginCommand: "claude",
     docsUrl: "https://code.claude.com/docs/en/cli-reference",
     capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: true },
+    efforts: ["low", "medium", "high", "xhigh"],
     parserMaturity: "verified",
     staticModels: [
       // Aliases resolve to the newest model of each line (verified 2026-09-24: opus → claude-opus-5-5).
@@ -114,6 +118,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     loginCommand: "grok login",
     docsUrl: "https://docs.x.ai/build/overview",
     capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false, image: true },
+    efforts: ["low", "medium", "high"],
     parserMaturity: "verified",
     staticModels: [
       // Live catalog comes from `grok models` (~/.grok/models_cache.json); these are the 2026-09-25 defaults.
@@ -230,6 +235,7 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     loginCommand: "agy",
     docsUrl: "https://antigravity.google/docs/cli/install/",
     capabilities: { streamJson: true, resume: true, readOnlySandbox: false, modelFlag: true, effort: true, browser: true, planner: false, image: true },
+    efforts: ["low", "medium", "high", "xhigh"],
     parserMaturity: "beta",
     staticModels: [],
     color: "#7c9cff",

@@ -82,8 +82,9 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
       {d.role && <div className="mt-0.5 text-[10px] text-text-3">{d.role === "bilinc" ? t("bp.roleHint.bilinc") : t("bp.roleHint.eylem")}{d.role === "bilinc" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
-      {(d.instructions?.trim() || d.repos?.length) ? (
+      {(d.instructions?.trim() || d.repos?.length || d.effort) ? (
         <div className="mt-0.5 flex gap-2 text-[10px] text-text-3">
+          {d.effort ? <span>⚙ {d.effort}</span> : null}
           {d.instructions?.trim() ? <span>✎ {t("bp.instructionsShort")}</span> : null}
           {d.repos?.length ? <span>⎇ {d.repos.length} repo</span> : null}
         </div>

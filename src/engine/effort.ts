@@ -1,4 +1,5 @@
-import type { CostMode, Effort, ModelTier, SubtaskKind } from "@/domain"
+import type { CostMode, Effort, ModelTier, ProviderId, SubtaskKind } from "@/domain"
+import { PROVIDERS } from "@/providers/registry"
 
 /**
  * Reasoning effort per subtask kind. Silent always sets it explicitly so a user's global CLI default
@@ -39,4 +40,18 @@ export function timeoutFor(kind: SubtaskKind, weight: 1 | 2 | 3): number {
   const light = kind === "docs" || kind === "tests" || kind === "review"
   if (light) return (weight >= 3 ? 40 : weight === 2 ? 25 : 15) * 60
   return (weight >= 3 ? 40 : weight === 2 ? 30 : 20) * 60
+}
+
+/**
+ * The effort a CLI can actually take: `undefined` when the provider has no effort flag (Kimi, Gemini…),
+ * otherwise the requested level or the nearest lower one it supports (Grok has no xhigh → high).
+ */
+export function clampEffort(providerId: ProviderId, effort: Effort | undefined): Effort | undefined {
+  if (!effort) return undefined
+  const supported = PROVIDERS[providerId]?.efforts
+  if (!supported?.length) return undefined
+  if (supported.includes(effort)) return effort
+  const idx = ORDER.indexOf(effort)
+  for (let i = idx - 1; i >= 0; i--) if (supported.includes(ORDER[i])) return ORDER[i]
+  return supported[0]
 }

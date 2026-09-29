@@ -7,7 +7,7 @@ import { isTerminalState } from "@/domain"
 import { EventBus } from "./events"
 import { nextModel } from "./router"
 import { ModelIndex } from "./capabilities"
-import { effortFor, timeoutFor } from "./effort"
+import { clampEffort, effortFor, timeoutFor } from "./effort"
 import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./workers/Worker"
 
 export interface ExecutorOptions {
@@ -273,6 +273,7 @@ export class Executor {
   private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2, timeoutSecs?: number): Subtask {
     const s: Subtask = {
       timeoutSecs,
+      effort: this.run.effort,
       id: `st_${this.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       runId: this.run.id,
       kind,
@@ -388,7 +389,10 @@ export class Executor {
       repoPath: this.run.repoPath,
       sandbox: this.opts.sandbox ?? "workspace-write",
       network: this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write",
-      effort: subtask.effort ?? effortFor(subtask.kind, this.run.costMode, model?.tier),
+      effort: (() => {
+        const wanted = subtask.effort ?? effortFor(subtask.kind, this.run.costMode, model?.tier)
+        return clampEffort((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId, wanted) ?? wanted
+      })(),
       timeoutSecs: subtask.timeoutSecs ?? timeoutFor(subtask.kind, subtask.weight),
       resumeSessionId,
     }

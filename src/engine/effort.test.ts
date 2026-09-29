@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { effortFor, timeoutFor } from "./effort"
+import { clampEffort, effortFor, timeoutFor } from "./effort"
 import { routeSubtasks } from "./router"
 import { planSubtasks } from "./planner"
 import { TEST_MODELS, TEST_POOL } from "./testModels"
@@ -38,5 +38,12 @@ describe("tier-targeted routing", () => {
     const pool = ["codex:gpt-6-astra", "claude:opus"]
     const routes = routeSubtasks({ subtasks: plan, pool, models: TEST_MODELS, costMode: "balanced" })
     routes.forEach((r) => expect(pool).toContain(r.primaryModelId))
+  })
+  it("clamps a requested effort to what the CLI accepts", () => {
+    expect(clampEffort("codex", "xhigh")).toBe("xhigh")
+    expect(clampEffort("grok", "xhigh")).toBe("high")
+    expect(clampEffort("claude", "medium")).toBe("medium")
+    expect(clampEffort("kimi", "high")).toBeUndefined()
+    expect(clampEffort("codex", undefined)).toBeUndefined()
   })
 })

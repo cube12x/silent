@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { parseModelRef, type ProviderId } from "@/domain"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
@@ -13,6 +14,7 @@ import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, re
 import { BUILTIN_KITS } from "@/domain/kits"
 import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
 import { aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
+import { clampEffort } from "@/engine/effort"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -556,7 +558,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
   if (ai.data.mode === "orchestration" && role !== "bilinc") {
     const runs = useRunsStore.getState()
-    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true })
+    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true, effort: ai.data.effort })
     if (res.source !== "ai") {
       log(set, aiId, `⚠ planner failed: ${res.error ?? "unknown"}`)
       store.updateNode(bpId, aiId, { status: "failed", note: res.error ?? "planner failed" })
@@ -578,7 +580,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } else {
     const handle = runSingle(
       backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc", resumeSessionId: opts?.resume ? sessionId : undefined },
+      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc", resumeSessionId: opts?.resume ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
       (line, stream) => log(set, aiId, line, stream),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
