@@ -55,6 +55,8 @@ interface BlueprintsState {
   answer(id: string, nodeId: string, text: string): number
   /** "AI ile oluştur": a planner-capable CLI (Claude first) designs a whole blueprint from a description. */
   autoCreate(description: string): Promise<Blueprint>
+  /** "AI ile düzenle": the designer modifies the active blueprint in place (kept nodes keep ids and history). */
+  autoEdit(id: string, description: string): Promise<void>
   /** Progress line of the auto-creation (undefined when idle). */
   autoStatus?: string
   /** Summary the designer wrote for the last auto-created blueprint. */
@@ -150,6 +152,26 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       await backend.db.blueprints.upsert(bp)
       for (const w of materialized.warnings) log(set, bp.id, `⚠ ${w}`)
       return bp
+    } catch (err) {
+      set({ autoStatus: undefined })
+      throw err
+    }
+  },
+  async autoEdit(id, description) {
+    const bp = get().byId(id)
+    if (!bp) return
+    const models = useProvidersStore.getState().availableModels()
+    const model = pickAutoBlueprintModel(models)
+    if (!model) throw new Error("no planner-capable CLI (Claude or Codex) is installed")
+    set({ autoStatus: `${model.displayName}…`, autoSummary: undefined })
+    try {
+      const backend = await getBackend()
+      const language = useI18nStore.getState().language
+      const { result } = await requestAutoBlueprint(backend, { request: description, language, models, kits: BUILTIN_KITS, existing: bp }, model, (line) => set({ autoStatus: line.slice(0, 120) }))
+      const materialized = materializeAutoBlueprint(result, models, bp)
+      get().update(id, (b) => ({ ...b, name: result.name?.trim() || b.name, nodes: materialized.nodes, edges: materialized.edges }))
+      set({ autoStatus: undefined, autoSummary: result.summary })
+      for (const w of materialized.warnings) log(set, id, `⚠ ${w}`)
     } catch (err) {
       set({ autoStatus: undefined })
       throw err

@@ -88,6 +88,33 @@ export interface AutoBlueprintContext {
   language: "tr" | "en"
   models: ProviderModel[]
   kits: ExpertKit[]
+  /** "AI ile düzenle": the blueprint to modify (node ids become keys so kept nodes survive); absent = design a new one. */
+  existing?: Blueprint
+}
+
+/** Compact JSON of an existing blueprint for the designer. */
+export function describeExisting(bp: Blueprint): string {
+  const nodes = bp.nodes.map((n) => {
+    const d = n.data as unknown as Record<string, unknown>
+    const pick = (k: string) => (d[k] === undefined || d[k] === "" ? undefined : d[k])
+    return {
+      key: n.id,
+      type: n.type,
+      title: pick("title"),
+      text: typeof d.text === "string" ? (d.text as string).slice(0, 300) : undefined,
+      modelRef: pick("modelRef"),
+      pool: pick("pool"),
+      mode: pick("mode"),
+      role: pick("role"),
+      effort: pick("effort"),
+      kind: pick("kind"),
+      kinds: pick("kinds"),
+      folder: pick("folder"),
+      instructions: typeof d.instructions === "string" ? (d.instructions as string).slice(0, 200) : undefined,
+      repos: Array.isArray(d.repos) ? (d.repos as Array<{ url: string }>).map((r) => r.url) : undefined,
+    }
+  })
+  return JSON.stringify({ name: bp.name, nodes, edges: bp.edges.map((e) => ({ from: e.from, to: e.to })) })
 }
 
 const RULES = `Node types and what they do:
@@ -120,6 +147,11 @@ export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
     `Model catalog (installed CLIs):\n${catalog}`,
     `Expert kits (kitId for AI nodes; reference repos are cloned for workers):\n${kits}`,
     `User's language: ${ctx.language === "tr" ? "Turkish" : "English"}.`,
+    ...(ctx.existing
+      ? [
+          `EXISTING BLUEPRINT (modify it, do not start over): return the FULL updated graph. Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
+        ]
+      : []),
     `User request:\n${ctx.request}`,
   ].join("\n\n")
 }
@@ -183,8 +215,9 @@ export interface MaterializedBlueprint {
 }
 
 /** Turn the CLI's answer into real nodes/edges: keys → ids, illegal wires dropped, unknown models replaced. */
-export function materializeAutoBlueprint(result: AutoBlueprintResult, models: ProviderModel[]): MaterializedBlueprint {
+export function materializeAutoBlueprint(result: AutoBlueprintResult, models: ProviderModel[], existing?: Blueprint): MaterializedBlueprint {
   const warnings: string[] = []
+  const keep = new Map((existing?.nodes ?? []).map((n) => [n.id, n]))
   const known = new Set(models.map((m) => modelRef(m.providerId, m.id)))
   const planner = pickPlannerModel(models)
   const fallbackRef = planner ? modelRef(planner.providerId, planner.id) : (models[0] ? modelRef(models[0].providerId, models[0].id) : "")
@@ -194,7 +227,8 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     return fallbackRef
   }
   const positions = layoutAutoBlueprint(result.nodes, result.edges)
-  const ids = new Map(result.nodes.map((n) => [n.key, newId("n")]))
+  const ids = new Map(result.nodes.map((n) => [n.key, keep.has(n.key) ? n.key : newId("n")]))
+  for (const old of keep.values()) if (!ids.has(old.id)) warnings.push(`${old.id}: removed by the designer`)
   const nodes: BpNode[] = result.nodes.map((n) => {
     const pos = positions.get(n.key) ?? { x: 40, y: 40 }
     let data: BpNodeData
@@ -233,6 +267,14 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
         data = { type: "stub", title: n.title, kinds: (n.kinds ?? []).filter((k): k is BpStubKind => (BP_STUB_KINDS as string[]).includes(k)), folder: n.folder || "assets/uydurma" }
         break
     }
+    const prev = keep.get(n.key)
+    if (prev && prev.type === n.type) {
+      // Kept node: same id, position and run history; the designer's fields replace only what it set. A kept
+      // prompt whose text came back truncated keeps its full original text.
+      const fresh = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== ""))
+      if (prev.data.type === "prompt" && data.type === "prompt" && prev.data.text.startsWith(data.text.trim())) delete fresh.text
+      return { ...prev, data: { ...prev.data, ...fresh } as BpNodeData }
+    }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }
   })
   const typeOf = new Map(result.nodes.map((n) => [n.key, n.type]))
@@ -266,7 +308,8 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     // Always give the user a Start: wire it into the first prompt.
     const firstPrompt = nodes.find((n) => n.type === "prompt")
     const start: BpNode = { id: newId("n"), type: "button", x: 40, y: (firstPrompt?.y ?? 40) + 60, data: { type: "button", kind: "start" } }
-    for (const n of nodes) n.x += 260
+    // Make room for the injected Start; nodes kept from an existing blueprint stay where the user put them.
+    for (const n of nodes) if (!keep.has(n.id)) n.x += 260
     nodes.unshift(start)
     if (firstPrompt) edges.unshift({ id: newId("e"), from: start.id, to: firstPrompt.id })
   }

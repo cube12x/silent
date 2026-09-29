@@ -152,6 +152,8 @@ export interface AutorunRef {
   only?: boolean
   /** `silent bp auto "<goal>"`: let a planner-capable CLI design a new blueprint from this description. */
   auto?: string
+  /** `silent bp edit "<blueprint>" "<change>"`: let the designer modify that blueprint in place. */
+  edit?: string
 }
 
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {

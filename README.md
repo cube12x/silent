@@ -120,7 +120,7 @@ Kablo kuralları `src/domain/blueprint.ts` (`BP_EDGE_RULES`); yanlış kablo red
 
 AI kutusunda **model havuzu** (orkestrasyonda planlayıcı görev başına havuzdan seçer) ve **token sayacı** (kutu rozeti + başlıkta Σ toplam) vardır.
 
-**AI ile oluştur**: başlıktaki düğme (veya `silent bp auto "<amaç>"`) bağlı Claude CLI'a tüm blueprint'i tasarlatır (kutular, İngilizce brief'ler, model/havuz seçimleri, kablolar); sonra elle düzenlenir.
+**AI ile oluştur / düzenle**: başlıktaki düğme (veya `silent bp auto "<amaç>"`) bağlı Claude CLI'a tüm blueprint'i tasarlatır; açık bir blueprint varken aynı panel **"Bu blueprint'i düzenle"** ile mevcut grafiği yerinde değiştirir (korunan kutular id, konum ve koşu geçmişini tutar; `silent bp edit "<blueprint>" "<değişiklik>"`).
 
 Terminalden tetikleme (launcher):
 

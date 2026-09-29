@@ -83,4 +83,43 @@ describe("auto blueprint", () => {
     expect(ai.data.type === "ai" && ai.data.instructions).toBe("You are the modder.")
     expect(ai.data.type === "ai" && ai.data.repos).toEqual([{ url: "https://github.com/acme/game" }])
   })
+  it("editing an existing blueprint keeps ids, positions, run history and full prompt text of kept nodes", () => {
+    const existing = {
+      id: "bp9",
+      name: "Old",
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [
+        { id: "n_keep_p", type: "prompt" as const, x: 500, y: 700, data: { type: "prompt" as const, title: "Brief", text: "A".repeat(400) + " tail" } },
+        { id: "n_keep_ai", type: "ai" as const, x: 800, y: 700, status: "done" as const, executionId: "run_1", data: { type: "ai" as const, title: "Main", modelRef: "codex:gpt-6-astra", mode: "orchestration" as const, tokens: 1234 } },
+        { id: "n_gone", type: "build" as const, x: 1100, y: 700, data: { type: "build" as const, title: "Old build", folderPath: "/tmp/x", kind: "code" as const } },
+      ],
+      edges: [{ id: "e1", from: "n_keep_p", to: "n_keep_ai" }],
+    }
+    const res = materializeAutoBlueprint(
+      {
+        name: "Old",
+        summary: "",
+        nodes: [
+          { key: "n_keep_p", type: "prompt", title: "Brief", text: "A".repeat(300) },
+          { key: "n_keep_ai", type: "ai", title: "Main", modelRef: "codex:gpt-6-astra", mode: "orchestration", effort: "high" },
+          { key: "new_stub", type: "stub", title: "Ses", kinds: ["sfx"], folder: "assets/ses" },
+        ],
+        edges: [{ from: "n_keep_p", to: "n_keep_ai" }, { from: "new_stub", to: "n_keep_ai" }],
+      },
+      TEST_MODELS,
+      existing,
+    )
+    const ai = res.nodes.find((n) => n.id === "n_keep_ai")!
+    expect(ai.x).toBe(800)
+    expect(ai.status).toBe("done")
+    expect(ai.executionId).toBe("run_1")
+    expect(ai.data.type === "ai" && ai.data.tokens).toBe(1234)
+    expect(ai.data.type === "ai" && ai.data.effort).toBe("high")
+    const p = res.nodes.find((n) => n.id === "n_keep_p")!
+    expect(p.data.type === "prompt" && p.data.text.endsWith(" tail")).toBe(true)
+    expect(res.nodes.some((n) => n.id === "n_gone")).toBe(false)
+    expect(res.nodes.filter((n) => n.type === "stub")).toHaveLength(1)
+    expect(res.warnings.some((w) => w.startsWith("n_gone"))).toBe(true)
+  })
 })

@@ -475,6 +475,7 @@ export function BlueprintScreen() {
   const setActive = useBlueprintsStore((s) => s.setActive)
   const autorun = useBlueprintsStore((s) => s.autorun)
   const autoCreate = useBlueprintsStore((s) => s.autoCreate)
+  const autoEdit = useBlueprintsStore((s) => s.autoEdit)
   const autoStatus = useBlueprintsStore((s) => s.autoStatus)
   const autoSummary = useBlueprintsStore((s) => s.autoSummary)
   const [full, setFull] = React.useState(false)
@@ -497,10 +498,16 @@ export function BlueprintScreen() {
   const [autoOpen, setAutoOpen] = React.useState(false)
   const [autoText, setAutoText] = React.useState("")
   const [autoError, setAutoError] = React.useState<string | null>(null)
-  const runAuto = async () => {
+  const runAuto = async (mode: "create" | "edit") => {
     if (!autoText.trim() || autoStatus) return
     setAutoError(null)
     try {
+      if (mode === "edit" && bp) {
+        await autoEdit(bp.id, autoText.trim())
+        setAutoOpen(false)
+        setAutoText("")
+        return
+      }
       const created = await autoCreate(autoText.trim())
       setAutoOpen(false)
       setAutoText("")
@@ -529,6 +536,16 @@ export function BlueprintScreen() {
         .autoCreate(autorun.auto)
         .then((created) => navigate(`/blueprint/${created.id}`))
         .catch((err: unknown) => console.warn("[autostart] auto blueprint failed", err instanceof Error ? err.message : String(err)))
+      return
+    }
+    if (autorun.edit) {
+      void (async () => {
+        await useBlueprintsStore.getState().load()
+        const target = resolveAutorun(useBlueprintsStore.getState().blueprints, autorun)
+        if (!target) return console.warn("[autostart] blueprint not found for edit", autorun.ref)
+        navigate(`/blueprint/${target.bp.id}`)
+        await useBlueprintsStore.getState().autoEdit(target.bp.id, autorun.edit!)
+      })().catch((err: unknown) => console.warn("[autostart] blueprint edit failed", err instanceof Error ? err.message : String(err)))
       return
     }
     void (async () => {
@@ -580,7 +597,8 @@ export function BlueprintScreen() {
           <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t("bp.auto")}</div>
           <Textarea value={autoText} onChange={(e) => setAutoText(e.target.value)} rows={4} placeholder={t("bp.autoPlaceholder")} className="text-[12px]" disabled={Boolean(autoStatus)} />
           <div className="flex items-center gap-3">
-            <NeonButton size="sm" onClick={() => void runAuto()} disabled={!autoText.trim() || Boolean(autoStatus)}>{autoStatus ? <Loader2 className="animate-spin" /> : <Sparkles />}{autoStatus ? t("bp.autoWorking") : t("bp.autoRun")}</NeonButton>
+            {bp && <NeonButton size="sm" onClick={() => void runAuto("edit")} disabled={!autoText.trim() || Boolean(autoStatus)}>{autoStatus ? <Loader2 className="animate-spin" /> : <Sparkles />}{autoStatus ? t("bp.autoWorking") : t("bp.autoEdit")}</NeonButton>}
+            <NeonButton size="sm" variant={bp ? "outline" : "default"} onClick={() => void runAuto("create")} disabled={!autoText.trim() || Boolean(autoStatus)}>{!bp && autoStatus ? <Loader2 className="animate-spin" /> : <Plus />}{bp ? t("bp.autoCreateNew") : autoStatus ? t("bp.autoWorking") : t("bp.autoRun")}</NeonButton>
             <span className="mono text-[11px] text-text-3">{autoStatus ?? t("bp.autoHint")}</span>
             {autoError && <span className="text-[11px] text-danger">{autoError}</span>}
           </div>

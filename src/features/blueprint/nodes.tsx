@@ -89,9 +89,12 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
           {d.repos?.length ? <span>⎇ {d.repos.length} repo</span> : null}
         </div>
       ) : null}
+      {roster.length > 0 && n.status !== "running" && roster.some((r) => !r.tasks.length) && (
+        <div className="mt-1 text-[10px] text-text-3">{t("bp.rosterUnused", { n: roster.filter((r) => !r.tasks.length).length })}</div>
+      )}
       {roster.length > 0 && (
         <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">
-          {roster.map((row) => {
+          {roster.filter((row) => row.tasks.length || n.status === "running").map((row) => {
             const done = row.tasks.filter((x) => x.state === "completed").length
             return (
               <div key={row.modelRef}>
