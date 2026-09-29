@@ -24,7 +24,7 @@ export const en: Dictionary = {
     modeLabel: "Mode", mode: { orchestration: "Orchestration", single: "Single session" },
     purpose: "Purpose", aiPurposePlaceholder: "Used by Reload, e.g. \"regenerate any broken image\"", wizardPurposePlaceholder: "e.g. When a new photo arrives, understand what is needed and write a short instruction for the wired AI", purposeEmpty: "(no purpose)",
     buildTitle: "Build name (e.g. loki 2)", buildEmpty: "no folder yet (created on first run)", files: "files", dropHint: "Drop files here → copied into the build",
-    buttonKind: "Button kind", button: { start: "Start", send: "Send", reload: "Reload", parallel: "Parallel" },
+    rosterIdle: "no task", buttonKind: "Button kind", button: { start: "Start", send: "Send", reload: "Reload", parallel: "Parallel" },
     buttonHint: { start: "Runs every AI wired forward, in order.", send: "Copies the incoming build's files into wired builds/AIs.", reload: "Re-runs the wired AI with its purpose.", parallel: "Starts every wired AI AT THE SAME TIME; the chain continues once all are done." },
     variableFilter: "File filter", variableHint: "Fires the wired Wizard/AI when files change in the wired build.",
     run: "Run", log: "Log", logEmpty: "No output yet.",

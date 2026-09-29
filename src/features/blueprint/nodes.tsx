@@ -8,6 +8,7 @@ import { formatTokens } from "@/lib/format"
 import { ModelLogo } from "@/design-system"
 import { PROVIDERS } from "@/providers/registry"
 import { useT } from "@/i18n"
+import { rosterGlyph, teamRoster } from "@/engine/blueprint/roster"
 
 export type BpFlowNode = { id: string; type: string; position: { x: number; y: number }; data: { node: BpNode; warnings: string[]; log?: string } }
 
@@ -60,21 +61,51 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   const n = data.node
   const d: BpAiData = n.data.type === "ai" ? n.data : { modelRef: "", mode: "orchestration" }
   const runId = n.executionId && !n.executionId.startsWith("session:") ? n.executionId : undefined
-  // Live tokens of an orchestration run in flight (primitive selector: a number, never a fresh object).
-  const live = useRunsStore((s) => (runId && n.status === "running" ? (s.byId(runId)?.plan ?? []).reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0))
-  const questions = useRunsStore((s) => (runId && n.status === "running" ? (s.byId(runId)?.plan ?? []).filter((st) => st.state === "blocked" && st.question).length : 0))
+  // The run object itself is a stable store reference (replaced only when it changes), so selecting it is loop-safe.
+  const run = useRunsStore((s) => (runId ? s.byId(runId) : undefined))
+  const plan = run?.plan
+  const live = n.status === "running" && plan ? plan.reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0
+  const questions = n.status === "running" && plan ? plan.filter((st) => st.state === "blocked" && st.question).length : 0
   const tokens = (d.tokens ?? 0) + live
   const extra = (d.pool ?? []).filter((p) => p !== d.modelRef)
+  const poolRefs = React.useMemo(() => Array.from(new Set([d.modelRef, ...(d.pool ?? [])].filter(Boolean))), [d.modelRef, d.pool])
+  // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
+  const roster = React.useMemo(() => (plan && d.mode === "orchestration" ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
   return (
-    <Shell node={n} icon={<Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)}>
+    <Shell node={n} icon={<Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)} className={roster.length ? "w-[280px]" : undefined}>
       <div className="flex items-center gap-2">
         {d.modelRef ? <ModelLogo modelRef={d.modelRef} size={14} /> : null}
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
         {tokens > 0 && <span className="mono ml-auto shrink-0 text-[10px] text-text-3">{formatTokens(tokens)} tok</span>}
       </div>
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
-      {extra.length > 0 && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
+      {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
+      {roster.length > 0 && (
+        <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">
+          {roster.map((row) => {
+            const done = row.tasks.filter((x) => x.state === "completed").length
+            return (
+              <div key={row.modelRef}>
+                <div className="flex items-center gap-1.5">
+                  <ModelLogo modelRef={row.modelRef} size={11} />
+                  <span className="mono truncate text-[10px] text-text-2">{row.modelRef.split(":")[1]}</span>
+                  <span className="mono ml-auto shrink-0 text-[9px] text-text-3">{row.tasks.length ? `${done}/${row.tasks.length}` : t("bp.rosterIdle")}</span>
+                </div>
+                {row.tasks.map((task) => {
+                  const g = rosterGlyph(task.state)
+                  return (
+                    <div key={task.id} className="flex items-start gap-1 pl-4 text-[10px] leading-4" title={`${task.title} — ${task.state}`}>
+                      <span className={cn("shrink-0", g.className)}>{g.glyph}</span>
+                      <span className="truncate text-text-2">{task.title}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </Shell>
   )
 }
