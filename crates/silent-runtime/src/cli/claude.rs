@@ -11,6 +11,12 @@ use crate::events::{
 
 pub struct Claude;
 
+/// Shell commands a read-only Claude session may run without prompts (observe, never mutate).
+pub const READ_ONLY_BASH: &[&str] = &[
+    "Bash(npm run:*)", "Bash(npm test:*)", "Bash(npx:*)", "Bash(cargo test:*)", "Bash(cargo check:*)", "Bash(git diff:*)", "Bash(git status:*)", "Bash(git log:*)",
+    "Bash(ls:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(find:*)", "Bash(node -e:*)", "Bash(python3 -c:*)",
+];
+
 /// `claude -p <prompt> --output-format stream-json --verbose --include-partial-messages
 /// --permission-prompts none --permission-mode acceptEdits [--allowedTools Bash (workspace-write)] [--model m] [--effort e]
 /// [--resume id] [--add-dir cwd] [--no-session-persistence]`. Process cwd = req.cwd.
@@ -48,6 +54,16 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         if cfg!(unix) && std::env::temp_dir() != std::path::Path::new("/tmp") {
             args.push("--add-dir".into());
             args.push("/tmp".into());
+        }
+    } else {
+        // Read-only (Bilinç, wizards, namers): edits are hard-blocked, but observation commands (tests,
+        // typecheck, build, git diff, searches) are pre-allowed — a reviewer that cannot run the tests
+        // reports guesses (2026-09-29).
+        args.push("--disallowedTools".into());
+        args.push("Edit,Write,MultiEdit,NotebookEdit".into());
+        args.push("--allowedTools".into());
+        for pattern in READ_ONLY_BASH {
+            args.push(pattern.to_string());
         }
     }
     if let Some(model) = req.model() {
@@ -405,6 +421,27 @@ mod tests {
                 "none",
                 "--permission-mode",
                 "acceptEdits",
+                "--disallowedTools",
+                "Edit,Write,MultiEdit,NotebookEdit",
+                "--allowedTools",
+                "Bash(npm run:*)",
+                "Bash(npm test:*)",
+                "Bash(npx:*)",
+                "Bash(cargo test:*)",
+                "Bash(cargo check:*)",
+                "Bash(git diff:*)",
+                "Bash(git status:*)",
+                "Bash(git log:*)",
+                "Bash(ls:*)",
+                "Bash(rg:*)",
+                "Bash(grep:*)",
+                "Bash(cat:*)",
+                "Bash(head:*)",
+                "Bash(tail:*)",
+                "Bash(wc:*)",
+                "Bash(find:*)",
+                "Bash(node -e:*)",
+                "Bash(python3 -c:*)",
                 "--model",
                 "opus",
                 "--effort",
