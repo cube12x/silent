@@ -24,12 +24,13 @@ function kindList(kinds: BpStubKind[]): string {
 /** Injected into an AI that has a Uydurma wired INTO it: never spend effort producing real assets. */
 export function stubProducerPolicy(stubs: BpStubData[]): string {
   const kinds = Array.from(new Set(stubs.flatMap((s) => s.kinds)))
-  const folder = stubs[0]?.folder || "assets/uydurma"
+  // One line per stub: each stub owns a folder (and manifest), so different fillers can work in parallel.
+  const routes = stubs.map((s) => `  ${kindList(s.kinds)} → python3 .silent/tools/${UYDURMA_TOOL_NAME} --root ${s.folder || "assets/uydurma"} add --kind <${s.kinds.join("|")}> --path ${s.folder || "assets/uydurma"}/<kind>__<short-slug-of-the-prompt>.<ext> --prompt "<the full generation prompt: subject, style, palette, size, mood, loop/length>" [--size WxH] [--seconds N]`)
   return [
-    "UYDURMA (placeholder) POLICY — asset production is delegated to another AI to save cost:",
-    `Do NOT draw, paint, synthesise or hand-code any real ${kindList(kinds)} asset. Instead register a PLACEHOLDER for each one with Silent's tool (already present at .silent/tools/${UYDURMA_TOOL_NAME}):`,
-    `  python3 .silent/tools/${UYDURMA_TOOL_NAME} add --kind <${kinds.join("|")}> --path ${folder}/<kind>__<short-slug-of-the-prompt>.<ext> --prompt "<the full generation prompt: subject, style, palette, size, mood, loop/length>" [--size WxH] [--seconds N]`,
-    "The file name IS the prompt (slug), the placeholder shows its own name (image: label + grid; audio: short tone; text/json/obj: prompt inside), and " + folder + "/uydurma.json keeps kind, path, prompt, size and status.",
+    "UYDURMA (placeholder) POLICY — asset production is delegated to other AIs to save cost:",
+    `Do NOT draw, paint, synthesise, model or hand-code any real ${kindList(kinds)} asset. Instead register a PLACEHOLDER for each one with Silent's tool (already present at .silent/tools/${UYDURMA_TOOL_NAME}), using the folder that matches the kind:`,
+    ...routes,
+    "The file name IS the prompt (slug), the placeholder shows its own name (image: label + grid; audio: short tone; text/json/obj: prompt inside; model3d: a valid OBJ cube), and each folder's uydurma.json keeps kind, path, prompt, size and status.",
     "Wire the placeholders into the code exactly like final assets (same paths); the game/app must run and look coherent with them. Write prompts precise enough that another model can produce the final asset without seeing the code. Keep the manifest complete: every asset the product needs must be registered.",
   ].join("\n")
 }

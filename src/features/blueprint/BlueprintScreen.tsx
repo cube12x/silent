@@ -68,15 +68,26 @@ function Canvas({ bpId }: { bpId: string }) {
   const runningIds = React.useMemo(() => new Set((bp?.nodes ?? []).filter((n) => n.status === "running").map((n) => n.id)), [bp])
   const flowEdges = React.useMemo<Edge[]>(() => (bp?.edges ?? []).map((e) => ({ id: e.id, source: e.from, target: e.to, animated: runningIds.has(e.from) || runningIds.has(e.to) })), [bp, runningIds])
 
+  // First fit happens once the nodes are measured (the mount-time fit sees zero-size nodes and a half-laid-out container);
+  // a container resize (side panel opening, window resize) refits until the user has panned or zoomed by hand.
+  const fittedRef = React.useRef(false)
+  const userMovedRef = React.useRef(false)
+  const doFit = React.useCallback(() => {
+    window.requestAnimationFrame(() => void fitView({ padding: 0.2, maxZoom: 1, duration: 0 }))
+  }, [fitView])
   const onNodesChange = React.useCallback(
     (changes: NodeChange<BpFlowNode>[]) => {
+      if (!fittedRef.current && changes.some((c) => c.type === "dimensions")) {
+        fittedRef.current = true
+        doFit()
+      }
       for (const c of changes) {
         if (c.type === "position" && c.position) updateNode(bpId, c.id, { x: c.position.x, y: c.position.y })
         else if (c.type === "remove") removeNode(bpId, c.id)
         else if (c.type === "select") setSelectedId((cur) => (c.selected ? c.id : cur === c.id ? undefined : cur))
       }
     },
-    [bpId, updateNode, removeNode],
+    [bpId, updateNode, removeNode, doFit],
   )
   const onEdgesChange = React.useCallback(
     (changes: EdgeChange[]) => {
@@ -156,6 +167,17 @@ function Canvas({ bpId }: { bpId: string }) {
     return () => window.removeEventListener("keydown", onKey)
   }, [bpId])
 
+  const canvasRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    const el = canvasRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() => {
+      if (!userMovedRef.current && fittedRef.current) doFit()
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [doFit])
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     const inField = Boolean((e.target as HTMLElement).closest("textarea, input, select"))
     if (e.key === "Enter" && selectedId && !inField) {
@@ -171,7 +193,7 @@ function Canvas({ bpId }: { bpId: string }) {
   if (!bp) return null
   return (
     <div className="relative flex h-full min-h-0 flex-1" onKeyDown={onKeyDown}>
-      <div className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: e.clientX, y: e.clientY, left: e.clientX - r.left, top: e.clientY - r.top }) }} onClick={() => menu && setMenu(null)}>
+      <div ref={canvasRef} className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: e.clientX, y: e.clientY, left: e.clientX - r.left, top: e.clientY - r.top }) }} onClick={() => menu && setMenu(null)}>
         <ReactFlow<BpFlowNode>
           nodes={flowNodes}
           edges={flowEdges}
@@ -182,6 +204,9 @@ function Canvas({ bpId }: { bpId: string }) {
           onNodeDoubleClick={(_, n) => { const node = bp.nodes.find((x) => x.id === n.id); if (node) trigger(node) }}
           onPaneClick={() => setMenu(null)}
           fitView={fitOnInit}
+          onMoveStart={(e) => {
+            if (e) userMovedRef.current = true
+          }}
           fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
           minZoom={0.3}
           maxZoom={1.6}
