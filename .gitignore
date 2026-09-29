@@ -10,3 +10,8 @@ coverage
 test-results
 playwright-report
 *.tsbuildinfo
+.serena/
+*.dmg
+*.AppImage
+.env*
+scratch-*.png

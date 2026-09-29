@@ -74,7 +74,7 @@ export class TestBackend implements Backend {
     return this.projectFiles[rel] ?? null
   }
   async createProjectDir(name: string) {
-    return `/Users/cube/CubeCode/${name}`
+    return `/Users/demo/CubeCode/${name}`
   }
   async openExternal() {}
   async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
@@ -104,8 +104,8 @@ export class TestBackend implements Backend {
     this.preview = true
     this.detected = [
       { id: "codex", binary: "codex", installed: true, version: "codex-cli 0.153.2", path: "/opt/homebrew/bin/codex" },
-      { id: "claude", binary: "claude", installed: true, version: "2.1.280", path: "/Users/cube/.local/bin/claude" },
-      { id: "kimi", binary: "kimi", installed: true, version: "0.34.0", path: "/Users/cube/.kimi-code/bin/kimi" },
+      { id: "claude", binary: "claude", installed: true, version: "2.1.280", path: "/Users/demo/.local/bin/claude" },
+      { id: "kimi", binary: "kimi", installed: true, version: "0.34.0", path: "/Users/demo/.kimi-code/bin/kimi" },
       { id: "grok", binary: "grok", installed: false }, { id: "gemini", binary: "gemini", installed: false }, { id: "qwen", binary: "qwen", installed: false }, { id: "opencode", binary: "opencode", installed: false }, { id: "copilot", binary: "copilot", installed: false }, { id: "cursor", binary: "agent", installed: false }, { id: "amp", binary: "amp", installed: false },
     ]
     this.models = {

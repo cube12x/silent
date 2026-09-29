@@ -6,7 +6,7 @@ import { useSettingsStore } from "./settings"
 
 /** Exact JSON shape the Rust `providers_detect` command returned on this machine (2026-09-23). */
 const RUST_DETECT = JSON.parse(
-  '[{"id":"codex","binary":"codex","installed":true,"version":"0.153.2","path":"/opt/homebrew/bin/codex"},{"id":"claude","binary":"claude","installed":true,"version":"2.1.280","path":"/Users/cube/.local/bin/claude"},{"id":"kimi","binary":"kimi","installed":true,"version":"0.34.0","path":"/Users/cube/.kimi-code/bin/kimi"},{"id":"grok","binary":"grok","installed":false},{"id":"gemini","binary":"gemini","installed":false},{"id":"qwen","binary":"qwen","installed":false},{"id":"opencode","binary":"opencode","installed":false},{"id":"copilot","binary":"copilot","installed":false},{"id":"cursor","binary":"agent","installed":false},{"id":"amp","binary":"amp","installed":false}]',
+  '[{"id":"codex","binary":"codex","installed":true,"version":"0.153.2","path":"/opt/homebrew/bin/codex"},{"id":"claude","binary":"claude","installed":true,"version":"2.1.280","path":"/Users/demo/.local/bin/claude"},{"id":"kimi","binary":"kimi","installed":true,"version":"0.34.0","path":"/Users/demo/.kimi-code/bin/kimi"},{"id":"grok","binary":"grok","installed":false},{"id":"gemini","binary":"gemini","installed":false},{"id":"qwen","binary":"qwen","installed":false},{"id":"opencode","binary":"opencode","installed":false},{"id":"copilot","binary":"copilot","installed":false},{"id":"cursor","binary":"agent","installed":false},{"id":"amp","binary":"amp","installed":false}]',
 )
 
 describe("providers store", () => {

@@ -4,7 +4,7 @@ members = ["src-tauri", "crates/silent-runtime"]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.90"
 license = "MIT"
 
 [workspace.dependencies]
