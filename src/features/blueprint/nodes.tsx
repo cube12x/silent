@@ -81,6 +81,12 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
+      {(d.instructions?.trim() || d.repos?.length) ? (
+        <div className="mt-0.5 flex gap-2 text-[10px] text-text-3">
+          {d.instructions?.trim() ? <span>✎ {t("bp.instructionsShort")}</span> : null}
+          {d.repos?.length ? <span>⎇ {d.repos.length} repo</span> : null}
+        </div>
+      ) : null}
       {roster.length > 0 && (
         <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">
           {roster.map((row) => {

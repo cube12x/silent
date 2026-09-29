@@ -1,5 +1,6 @@
 import type { Blueprint, BpEdge, BpNode, BpNodeType, BpStubData } from "@/domain"
 import { canConnect } from "@/domain"
+import { isRepoUrl } from "./prompt"
 
 /** Pure graph helpers for the Blueprint executor and UI (no React, no backend). */
 
@@ -123,6 +124,7 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
     if (n.type === "ai") {
       if (!incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
+      if (n.data.type === "ai" && (n.data.repos ?? []).some((r) => r.url.trim() && !isRepoUrl(r.url))) add(n.id, "ai.badRepo")
     }
     if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {

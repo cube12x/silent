@@ -29,6 +29,18 @@ export interface BpAiData {
   pool?: string[]
   /** Uncached tokens this node's runs consumed so far (accumulates across runs). */
   tokens?: number
+  /** "Özel AI": base instructions prepended to every run (persona, rules); the wired prompt is the task. */
+  instructions?: string
+  /** "Özel AI": repositories cloned into `<build>/.silent/refs/<name>` before each run and listed in the brief. */
+  repos?: BpAiRepo[]
+}
+export interface BpAiRepo {
+  /** `https://…` or `git@…` */
+  url: string
+  /** Folder name under .silent/refs (default: last URL segment). */
+  name?: string
+  /** One line telling the AI what this repo is for. */
+  hint?: string
 }
 /** Uydurma: assets are registered as prompt-named placeholders (the name is the prompt); a cheaper AI fills them later. */
 export interface BpStubData {

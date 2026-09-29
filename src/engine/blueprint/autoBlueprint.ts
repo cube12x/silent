@@ -1,3 +1,4 @@
+import { isRepoUrl } from "./prompt"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, ProviderModel } from "@/domain"
 import { BP_STUB_KINDS, canConnect, modelRef } from "@/domain"
 import type { BpStubKind } from "@/domain"
@@ -35,6 +36,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           title: { type: "string" },
           text: { type: "string", description: "prompt: the full brief in ENGLISH" },
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
+          instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
+          repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
           mode: { type: "string", enum: ["orchestration", "single"] },
@@ -57,6 +60,8 @@ export interface AutoBlueprintNode {
   title: string
   text?: string
   purpose?: string
+  instructions?: string
+  repos?: string[]
   modelRef?: string
   pool?: string[]
   mode?: "orchestration" | "single"
@@ -84,6 +89,7 @@ export interface AutoBlueprintContext {
 const RULES = `Node types and what they do:
 - prompt: a brief (title + text). Wire into an AI. Write the text IN ENGLISH, detailed and production-grade (goal, features, quality bar, verification), titles in the user's language.
 - ai: a run. mode "orchestration" = Silent's planner splits the brief into tasks executed in parallel by workers + a polish round (use for building things); mode "single" = one CLI session (cheap follow-ups, integrations). modelRef = main model; pool = additional models the planner may assign per task (orchestration only). The planner picks a planner-capable model from the pool, so an orchestration pool MUST contain a planner-capable model.
+- ai with repos ("Özel AI"): set repos to GitHub urls and put the persona/standing rules in instructions; Silent clones the repos into .silent/refs before every run and lists their paths in the brief. Use it for mods, ports and "learn from this codebase" tasks; the wired prompt stays the task.
 - build: the real project folder the AI writes into. One Build per project; an AI wired into it develops that folder. Wire Build → prompt → ai for follow-up stages on the same project.
 - buildPhoto: collects images produced by the wired AI (and workers' screenshots).
 - button start: runs the chain forward, one AI after another. button parallel ("Paralel"): every prompt/AI wired after it starts AT THE SAME TIME and the chain continues only when all are done — wire Build → parallel → the independent role prompts (audio, models, textures, text) so they do not queue. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
@@ -199,7 +205,8 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           pool.push(fallbackRef)
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose }
+        const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined }
         break
       }
       case "wizard":

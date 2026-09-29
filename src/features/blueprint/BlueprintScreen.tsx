@@ -18,6 +18,7 @@ import { ModelPicker } from "@/features/chat/ModelPicker"
 import { BUILTIN_KITS } from "@/domain/kits"
 import { getBackend } from "@/services"
 import { isTauri } from "@/services/backend"
+import { isRepoUrl } from "@/engine/blueprint/prompt"
 import { modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
@@ -25,6 +26,7 @@ import { useI18nStore, useT } from "@/i18n"
 const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: string }> = [
   { type: "prompt", key: "prompt" },
   { type: "ai", key: "ai" },
+  { type: "ai", data: { mode: "single", instructions: "", repos: [] }, key: "aiCustom" },
   { type: "build", key: "build" },
   { type: "buildPhoto", key: "buildPhoto" },
   { type: "button", data: { kind: "start" }, key: "button.start" },
@@ -239,7 +241,7 @@ function Canvas({ bpId }: { bpId: string }) {
                 onClick={(e) => {
                   e.stopPropagation()
                   const pos = screenToFlowPosition({ x: menu.x, y: menu.y })
-                  const node = addNode(bpId, m.type, pos.x, pos.y, m.data)
+                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.data)
                   if (node) setSelectedId(node.id)
                   setMenu(null)
                 }}
@@ -329,6 +331,27 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.purpose")}
             <Textarea value={d.purpose ?? ""} onChange={(e) => patch({ purpose: e.target.value })} rows={4} placeholder={d.type === "wizard" ? t("bp.wizardPurposePlaceholder") : t("bp.aiPurposePlaceholder")} className="text-[12px]" />
           </label>
+          {d.type === "ai" && (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.instructions")}
+                <Textarea value={d.instructions ?? ""} onChange={(e) => patch({ instructions: e.target.value })} rows={4} placeholder={t("bp.instructionsPlaceholder")} className="text-[12px]" />
+              </label>
+              <div className="flex flex-col gap-1 text-xs text-text-3">
+                <div className="flex items-center justify-between">
+                  <span>{t("bp.repos")}</span>
+                  <button type="button" className="text-[11px] text-text-2 hover:text-text-1" onClick={() => patch({ repos: [...(d.repos ?? []), { url: "" }] })}>+ {t("bp.reposAdd")}</button>
+                </div>
+                {(d.repos ?? []).map((r, i) => (
+                  <div key={i} className="flex items-center gap-1">
+                    <Input value={r.url} onChange={(e) => patch({ repos: (d.repos ?? []).map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })} placeholder="https://github.com/owner/repo" className={cn("h-7 flex-1 text-[11px]", r.url.trim() && !isRepoUrl(r.url) && "border-danger/60")} />
+                    <Input value={r.hint ?? ""} onChange={(e) => patch({ repos: (d.repos ?? []).map((x, j) => (j === i ? { ...x, hint: e.target.value } : x)) })} placeholder={t("bp.repoHint")} className="h-7 w-28 text-[11px]" />
+                    <button type="button" onClick={() => patch({ repos: (d.repos ?? []).filter((_, j) => j !== i) })} className="text-text-3 hover:text-danger" aria-label={t("common.remove")}><Trash2 className="size-3" /></button>
+                  </div>
+                ))}
+                <span className="text-[10px]">{t("bp.reposHint")}</span>
+              </div>
+            </>
+          )}
           {blocked.length > 0 && (
             <div className="flex flex-col gap-2 rounded-sm border border-warn/50 bg-warn/5 p-2 text-xs">
               <div className="text-[10px] font-semibold tracking-[0.16em] text-warn uppercase">❓ {t("bp.questions", { n: blocked.length })}</div>

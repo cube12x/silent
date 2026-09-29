@@ -65,4 +65,22 @@ describe("auto blueprint", () => {
   it("prefers a Claude planner model", () => {
     expect(pickAutoBlueprintModel(TEST_MODELS)?.providerId).toBe("claude")
   })
+  it("keeps an Özel AI's instructions and valid repo urls", () => {
+    const res = materializeAutoBlueprint(
+      {
+        name: "mod",
+        summary: "",
+        nodes: [
+          { key: "p", type: "prompt", title: "Mod", text: "Add double jump" },
+          { key: "a", type: "ai", title: "Modder", modelRef: "codex:gpt-6-astra", mode: "single", instructions: " You are the modder. ", repos: ["https://github.com/acme/game", "not a url"] },
+          { key: "b", type: "build", title: "Game" },
+        ],
+        edges: [{ from: "p", to: "a" }, { from: "a", to: "b" }],
+      },
+      TEST_MODELS,
+    )
+    const ai = res.nodes.find((n) => n.type === "ai")!
+    expect(ai.data.type === "ai" && ai.data.instructions).toBe("You are the modder.")
+    expect(ai.data.type === "ai" && ai.data.repos).toEqual([{ url: "https://github.com/acme/game" }])
+  })
 })

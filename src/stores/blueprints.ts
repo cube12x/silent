@@ -9,7 +9,8 @@ import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
 import { BUILTIN_KITS } from "@/domain/kits"
-import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE, stubFillerPolicy, stubProducerPolicy } from "@/engine/blueprint/uydurma"
+import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
+import { aiTaskText, buildAiPrompt, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -449,8 +450,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   const backend = await getBackend()
   const { prompt: wired, buildFolders, promptTitles, stubs, fills } = composeAiInput(bp, aiId)
-  let prompt = [opts?.purpose ? `Purpose: ${opts.purpose}` : "", wired, opts?.extraPrompt ?? ""].filter(Boolean).join("\n\n")
-  if (!prompt.trim() && !fills.length) {
+  const task = aiTaskText({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt })
+  if (!task && !fills.length) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no prompt" })
     log(set, aiId, "⚠ wire a prompt into this AI")
     return false
@@ -487,14 +488,25 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } else if (outBuild.data.type === "build" && !outBuild.data.folderPath) {
     store.updateNode(bpId, outBuild.id, { data: { folderPath: cwd, title: outBuild.data.title || title } })
   }
-  if (buildFolders[0]) prompt = `Work inside the existing project at ${cwd} (it is already there; do not recreate it).\n\n${prompt}`
+  // Özel AI: clone the reference repositories into the working folder before the run.
+  const repos = (ai.data.repos ?? []).filter((r) => isRepoUrl(r.url))
+  let refPaths: RefPath[] = []
+  if (repos.length) {
+    log(set, aiId, `⎇ cloning ${repos.length} repo(s) into .silent/refs`)
+    const synced = await backend.syncReferences(cwd, repos.map((r) => ({ name: repoName(r), url: r.url.trim() })))
+    for (const r of synced) if (!r.ok) log(set, aiId, `⚠ clone failed: ${r.name}${r.error ? `: ${r.error}` : ""}`)
+    refPaths = synced.filter((r) => r.ok).map((r) => ({ name: r.name, path: r.path, hint: repos.find((x) => repoName(x) === r.name)?.hint?.trim() || undefined }))
+    if (!refPaths.length) {
+      store.updateNode(bpId, aiId, { status: "failed", note: "repo clone failed" })
+      return false
+    }
+  }
   if (stubs.length || fills.length) {
-    // Uydurma: ship the placeholder tool into the build and prepend the policy.
+    // Uydurma: ship the placeholder tool into the build; buildAiPrompt prepends the policy.
     await backend.blueprintWriteTool(cwd, UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE)
-    if (stubs.length) prompt = `${stubProducerPolicy(stubs)}\n\n${prompt}`
-    if (fills.length) prompt = `${stubFillerPolicy(fills)}\n\n${prompt}`
     log(set, aiId, stubs.length ? `uydurma: placeholder policy (${Array.from(new Set(stubs.flatMap((s) => s.kinds))).join(", ")})` : "uydurma: fill job")
   }
+  const prompt = buildAiPrompt({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)

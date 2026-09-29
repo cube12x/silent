@@ -128,6 +128,14 @@ describe("uydurma (placeholder) wiring", () => {
     expect(walkPlan(g, "par").map((st) => (st.kind === "ai" ? st.node.id : "par"))).toEqual(["par", "int"])
     expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
   })
+  it("lints a repo url an Özel AI cannot clone", () => {
+    const g = bp()
+    const ai = g.nodes.find((n) => n.id === "a")!
+    ai.data = { ...ai.data, repos: [{ url: "github.com/acme/engine" }, { url: "" }] } as typeof ai.data
+    expect(lintBlueprint(g).a).toEqual(["ai.badRepo"])
+    ai.data = { ...ai.data, repos: [{ url: "https://github.com/acme/engine" }] } as typeof ai.data
+    expect(lintBlueprint(g).a).toBeUndefined()
+  })
   it("lints an unwired Paralel button", () => {
     const g = team()
     g.edges = g.edges.filter((e) => e.from !== "par")
