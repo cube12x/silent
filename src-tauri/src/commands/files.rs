@@ -42,8 +42,12 @@ mod tests {
     fn rejects_traversal_and_absolute() {
         assert!(safe_join(Path::new("/r"), "../x").is_none());
         assert!(safe_join(Path::new("/r"), "/etc/passwd").is_none());
-        assert!(safe_join(Path::new("/r"), "\\etc\\passwd").is_none());
-        assert!(safe_join(Path::new("/r"), "C:\\x\\y").is_none());
+        // On unix these are ordinary relative file names; only Windows treats them as rooted/drive paths.
+        #[cfg(windows)]
+        {
+            assert!(safe_join(Path::new("/r"), "\\etc\\passwd").is_none());
+            assert!(safe_join(Path::new("/r"), "C:\\x\\y").is_none());
+        }
         assert_eq!(
             safe_join(Path::new("/r"), "docs/a.md").unwrap(),
             Path::new("/r/docs/a.md")
