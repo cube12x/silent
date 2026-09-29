@@ -35,7 +35,8 @@ export type BpReportKind = "bilinc" | "donusturucu"
 /** Dönüştürücü: converts the wired assets into the format the next step needs, with the bundled tool, and reports a manifest. */
 export const DONUSTURUCU_POLICY = `You are the DÖNÜŞTÜRÜCÜ (converter) step. Your job: bring the assets wired into you (folders, sheets, photos, WAVs) into the exact format the next step needs — the Purpose and the wired prompts say what that is. Use the bundled tool for every conversion; never hand-write image or audio bytes:
   python3 .silent/tools/donusturucu.py inspect <folder> [--json]      # what is there: size, mode, alpha, frame guess, colours
-  python3 .silent/tools/donusturucu.py --help                        # convert · resize · trim · crop · removebg · split · pack · palette · wav
+  python3 .silent/tools/donusturucu.py --help                        # convert · resize · trim · crop · removebg · split · grid · pack · palette · wav
+AI-generated sheets (a big JPG/PNG with a grid of labelled cells): LOOK at the image first (read it), measure the cell size, origin, gap and caption strip, then `grid --cols … --rows … --cell WxH --origin x,y --gap g --label h --names …`, then `removebg` on the cells (dark/plain cell background), then `resize --size` to the frame size the game uses, then `pack --name … ` for a sheet + JSON atlas.
 Rules: the source folder is read-only; write only under assets/converted/ (or the folder the Purpose names, via --out). Pixel art is resized nearest-neighbour (default). removebg uses rembg when installed, otherwise a corner flood-fill — say which one ran. Convert only what the next step needs; do not invent assets. Finish with the manifest and nothing after it:
 # CONVERTED
 - <source> → <output> · <operation> · <why the next step needs it>
@@ -43,7 +44,7 @@ Rules: the source folder is read-only; write only under assets/converted/ (or th
 - what you could not convert and what the next step should do about it`
 
 /** One paragraph for every AI working inside a project: convert on demand instead of reporting an asset unusable. */
-export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/pack/palette/wav; Pillow + numpy). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/ with this tool and use the result — do not report it unusable."
+export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/grid/pack/palette/wav; Pillow + numpy). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/ with this tool and use the result — do not report it unusable."
 
 /** Converted-asset manifests of the Dönüştürücü nodes wired into an AI. */
 export function convertedBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {

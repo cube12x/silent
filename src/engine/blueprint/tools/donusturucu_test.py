@@ -123,6 +123,19 @@ class ConverterTests(unittest.TestCase):
             pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
         self.assertGreaterEqual(abs(pcm).max() / 32767, 0.9)
 
+    def test_grid_crops_regular_cells_and_drops_label_strip(self):
+        # 2 columns x 1 row, cells 32x32 at origin (0,0), gap 0 — same geometry as the hero sheet
+        code, so, se = run("grid", "art/hero.png", "--cols", "2", "--rows", "1", "--cell", "32x32", "--origin", "0,0", "--names", "idle,run", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        for name in ("idle", "run"):
+            self.assertEqual(img(self.out(name + ".png")).size, (32, 32))
+        self.assertEqual(img(self.out("run.png")).convert("RGB").getpixel((9, 9)), (200, 30, 30))
+        # --label 8 keeps only the top 24 px of each 32 px cell (the caption strip is dropped)
+        code, _, se = run("grid", "art/hero.png", "--cols", "2", "--rows", "1", "--cell", "32x32", "--label", "8", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        self.assertEqual(img(self.out("hero_0.png")).size, (32, 24))
+        self.assertIn("· grid ·", so)
+
     def test_usage_error_exit_code(self):
         code, _, _ = run("resize", "art/hero.png", cwd=self.root)  # neither --scale nor --size
         self.assertEqual(code, 2)

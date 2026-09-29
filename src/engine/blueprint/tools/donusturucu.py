@@ -12,6 +12,7 @@ manifest that the next AI reads.
   python3 .silent/tools/donusturucu.py crop a.png --box x,y,w,h
   python3 .silent/tools/donusturucu.py removebg photo.jpg [--tol 24] [--key #ff00ff] [--no-rembg]
   python3 .silent/tools/donusturucu.py split sheet.png --frame 32x32 [--names idle,run,jump]
+  python3 .silent/tools/donusturucu.py grid sheet.jpg --cols 8 --rows 4 --cell 125x125 [--origin 12,60] [--gap 3] [--label 30] [--names ...]  # regular grid with captions
   python3 .silent/tools/donusturucu.py pack f0.png f1.png --name hero [--frame 32x32] [--columns 8]
   python3 .silent/tools/donusturucu.py palette a.png --colors 16
   python3 .silent/tools/donusturucu.py wav a.wav [--rate 44100] [--bits 16] [--mono] [--normalize] [--trim-silence]
@@ -271,6 +272,28 @@ def cmd_split(args):
                 i += 1
 
 
+def cmd_grid(args):
+    """Crop a regular N×M grid of cells (AI-generated sheets: fixed cell size, optional gap and caption strip)."""
+    cw, ch = args.cell
+    ox, oy = args.origin
+    names = args.names.split(",") if args.names else []
+    for f in expand(args.paths):
+        im = Image.open(f).convert("RGBA")
+        stem = os.path.splitext(os.path.basename(f))[0]
+        i = 0
+        for r in range(args.rows):
+            for c in range(args.cols):
+                x, y = ox + c * (cw + args.gap), oy + r * (ch + args.gap)
+                if x + cw > im.width or y + ch > im.height:
+                    raise SystemExit(f"donusturucu: cell ({c},{r}) at {x},{y} falls outside {rel(f)} ({im.width}x{im.height})")
+                frame = im.crop((x, y, x + cw, y + ch - args.label))
+                name = names[i] if i < len(names) else f"{stem}_{i}"
+                dst = out_path(args, f, stem=name)
+                save(frame, dst)
+                note(f, dst, "grid", f"cell ({c},{r}) at {x},{y} {cw}x{ch - args.label}")
+                i += 1
+
+
 def cmd_pack(args):
     files = expand(args.paths)
     if not files:
@@ -365,6 +388,7 @@ def main(argv=None):
     s = sub.add_parser("crop"); s.add_argument("paths", nargs="+"); s.add_argument("--box", required=True, type=lambda t: tuple(int(v) for v in t.split(","))); s.set_defaults(fn=cmd_crop)
     s = sub.add_parser("removebg"); s.add_argument("paths", nargs="+"); s.add_argument("--tol", type=int, default=24); s.add_argument("--key", type=parse_color); s.add_argument("--no-rembg", action="store_true"); s.set_defaults(fn=cmd_removebg)
     s = sub.add_parser("split"); s.add_argument("paths", nargs="+"); s.add_argument("--frame", required=True, type=parse_size); s.add_argument("--names"); s.set_defaults(fn=cmd_split)
+    s = sub.add_parser("grid"); s.add_argument("paths", nargs="+"); s.add_argument("--cols", type=int, required=True); s.add_argument("--rows", type=int, required=True); s.add_argument("--cell", type=parse_size, required=True); s.add_argument("--origin", type=lambda t: tuple(int(v) for v in t.split(",")), default=(0, 0)); s.add_argument("--gap", type=int, default=0); s.add_argument("--label", type=int, default=0, help="caption strip height to drop from the bottom of each cell"); s.add_argument("--names"); s.set_defaults(fn=cmd_grid)
     s = sub.add_parser("pack"); s.add_argument("paths", nargs="+"); s.add_argument("--name", required=True); s.add_argument("--frame", type=parse_size); s.add_argument("--columns", type=int); s.set_defaults(fn=cmd_pack)
     s = sub.add_parser("palette"); s.add_argument("paths", nargs="+"); s.add_argument("--colors", type=int, default=16); s.set_defaults(fn=cmd_palette)
     s = sub.add_parser("wav"); s.add_argument("paths", nargs="+"); s.add_argument("--rate", type=int); s.add_argument("--bits", type=int, default=16, choices=[8, 16]); s.add_argument("--mono", action="store_true"); s.add_argument("--normalize", action="store_true"); s.add_argument("--trim-silence", action="store_true"); s.set_defaults(fn=cmd_wav)
