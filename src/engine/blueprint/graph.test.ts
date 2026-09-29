@@ -128,6 +128,16 @@ describe("uydurma (placeholder) wiring", () => {
     expect(walkPlan(g, "par").map((st) => (st.kind === "ai" ? st.node.id : "par"))).toEqual(["par", "int"])
     expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
   })
+  it("lints a Dönüştürücü with no asset source wired into it", () => {
+    const g = bp()
+    const a = g.nodes.find((n) => n.id === "a")!
+    a.data = { ...a.data, role: "donusturucu" } as typeof a.data
+    // "a" has a prompt wired in but no build/buildPhoto/stub/ai source
+    g.edges = g.edges.filter((e) => e.to !== "a" || g.nodes.find((n) => n.id === e.from)?.type === "prompt")
+    expect(lintBlueprint(g).a).toEqual(["donusturucu.noSource"])
+    g.edges.push({ id: "src", from: g.nodes.find((n) => n.type === "build")!.id, to: "a" })
+    expect(lintBlueprint(g).a ?? []).not.toContain("donusturucu.noSource")
+  })
   it("lints a lonely Bilinç or Eylem", () => {
     const g = bp()
     const a = g.nodes.find((n) => n.id === "a")!
