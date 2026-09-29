@@ -356,31 +356,30 @@ mod tests {
             .to_string_lossy()
             .trim_end_matches('/')
             .to_string();
-        assert_eq!(
-            build_args(&req(ProviderId::Claude)),
-            [
-                "-p",
-                "do the thing",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--safe-mode",
-                "--strict-mcp-config",
-                "--permission-prompts",
-                "none",
-                "--permission-mode",
-                "acceptEdits",
-                "--allowedTools",
-                "Bash",
-                "--add-dir",
-                &tmp,
-                "--add-dir",
-                "/tmp",
-                "--add-dir",
-                "/repo"
-            ]
-        );
+        let mut expected: Vec<&str> = vec![
+            "-p",
+            "do the thing",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--permission-prompts",
+            "none",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash",
+            "--add-dir",
+            &tmp,
+        ];
+        // The classic /tmp is granted separately only where the OS temp dir is somewhere else (macOS).
+        if cfg!(unix) && tmp != "/tmp" {
+            expected.extend(["--add-dir", "/tmp"]);
+        }
+        expected.extend(["--add-dir", "/repo"]);
+        assert_eq!(build_args(&req(ProviderId::Claude)), expected);
     }
 
     #[test]

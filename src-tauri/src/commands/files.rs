@@ -4,7 +4,8 @@ use std::path::{Component, Path, PathBuf};
 
 fn safe_join(root: &Path, rel: &str) -> Option<PathBuf> {
     let rel = Path::new(rel);
-    if rel.is_absolute() || rel.components().any(|c| matches!(c, Component::ParentDir)) {
+    // Absolute, rooted (`/etc`, `\etc`) or drive-prefixed (`C:`) paths and any `..` are rejected on every OS.
+    if rel.is_absolute() || rel.has_root() || rel.components().any(|c| matches!(c, Component::ParentDir | Component::Prefix(_))) {
         return None;
     }
     Some(root.join(rel))
@@ -41,6 +42,8 @@ mod tests {
     fn rejects_traversal_and_absolute() {
         assert!(safe_join(Path::new("/r"), "../x").is_none());
         assert!(safe_join(Path::new("/r"), "/etc/passwd").is_none());
+        assert!(safe_join(Path::new("/r"), "\\etc\\passwd").is_none());
+        assert!(safe_join(Path::new("/r"), "C:\\x\\y").is_none());
         assert_eq!(
             safe_join(Path::new("/r"), "docs/a.md").unwrap(),
             Path::new("/r/docs/a.md")
