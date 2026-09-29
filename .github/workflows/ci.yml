@@ -18,6 +18,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - name: Converter tool tests (python)
+        run: |
+          python3 -m pip install --quiet pillow numpy
+          python3 -m unittest discover -s src/engine/blueprint/tools -p '*_test.py' -v
 
   native:
     strategy:
