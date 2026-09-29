@@ -3,7 +3,7 @@ import "@xyflow/react/dist/style.css"
 import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type EdgeChange, type NodeChange, type Edge } from "@xyflow/react"
 import { useNavigate, useParams } from "react-router"
 import { cn } from "cn"
-import { Plus, Play, Send, Trash2, FolderOpen, Sparkles, Loader2 } from "lucide-react"
+import { Plus, Play, Send, Trash2, FolderOpen, Sparkles, Loader2, Maximize2, Minimize2 } from "lucide-react"
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
@@ -408,6 +408,17 @@ export function BlueprintScreen() {
   const autoCreate = useBlueprintsStore((s) => s.autoCreate)
   const autoStatus = useBlueprintsStore((s) => s.autoStatus)
   const autoSummary = useBlueprintsStore((s) => s.autoSummary)
+  const [full, setFull] = React.useState(false)
+  // Fullscreen: the canvas covers the whole window (sidebar/top bar hidden) and, in Tauri, the OS window goes fullscreen too. Esc leaves.
+  React.useEffect(() => {
+    if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(full)).catch(() => undefined)
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFull(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [full])
   const [autoOpen, setAutoOpen] = React.useState(false)
   const [autoText, setAutoText] = React.useState("")
   const [autoError, setAutoError] = React.useState<string | null>(null)
@@ -474,7 +485,7 @@ export function BlueprintScreen() {
     navigate(`/blueprint/${created.id}`)
   }
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className={cn("flex h-full min-h-0 flex-col", full && "fixed inset-0 z-50 bg-ink-0")}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-2">
         <PageHeader eyebrow={t("bp.title")} title="" description="" className="mb-0" />
         <select value={id ?? ""} onChange={(e) => navigate(`/blueprint/${e.target.value}`)} className="rounded-sm border border-line bg-ink-2 px-2 py-1 text-xs text-text-1">
@@ -486,6 +497,7 @@ export function BlueprintScreen() {
         <NeonButton size="sm" variant="outline" onClick={() => setAutoOpen((v) => !v)} disabled={Boolean(autoStatus)}><Sparkles />{autoStatus ? t("bp.autoWorking") : t("bp.auto")}</NeonButton>
         {bp && <button type="button" onClick={() => { void remove(bp.id); navigate("/blueprint") }} className="ml-auto rounded-sm border border-line px-2 py-1 text-xs text-text-3 hover:text-danger">{t("common.delete")}</button>}
         {bp && <span className="mono shrink-0 rounded-sm border border-line px-2 py-0.5 text-[11px] whitespace-nowrap text-text-2" title={t("bp.tokensHint")}>{t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>}
+        {bp && <button type="button" onClick={() => setFull((v) => !v)} title={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} aria-label={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} className="flex shrink-0 items-center gap-1 rounded-sm border border-line px-2 py-1 text-xs text-text-2 hover:text-text-1 [&_svg]:size-3.5">{full ? <Minimize2 /> : <Maximize2 />}{full ? t("bp.exitFullscreen") : t("bp.fullscreen")}</button>}
         <span className="text-[11px] text-text-3">{t("bp.hint")}</span>
       </div>
       {autoOpen && (

@@ -550,8 +550,11 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   bp = useBlueprintsStore.getState().byId(bpId)!
   outBuild = (outBuild && nodeById(bp, outBuild.id)) || firstOutgoing(bp, aiId, "build")
   if (outBuild) {
-    store.updateNode(bpId, outBuild.id, { data: { lastRunId: executionId }, status: ok ? "done" : "failed" })
+    // The folder did not fail, the AI did: the Build shows red only while it is still empty.
+    store.updateNode(bpId, outBuild.id, { data: { lastRunId: executionId }, status: ok ? "done" : "idle" })
     await store.refreshBuild(bpId, outBuild.id)
+    const refreshed = nodeById(useBlueprintsStore.getState().byId(bpId)!, outBuild.id)
+    if (!ok && refreshed?.data.type === "build" && (refreshed.data.fileCount ?? 0) > 0) store.updateNode(bpId, outBuild.id, { status: "done" })
   }
   const photo = firstOutgoing(bp, aiId, "buildPhoto")
   if (photo) await store.refreshBuild(bpId, photo.id)

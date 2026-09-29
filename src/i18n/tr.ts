@@ -22,7 +22,7 @@ export const tr = {
     modeLabel: "Çalışma", mode: { orchestration: "Orkestrasyon", single: "Tek oturum" },
     purpose: "Amaç", aiPurposePlaceholder: "Reload'da kullanılır: ör. \"bozuk resim varsa yeniden üret\"", wizardPurposePlaceholder: "ör. Her yeni foto düştüğünde ne gerektiğini anla, bağlı AI'a kısa talimat yaz", purposeEmpty: "(amaç yok)",
     buildTitle: "Build adı (ör. loki 2)", buildEmpty: "klasör yok (ilk koşuda oluşur)", files: "dosya", dropHint: "Dosya sürükleyip bırak → build'e kopyalanır",
-    rosterIdle: "görev yok", buttonKind: "Buton türü", button: { start: "Start", send: "Send", reload: "Reload", parallel: "Paralel" },
+    fullscreen: "Tam ekran", exitFullscreen: "Tam ekrandan çık (Esc)", rosterIdle: "görev yok", buttonKind: "Buton türü", button: { start: "Start", send: "Send", reload: "Reload", parallel: "Paralel" },
     buttonHint: { start: "İleriye bağlı her AI'ı sırayla çalıştırır.", send: "Gelen build'in dosyalarını bağlı build/AI'a kopyalar.", reload: "Bağlı AI'ı amacıyla yeniden çalıştırır.", parallel: "Bağlı bütün AI'ları AYNI ANDA başlatır; hepsi bitince zincir devam eder." },
     variableFilter: "Dosya filtresi", variableHint: "Bağlı build'de dosya değişince bağlı Sihirbaz/AI'ı tetikler.",
     run: "Çalıştır", log: "Günlük", logEmpty: "Henüz çıktı yok.",
