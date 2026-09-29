@@ -2,11 +2,18 @@
 export type Platform = "macos" | "windows" | "linux" | "unknown"
 
 let current: Platform = "unknown"
+let version = ""
 
 /** Called once at bootstrap with `std::env::consts::OS` ("macos" | "windows" | "linux" | …). */
-export function initPlatform(raw: string | undefined): Platform {
+export function initPlatform(raw: string | undefined, appVersionRaw?: string): Platform {
   current = normalizePlatform(raw)
+  if (appVersionRaw) version = appVersionRaw
   return current
+}
+
+/** `CARGO_PKG_VERSION` of the running app ("" in the browser preview). */
+export function appVersion(): string {
+  return version
 }
 
 export function normalizePlatform(raw: string | undefined): Platform {

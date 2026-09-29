@@ -18,7 +18,8 @@ export function bootstrap(): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  initPlatform((await (await getBackend()).appInfo()).platform)
+  const info = await (await getBackend()).appInfo()
+  initPlatform(info.platform, info.version)
   await useSettingsStore.getState().load()
   useI18nStore.getState().setLanguage(useSettingsStore.getState().settings.language)
   await Promise.all([useAgentsStore.getState().load(), useChatsStore.getState().load(), useRunsStore.getState().load(), useMemoryStore.getState().load()])

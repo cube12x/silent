@@ -1,5 +1,5 @@
 import * as React from "react"
-import { shortcut } from "@/lib/platform"
+import { appVersion, shortcut } from "@/lib/platform"
 import { NavLink, useNavigate } from "react-router"
 import { cn } from "cn"
 import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages, Workflow, Trash2 } from "lucide-react"
@@ -160,7 +160,7 @@ export function Sidebar() {
           <Languages className="size-4" />
           {!collapsed && <span>{language === "tr" ? "Türkçe → English" : "English → Türkçe"}</span>}
         </button>
-        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />v0.2.2 · CLI-native</div>}
+        {!collapsed && <div className="mt-1 flex items-center gap-2 px-3 text-[10px] text-text-3"><MessageSquare className="size-3" />{`v${appVersion() || "dev"}`} · CLI-native</div>}
       </div>
     </div>
   )
