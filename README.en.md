@@ -28,6 +28,7 @@ Packages are on the **Releases** page: https://github.com/cube12x/silent/release
 
 - **Silent Code**: request → AI planner (structured output) → task plan you can edit → workers on the CLIs in your pool → polish review. Every worker's terminal is live; questions from workers block the task until you answer.
 - **Blueprint**: a node canvas. Prompt → AI → Build (real folder) → more prompts/AIs; buttons Start / Send / Reload / **Paralel** (fan-out), **Uydurma** placeholders (cheap AI registers prompt-named placeholders, a specialised AI fills them later), **Özel AI** (base instructions + GitHub repos cloned per run), four clicks on a node open its terminal.
+- **Converter (Dönüştürücü)**: a third AI-box role next to Awareness/Action. It brings the images/audio in the wired folder into the format the next AI needs (format, size, crop, background removal, sprite sheet + atlas, 16-bit WAV) with the bundled `donusturucu.py` (Pillow + numpy), never touches the source, writes to `assets/converted/` and passes a CONVERTED manifest to the next box. Every AI and every orchestration worker gets the same toolkit, so an unusable asset is converted instead of reported.
 - **Security**: CLIs run in their own sandboxes (workspace-write by default); git push can never be enabled from Silent.
 
 ## Develop

@@ -37,7 +37,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           text: { type: "string", description: "prompt: the full brief in ENGLISH" },
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
-          role: { type: "string", enum: ["bilinc", "eylem"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports" },
+          role: { type: "string", enum: ["bilinc", "eylem", "donusturucu"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs" },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "ai: reasoning effort the run starts with (omit for Silent's per-task policy)" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
@@ -64,7 +64,7 @@ export interface AutoBlueprintNode {
   purpose?: string
   instructions?: string
   repos?: string[]
-  role?: "bilinc" | "eylem"
+  role?: "bilinc" | "eylem" | "donusturucu"
   effort?: "low" | "medium" | "high" | "xhigh"
   modelRef?: string
   pool?: string[]
@@ -121,6 +121,7 @@ const RULES = `Node types and what they do:
 - prompt: a brief (title + text). Wire into an AI. Write the text IN ENGLISH, detailed and production-grade (goal, features, quality bar, verification), titles in the user's language.
 - ai: a run. mode "orchestration" = Silent's planner splits the brief into tasks executed in parallel by workers + a polish round (use for building things); mode "single" = one CLI session (cheap follow-ups, integrations). modelRef = main model; pool = additional models the planner may assign per task (orchestration only). The planner picks a planner-capable model from the pool, so an orchestration pool MUST contain a planner-capable model.
 - ai with repos ("Özel AI"): set repos to GitHub urls and put the persona/standing rules in instructions; Silent clones the repos into .silent/refs before every run and lists their paths in the brief. Use it for mods, ports and "learn from this codebase" tasks; the wired prompt stays the task.
+- ai role donusturucu (asset converter): when an art/audio producer (an art AI, a buildPhoto, a placeholder filler, or files the user drops in) feeds a consumer AI that needs a specific format (transparent PNG frames, sprite sheet + atlas, 16-bit WAV), put a single-mode donusturucu ai on a cheap model between them; its purpose names the target format; wire the source (Build/buildPhoto/AI) into it and it into the consumer.
 - ai role bilinc/eylem (cost saver for investigation): a bilinc ai runs READ-ONLY (expensive model, e.g. Claude) and writes a FINDINGS/ACTIONS report; wire it into an eylem ai (cheap model, single mode, wired to the same Build) which applies the report. Shape: Build → prompt → bilinc → eylem → Build. Use for bug hunts, audits, reviews.
 - build: the real project folder the AI writes into. One Build per project; an AI wired into it develops that folder. Wire Build → prompt → ai for follow-up stages on the same project.
 - buildPhoto: collects images produced by the wired AI (and workers' screenshots).
@@ -245,7 +246,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" ? n.role : undefined, effort: n.effort }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" ? n.role : undefined, effort: n.effort }
         break
       }
       case "wizard":

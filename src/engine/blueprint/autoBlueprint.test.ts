@@ -83,6 +83,28 @@ describe("auto blueprint", () => {
     expect(ai.data.type === "ai" && ai.data.instructions).toBe("You are the modder.")
     expect(ai.data.type === "ai" && ai.data.repos).toEqual([{ url: "https://github.com/acme/game" }])
   })
+  it("keeps the Dönüştürücü role and its wiring", () => {
+    const res = materializeAutoBlueprint(
+      {
+        name: "art",
+        summary: "",
+        nodes: [
+          { key: "p", type: "prompt", title: "Art", text: "Draw sprites" },
+          { key: "art", type: "ai", title: "Art AI", modelRef: "codex:gpt-6-astra", mode: "single" },
+          { key: "g", type: "buildPhoto", title: "Gallery" },
+          { key: "c", type: "ai", title: "Dönüştürücü", modelRef: "codex:gpt-6-astra", mode: "single", role: "donusturucu", purpose: "32x32 transparent PNG frames" },
+          { key: "i", type: "ai", title: "Integrator", modelRef: "codex:gpt-6-astra", mode: "single" },
+        ],
+        edges: [{ from: "p", to: "art" }, { from: "art", to: "g" }, { from: "g", to: "c" }, { from: "c", to: "i" }],
+      },
+      TEST_MODELS,
+    )
+    const conv = res.nodes.find((n) => n.data.type === "ai" && n.data.role === "donusturucu")!
+    expect(conv).toBeTruthy()
+    expect(conv.data.type === "ai" && conv.data.purpose).toBe("32x32 transparent PNG frames")
+    const gallery = res.nodes.find((n) => n.type === "buildPhoto")!
+    expect(res.edges.some((e) => e.from === gallery.id && e.to === conv.id)).toBe(true)
+  })
   it("editing an existing blueprint keeps ids, positions, run history and full prompt text of kept nodes", () => {
     const existing = {
       id: "bp9",

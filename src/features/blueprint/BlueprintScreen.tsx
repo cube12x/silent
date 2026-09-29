@@ -32,6 +32,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "ai", data: { mode: "single", instructions: "", repos: [] }, key: "aiCustom" },
   { type: "ai", data: { mode: "single", role: "bilinc" }, key: "bilinc" },
   { type: "ai", data: { mode: "single", role: "eylem" }, key: "eylem" },
+  { type: "ai", data: { mode: "single", role: "donusturucu" }, key: "donusturucu" },
   { type: "build", key: "build" },
   { type: "buildPhoto", key: "buildPhoto" },
   { type: "button", data: { kind: "start" }, key: "button.start" },
@@ -263,7 +264,7 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
                 onClick={(e) => {
                   e.stopPropagation()
                   const pos = screenToFlowPosition({ x: menu.x, y: menu.y })
-                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.data)
+                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.key === "donusturucu" ? { ...m.data, title: t("bp.node.donusturucu"), purpose: t("bp.donusturucuPurposeDefault") } : m.data)
                   if (node) setSelectedId(node.id)
                   setMenu(null)
                 }}
@@ -370,9 +371,9 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           </label>
           {d.type === "ai" && d.role && (
             <div className="rounded-sm border border-line bg-ink-0 p-2 text-[11px] text-text-2">
-              <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{d.role === "bilinc" ? t("bp.node.bilinc") : t("bp.node.eylem")}</div>
-              {d.role === "bilinc" ? t("bp.roleHint.bilinc") : t("bp.roleHint.eylem")}
-              {d.role === "bilinc" && (
+              <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{d.role === "bilinc" ? t("bp.node.bilinc") : d.role === "donusturucu" ? t("bp.node.donusturucu") : t("bp.node.eylem")}</div>
+              {d.role === "bilinc" ? t("bp.roleHint.bilinc") : d.role === "donusturucu" ? t("bp.roleHint.donusturucu") : t("bp.roleHint.eylem")}
+              {(d.role === "bilinc" || d.role === "donusturucu") && (
                 <pre className="mono mt-2 max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
               )}
             </div>

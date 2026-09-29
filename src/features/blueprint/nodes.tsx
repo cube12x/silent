@@ -72,7 +72,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
   const roster = React.useMemo(() => (plan && d.mode === "orchestration" ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
   return (
-    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : d.role === "bilinc" ? t("bp.node.bilinc") : d.role === "eylem" ? t("bp.node.eylem") : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", d.role === "bilinc" && "border-dotted")}>
+    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : d.role === "bilinc" ? t("bp.node.bilinc") : d.role === "eylem" ? t("bp.node.eylem") : d.role === "donusturucu" ? t("bp.node.donusturucu") : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", d.role === "bilinc" && "border-dotted")}>
       <div className="flex items-center gap-2">
         {d.modelRef ? <ModelLogo modelRef={d.modelRef} size={14} /> : null}
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
@@ -81,7 +81,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
-      {d.role && <div className="mt-0.5 text-[10px] text-text-3">{d.role === "bilinc" ? t("bp.roleHint.bilinc") : t("bp.roleHint.eylem")}{d.role === "bilinc" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
+      {d.role && <div className="mt-0.5 text-[10px] text-text-3">{d.role === "bilinc" ? t("bp.roleHint.bilinc") : d.role === "donusturucu" ? t("bp.roleHint.donusturucu") : t("bp.roleHint.eylem")}{d.role !== "eylem" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
       {(d.instructions?.trim() || d.repos?.length || d.effort) ? (
         <div className="mt-0.5 flex gap-2 text-[10px] text-text-3">
           {d.effort ? <span>⚙ {d.effort}</span> : null}
