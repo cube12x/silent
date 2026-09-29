@@ -24,7 +24,7 @@ export function SetupScreen() {
   const update = useSettingsStore((s) => s.update)
   const [prereqs, setPrereqs] = React.useState<PrereqStatus[] | null>(null)
   const [checking, setChecking] = React.useState(false)
-  const check = React.useCallback(async () => {
+  const check = async () => {
     const backend = await getBackend()
     setChecking(true)
     try {
@@ -34,10 +34,21 @@ export function SetupScreen() {
     } finally {
       setChecking(false)
     }
-  }, [])
+  }
   React.useEffect(() => {
-    void check()
-  }, [check])
+    let cancelled = false
+    void getBackend()
+      .then((b) => b.prereqsCheck())
+      .then((p) => {
+        if (!cancelled) setPrereqs(p)
+      })
+      .catch(() => {
+        if (!cancelled) setPrereqs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
   const ready = setupReady(installed)
   const finish = () => {
