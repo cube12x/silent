@@ -12,6 +12,11 @@ use crate::events::{
 pub struct Claude;
 
 /// Shell commands a read-only Claude session may run without prompts (observe, never mutate).
+/// Tools that end a `-p` (print-mode) turn early or defer work to a later wakeup: a blueprint session that
+/// called `ScheduleWakeup` while waiting on a background agent returned its "result" with the job half
+/// done (2026-09-29, Mario integrator). Silent runs are one-shot, so scheduling tools are always denied.
+pub const DENIED_TOOLS: &str = "ScheduleWakeup,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode";
+
 pub const READ_ONLY_BASH: &[&str] = &[
     "Bash(npm run:*)", "Bash(npm test:*)", "Bash(npx:*)", "Bash(cargo test:*)", "Bash(cargo check:*)", "Bash(git diff:*)", "Bash(git status:*)", "Bash(git log:*)",
     "Bash(ls:*)", "Bash(rg:*)", "Bash(grep:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(find:*)", "Bash(node -e:*)", "Bash(python3 -c:*)",
@@ -44,6 +49,8 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
     // command would be DENIED (workers reported "all install and execution commands were denied",
     // 2026-09-24). Writable tasks therefore pre-allow the Bash tool. Read-only tasks keep the default.
     if req.sandbox == SandboxMode::WorkspaceWrite {
+        args.push("--disallowedTools".into());
+        args.push(DENIED_TOOLS.into());
         args.push("--allowedTools".into());
         args.push("Bash".into());
         // `acceptEdits` auto-approves writes only inside the working directory and `--add-dir`s; a worker
@@ -60,7 +67,7 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         // typecheck, build, git diff, searches) are pre-allowed — a reviewer that cannot run the tests
         // reports guesses (2026-09-29).
         args.push("--disallowedTools".into());
-        args.push("Edit,Write,MultiEdit,NotebookEdit".into());
+        args.push(format!("Edit,Write,MultiEdit,NotebookEdit,{DENIED_TOOLS}"));
         args.push("--allowedTools".into());
         for pattern in READ_ONLY_BASH {
             args.push(pattern.to_string());
@@ -383,6 +390,8 @@ mod tests {
             "none",
             "--permission-mode",
             "acceptEdits",
+            "--disallowedTools",
+            "ScheduleWakeup,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode",
             "--allowedTools",
             "Bash",
             "--add-dir",
@@ -423,7 +432,7 @@ mod tests {
                 "--permission-mode",
                 "acceptEdits",
                 "--disallowedTools",
-                "Edit,Write,MultiEdit,NotebookEdit",
+                "Edit,Write,MultiEdit,NotebookEdit,ScheduleWakeup,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode",
                 "--allowedTools",
                 "Bash(npm run:*)",
                 "Bash(npm test:*)",
