@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode } from "@/domain"
+import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
@@ -17,8 +17,8 @@ import { formatTokens } from "@/lib/format"
 interface BlueprintsState {
   blueprints: Blueprint[]
   activeId?: string
-  /** Per-node live log lines (not persisted). */
-  logs: Record<string, string[]>
+  /** Per-node live terminal lines (not persisted; batched, capped at 1500). */
+  logs: Record<string, TerminalLine[]>
   /** Cancel handles of running nodes. */
   running: Record<string, () => Promise<void> | void>
   /** Undo/redo snapshots per blueprint (graph edits only, coalesced ~1 s; not persisted). */
@@ -66,8 +66,34 @@ interface BlueprintsState {
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const watchSince = new Map<string, number>()
 
-function log(set: (fn: (s: BlueprintsState) => Partial<BlueprintsState>) => void, nodeId: string, line: string) {
-  set((s) => ({ logs: { ...s.logs, [nodeId]: [...(s.logs[nodeId] ?? []).slice(-299), line] } }))
+const LOG_CAP = 1500
+const LOG_FLUSH_MS = 100
+const pendingLogs = new Map<string, TerminalLine[]>()
+let logFlushTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Append one terminal line to a node's log; lines are batched (100 ms) so a chatty CLI never re-renders the canvas per line. */
+function log(set: (fn: (s: BlueprintsState) => Partial<BlueprintsState>) => void, nodeId: string, line: string, stream: TerminalLine["stream"] = "system") {
+  const queue = pendingLogs.get(nodeId) ?? []
+  queue.push({ ts: Date.now(), stream, text: line })
+  pendingLogs.set(nodeId, queue)
+  if (!logFlushTimer) logFlushTimer = setTimeout(() => flushNodeLogs(set), LOG_FLUSH_MS)
+}
+
+/** Publish batched lines into the store (also called directly by tests). */
+export function flushNodeLogs(set: (fn: (s: BlueprintsState) => Partial<BlueprintsState>) => void = useBlueprintsStore.setState) {
+  if (logFlushTimer) clearTimeout(logFlushTimer)
+  logFlushTimer = undefined
+  if (!pendingLogs.size) return
+  const batch = new Map(pendingLogs)
+  pendingLogs.clear()
+  set((s) => {
+    const logs = { ...s.logs }
+    for (const [id, lines] of batch) {
+      const merged = [...(logs[id] ?? []), ...lines]
+      logs[id] = merged.length > LOG_CAP ? merged.slice(merged.length - LOG_CAP) : merged
+    }
+    return { logs }
+  })
 }
 
 export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
@@ -387,7 +413,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
             cwd: watched.data.folderPath,
             timeoutSecs: 300,
             prompt: `You are a skill wizard with this purpose: ${target.data.purpose}\nEvent: ${hits.length} file(s) changed in ${watched.data.folderPath}: ${hits.slice(0, 20).join(", ")}.\nWrite ONLY the short instruction (1–3 sentences, with exact file paths) that the working AI needs to continue its task using these files. No preamble.`,
-          }, (line) => log(set, target.id, line)).done
+          }, (line, stream) => log(set, target.id, line, stream)).done
           get().updateNode(id, target.id, { status: res.ok ? "done" : "failed" })
           if (res.ok && res.text) void get().run(id, ai.id, { extraPrompt: res.text, resume: true })
         } else if (target.type === "ai") {
@@ -540,7 +566,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     const handle = runSingle(
       backend,
       { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, resumeSessionId: opts?.resume ? sessionId : undefined },
-      (line) => log(set, aiId, line),
+      (line, stream) => log(set, aiId, line, stream),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
     const res = await handle.done

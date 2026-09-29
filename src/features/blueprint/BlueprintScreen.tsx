@@ -19,7 +19,8 @@ import { BUILTIN_KITS } from "@/domain/kits"
 import { getBackend } from "@/services"
 import { isTauri } from "@/services/backend"
 import { isRepoUrl } from "@/engine/blueprint/prompt"
-import { modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
+import { NodeTerminal } from "./NodeTerminal"
+import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
 
@@ -38,7 +39,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "stub", data: { kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" }, key: "stub" },
 ]
 
-function Canvas({ bpId }: { bpId: string }) {
+function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nodeId: string) => void }) {
   const t = useT()
   const bp = useBlueprintsStore((s) => s.byId(bpId))
   const logs = useBlueprintsStore((s) => s.logs)
@@ -53,6 +54,7 @@ function Canvas({ bpId }: { bpId: string }) {
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
   const [menu, setMenu] = React.useState<{ x: number; y: number; left: number; top: number } | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
+  const quadClick = React.useRef({ id: "", n: 0, at: 0 })
   // Fit only when the blueprint opens with nodes; on an empty canvas React Flow would defer the fit to the first added node and zoom into it.
   const [fitOnInit] = React.useState(() => (bp?.nodes.length ?? 0) > 0)
 
@@ -64,7 +66,7 @@ function Canvas({ bpId }: { bpId: string }) {
         type: n.type,
         position: { x: n.x, y: n.y },
         selected: n.id === selectedId,
-        data: { node: n, warnings: lint[n.id] ?? [], log: logs[n.id]?.at(-1)?.slice(0, 40) },
+        data: { node: n, warnings: lint[n.id] ?? [], log: logs[n.id]?.at(-1)?.text.slice(0, 40) },
       })) as BpFlowNode[],
     [bp, lint, logs, selectedId],
   )
@@ -212,6 +214,22 @@ function Canvas({ bpId }: { bpId: string }) {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeDoubleClick={(_, n) => { const node = bp.nodes.find((x) => x.id === n.id); if (node) trigger(node) }}
+          onNodeClick={(_, n) => {
+            // Four quick clicks on the same node open its terminal (double-click still runs it). Own counter: the
+            // native click `detail` resets per pointer sequence in WebKit/automation and never reaches 4 reliably.
+            const now = Date.now()
+            const q = quadClick.current
+            if (q.id === n.id && now - q.at < 600) q.n += 1
+            else {
+              q.id = n.id
+              q.n = 1
+            }
+            q.at = now
+            if (q.n >= 4) {
+              q.n = 0
+              onNodeQuadClick(n.id)
+            }
+          }}
           onPaneClick={() => setMenu(null)}
           fitView={fitOnInit}
           onMoveStart={(e) => {
@@ -261,7 +279,7 @@ function Canvas({ bpId }: { bpId: string }) {
   )
 }
 
-function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; node: BpNode; log: string[]; onTrigger: () => void; onRemove: () => void }) {
+function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; node: BpNode; log: TerminalLine[]; onTrigger: () => void; onRemove: () => void }) {
   const t = useT()
   const lang = useI18nStore((s) => s.language)
   const updateNode = useBlueprintsStore((s) => s.updateNode)
@@ -410,7 +428,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
       {node.note && <div className="rounded-sm border border-danger/40 px-2 py-1 text-[11px] text-danger">{node.note}</div>}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase"><Sparkles className="size-3" />{t("bp.log")}</div>
-        <pre className={cn("mono max-h-[40vh] flex-1 overflow-auto rounded-sm border border-line bg-ink-0 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2", !log.length && "text-text-3")}>{log.length ? log.slice(-80).join("\n") : t("bp.logEmpty")}</pre>
+        <pre className={cn("mono max-h-[40vh] flex-1 overflow-auto rounded-sm border border-line bg-ink-0 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2", !log.length && "text-text-3")}>{log.length ? log.slice(-80).map((l) => l.text).join("\n") : t("bp.logEmpty")}</pre>
       </div>
     </>
   )
@@ -432,12 +450,18 @@ export function BlueprintScreen() {
   const autoStatus = useBlueprintsStore((s) => s.autoStatus)
   const autoSummary = useBlueprintsStore((s) => s.autoSummary)
   const [full, setFull] = React.useState(false)
+  const [terminalNode, setTerminalNode] = React.useState<string | undefined>(undefined)
+  const terminalOpen = React.useRef(false)
+  React.useEffect(() => {
+    terminalOpen.current = Boolean(terminalNode)
+  }, [terminalNode])
   // Fullscreen: the canvas covers the whole window (sidebar/top bar hidden) and, in Tauri, the OS window goes fullscreen too. Esc leaves.
   React.useEffect(() => {
     if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(full)).catch(() => undefined)
     if (!full) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFull(false)
+      // Esc closes an open node terminal first (the Sheet handles that itself); the next Esc leaves fullscreen.
+      if (e.key === "Escape" && !terminalOpen.current) setFull(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -537,7 +561,8 @@ export function BlueprintScreen() {
       {autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
       {bp ? (
         <ReactFlowProvider>
-          <Canvas key={bp.id} bpId={bp.id} />
+          <Canvas key={bp.id} bpId={bp.id} onNodeQuadClick={(id) => setTerminalNode((cur) => (cur === id ? undefined : id))} />
+          <NodeTerminal bpId={bp.id} nodeId={terminalNode} onClose={() => setTerminalNode(undefined)} />
         </ReactFlowProvider>
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-text-3">{loaded ? t("bp.none") : t("common.loading")}</div>
