@@ -113,6 +113,14 @@ describe("uydurma (placeholder) wiring", () => {
     const step = walkPlan(g, "par")[0]
     expect(step?.kind === "parallel" && step.heads.map((h) => h.id)).toEqual(["ses", "model", "doku", "extra"])
   })
+  it("an AI behind a Paralel button still works inside the Build wired into that button", () => {
+    const g = team()
+    expect(composeAiInput(g, "ses").buildFolders).toEqual(["/tmp/game"])
+    expect(composeAiInput(g, "int").buildFolders).toEqual(["/tmp/game"])
+    g.edges.push({ id: "ex", from: "par", to: "extra" })
+    g.nodes.push({ id: "extra", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "grok:grok-4.7", mode: "single" } })
+    expect(composeAiInput(g, "extra").buildFolders).toEqual(["/tmp/game"])
+  })
   it("lints an unwired Paralel button", () => {
     const g = team()
     g.edges = g.edges.filter((e) => e.from !== "par")

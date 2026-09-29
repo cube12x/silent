@@ -93,9 +93,17 @@ export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
 export function composeAiInput(bp: Blueprint, aiId: string): { prompt: string; buildFolders: string[]; promptTitles: string[]; stubs: BpStubData[]; fills: BpStubData[] } {
   const prompts = incoming(bp, aiId).filter((n) => n.type === "prompt")
   const builds = incoming(bp, aiId).filter((n) => n.type === "build" || n.type === "buildPhoto")
-  // Builds wired into a prompt that feeds this AI also count as context.
-  const viaPrompt = prompts.flatMap((p) => incoming(bp, p.id).filter((n) => n.type === "build" || n.type === "buildPhoto"))
-  const folders = Array.from(new Set([...builds, ...viaPrompt].map((b) => (b.data.type === "build" || b.data.type === "buildPhoto" ? b.data.folderPath : "")).filter(Boolean)))
+  // Builds wired into a prompt that feeds this AI also count as context — including through a button in between
+  // (Build → Paralel/Start → prompt → AI). 2026-09-29: without this, fillers behind a Paralel button got no folder
+  // and each started an empty project of its own.
+  const isBuild = (n: BpNode) => n.type === "build" || n.type === "buildPhoto"
+  const upstreamBuilds = (id: string): BpNode[] => {
+    const direct = incoming(bp, id)
+    return [...direct.filter(isBuild), ...direct.filter((n) => n.type === "button").flatMap((b) => incoming(bp, b.id).filter(isBuild))]
+  }
+  const viaPrompt = prompts.flatMap((p) => upstreamBuilds(p.id))
+  const viaButton = incoming(bp, aiId).filter((n) => n.type === "button").flatMap((b) => incoming(bp, b.id).filter(isBuild))
+  const folders = Array.from(new Set([...builds, ...viaPrompt, ...viaButton].map((b) => (b.data.type === "build" || b.data.type === "buildPhoto" ? b.data.folderPath : "")).filter(Boolean)))
   const text = prompts.map((p) => (p.data.type === "prompt" ? `${p.data.title ? `# ${p.data.title}\n` : ""}${p.data.text}` : "")).filter(Boolean).join("\n\n")
   // Uydurma: stub → ai makes this AI a placeholder producer; ai → stub makes it the filler.
   const stubs = incoming(bp, aiId).flatMap((n) => (n.data.type === "stub" ? [n.data] : []))
