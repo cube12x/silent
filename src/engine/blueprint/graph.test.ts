@@ -138,6 +138,9 @@ describe("uydurma (placeholder) wiring", () => {
     g.edges.push({ id: "e9", from: "a", to: "a2" })
     expect(lintBlueprint(g).a).toBeUndefined()
     expect(lintBlueprint(g).a2).toBeUndefined()
+    // an Eylem fed by a Bilinç needs no prompt of its own
+    g.edges = g.edges.filter((e) => e.id !== "e5")
+    expect(lintBlueprint(g).a2).toBeUndefined()
   })
   it("lints a repo url an Özel AI cannot clone", () => {
     const g = bp()

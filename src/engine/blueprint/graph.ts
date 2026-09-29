@@ -122,7 +122,9 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
   }
   for (const n of bp.nodes) {
     if (n.type === "ai") {
-      if (!incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
+      // An Eylem's task is the wired Bilinç report; it needs no prompt of its own.
+      const fedByBilinc = n.data.type === "ai" && n.data.role === "eylem" && incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")
+      if (!fedByBilinc && !incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
       if (n.data.type === "ai" && (n.data.repos ?? []).some((r) => r.url.trim() && !isRepoUrl(r.url))) add(n.id, "ai.badRepo")
       if (n.data.type === "ai" && n.data.role === "eylem" && !incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")) add(n.id, "eylem.noBilinc")
