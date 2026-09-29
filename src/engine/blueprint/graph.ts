@@ -77,7 +77,9 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
       plan.push({ kind: "ai", node })
       started.add(id)
     }
-    const next = outgoing(bp, id)
+    // Uydurma wires (ai → stub → ai) are policy markers, not flow: never walk through a stub, or a filler would
+    // re-trigger the producer AI (2026-09-29: a Paralel fan-out walked filler → stub → Mimar and re-ran the whole orchestration).
+    const next = outgoing(bp, id).filter((n) => n.type !== "stub")
     // Paralel buttons first: they are a barrier for everything else hanging off the same node.
     queue.push(...next.filter((n) => isParallel(n)).map((n) => n.id), ...next.filter((n) => !isParallel(n)).map((n) => n.id))
   }

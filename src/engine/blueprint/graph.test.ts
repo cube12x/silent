@@ -121,6 +121,13 @@ describe("uydurma (placeholder) wiring", () => {
     g.nodes.push({ id: "extra", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "grok:grok-4.7", mode: "single" } })
     expect(composeAiInput(g, "extra").buildFolders).toEqual(["/tmp/game"])
   })
+  it("never walks through an Uydurma stub (a filler must not re-trigger the producer)", () => {
+    const g = team()
+    g.nodes.push({ id: "st", type: "stub", x: 0, y: 0, data: { type: "stub", kinds: ["sfx"], folder: "assets/ses" } })
+    g.edges.push({ id: "es1", from: "st", to: "mimar" }, { id: "es2", from: "ses", to: "st" })
+    expect(walkPlan(g, "par").map((st) => (st.kind === "ai" ? st.node.id : "par"))).toEqual(["par", "int"])
+    expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
+  })
   it("lints an unwired Paralel button", () => {
     const g = team()
     g.edges = g.edges.filter((e) => e.from !== "par")
