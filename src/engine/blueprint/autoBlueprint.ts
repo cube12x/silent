@@ -37,6 +37,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           text: { type: "string", description: "prompt: the full brief in ENGLISH" },
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
+          role: { type: "string", enum: ["bilinc", "eylem"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
@@ -62,6 +63,7 @@ export interface AutoBlueprintNode {
   purpose?: string
   instructions?: string
   repos?: string[]
+  role?: "bilinc" | "eylem"
   modelRef?: string
   pool?: string[]
   mode?: "orchestration" | "single"
@@ -90,6 +92,7 @@ const RULES = `Node types and what they do:
 - prompt: a brief (title + text). Wire into an AI. Write the text IN ENGLISH, detailed and production-grade (goal, features, quality bar, verification), titles in the user's language.
 - ai: a run. mode "orchestration" = Silent's planner splits the brief into tasks executed in parallel by workers + a polish round (use for building things); mode "single" = one CLI session (cheap follow-ups, integrations). modelRef = main model; pool = additional models the planner may assign per task (orchestration only). The planner picks a planner-capable model from the pool, so an orchestration pool MUST contain a planner-capable model.
 - ai with repos ("Özel AI"): set repos to GitHub urls and put the persona/standing rules in instructions; Silent clones the repos into .silent/refs before every run and lists their paths in the brief. Use it for mods, ports and "learn from this codebase" tasks; the wired prompt stays the task.
+- ai role bilinc/eylem (cost saver for investigation): a bilinc ai runs READ-ONLY (expensive model, e.g. Claude) and writes a FINDINGS/ACTIONS report; wire it into an eylem ai (cheap model, single mode, wired to the same Build) which applies the report. Shape: Build → prompt → bilinc → eylem → Build. Use for bug hunts, audits, reviews.
 - build: the real project folder the AI writes into. One Build per project; an AI wired into it develops that folder. Wire Build → prompt → ai for follow-up stages on the same project.
 - buildPhoto: collects images produced by the wired AI (and workers' screenshots).
 - button start: runs the chain forward, one AI after another. button parallel ("Paralel"): every prompt/AI wired after it starts AT THE SAME TIME and the chain continues only when all are done — wire Build → parallel → the independent role prompts (audio, models, textures, text) so they do not queue. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
@@ -206,7 +209,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" ? n.role : undefined }
         break
       }
       case "wizard":

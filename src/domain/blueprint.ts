@@ -33,7 +33,12 @@ export interface BpAiData {
   instructions?: string
   /** "Özel AI": repositories cloned into `<build>/.silent/refs/<name>` before each run and listed in the brief. */
   repos?: BpAiRepo[]
+  /** Bilinç = read-only investigator that writes a report; Eylem = applies the reports of the Bilinç nodes wired into it. */
+  role?: BpAiRole
+  /** Bilinç: the report of the last run (findings + numbered actions). */
+  report?: string
 }
+export type BpAiRole = "bilinc" | "eylem"
 export interface BpAiRepo {
   /** `https://…` or `git@…` */
   url: string

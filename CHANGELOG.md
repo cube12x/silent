@@ -3,6 +3,7 @@
 ## [0.3.0] — unreleased
 
 ### Added
+- Blueprint: **Bilinç → Eylem** roles (read-only investigator on an expensive model writes a report; a cheap model applies it).
 - Blueprint: **Özel AI** (base instructions + GitHub repositories cloned into `.silent/refs` before every run), **node terminal** on four quick clicks (Stop, Esc), **Paralel** button (fan-out, join before the integrator), team roster under orchestration nodes, full-screen canvas.
 - Linux, macOS and Windows builds from GitHub Actions (`ci.yml`, `release.yml`); MIT license; unsigned-app instructions in the README.
 - First-run **Setup** screen (prerequisites, five recommended CLIs with one-click install and login, `silent` command); Settings → workspace folder; UI language follows the OS on first run.

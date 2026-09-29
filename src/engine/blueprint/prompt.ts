@@ -21,6 +21,22 @@ export interface RefPath {
   hint?: string
 }
 
+/** Bilinç: the model may only look; its whole output is the report the Eylem node executes. */
+export const BILINC_POLICY = `You are the BİLİNÇ (awareness) step of a two-step pipeline. READ-ONLY: do not create, modify, delete or move any file, do not run formatters, installers or git commands that change the tree (running tests, linters and builds to OBSERVE is fine).
+Investigate the task thoroughly, then reply with a report and nothing else:
+# FINDINGS
+- one bullet per problem: file:line — what is wrong — why (evidence)
+# ACTIONS
+1. numbered, concrete, minimal edits another AI will apply verbatim: file, what to change, expected result, how to verify
+Keep the report self-contained; the next AI has not seen this conversation.`
+
+/** Eylem: the brief that turns Bilinç reports into work. */
+export function eylemBrief(reports: Array<{ title: string; report: string }>): string {
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## Report from ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `You are the EYLEM (action) step: apply the ACTIONS of the read-only reports below exactly, in order, verifying each as the report says. Do not re-investigate what the reports already settled; if an action is impossible, say why in your summary.\n\n${body}`
+}
+
 export interface AiPromptInput {
   /** Reload/wizard purpose line. */
   purpose?: string
@@ -36,11 +52,15 @@ export interface AiPromptInput {
   /** Uydurma: stub → ai (placeholder producer) / ai → stub (filler). */
   stubs?: BpStubData[]
   fills?: BpStubData[]
+  /** Bilinç / Eylem role of this node. */
+  role?: "bilinc" | "eylem"
+  /** Eylem: reports of the Bilinç nodes wired into it. */
+  reports?: Array<{ title: string; report: string }>
 }
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
-export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt">): string {
-  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? ""].filter((x) => x && x.trim()).join("\n\n")
+export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
+  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
 
 /**
@@ -57,6 +77,7 @@ export function buildAiPrompt(i: AiPromptInput): string {
       `Reference repositories (already cloned under .silent/refs; study them, copy from them only when the task says so):\n${i.refPaths.map((r) => `- ${r.path}${r.hint ? ` — ${r.hint}` : ""}`).join("\n")}`,
     )
   }
+  if (i.role === "bilinc") blocks.push(BILINC_POLICY)
   const instructions = i.instructions?.trim()
   if (instructions) blocks.push(`# Base instructions\n${instructions}`)
   const task = aiTaskText(i)

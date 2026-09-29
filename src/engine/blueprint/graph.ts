@@ -125,6 +125,8 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       if (!incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
       if (n.data.type === "ai" && (n.data.repos ?? []).some((r) => r.url.trim() && !isRepoUrl(r.url))) add(n.id, "ai.badRepo")
+      if (n.data.type === "ai" && n.data.role === "eylem" && !incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")) add(n.id, "eylem.noBilinc")
+      if (n.data.type === "ai" && n.data.role === "bilinc" && !outgoing(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "eylem")) add(n.id, "bilinc.noEylem")
     }
     if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {

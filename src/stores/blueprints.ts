@@ -6,7 +6,7 @@ import { useRunsStore } from "./runs"
 import { useSettingsStore } from "./settings"
 import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
-import { composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
+import { composeAiInput, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
@@ -483,7 +483,10 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   const backend = await getBackend()
   const { prompt: wired, buildFolders, promptTitles, stubs, fills } = composeAiInput(bp, aiId)
-  const task = aiTaskText({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt })
+  const role = ai.data.role
+  // Eylem: the reports of the Bilinç nodes wired into it are its work order.
+  const reports = role === "eylem" ? incoming(bp, aiId).flatMap((n) => (n.data.type === "ai" && n.data.role === "bilinc" && n.data.report?.trim() ? [{ title: n.data.title || n.id, report: n.data.report }] : [])) : []
+  const task = aiTaskText({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, reports })
   if (!task && !fills.length) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no prompt" })
     log(set, aiId, "⚠ wire a prompt into this AI")
@@ -510,10 +513,10 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   if (!outBuild) {
     // Develop flow (Build → Prompt → AI): the AI works inside that build, so the same Build node is updated
-    // instead of growing a second node for the same folder.
+    // instead of growing a second node for the same folder. A Bilinç never produces a build: it only reads.
     const source = buildFolders[0] ? bp.nodes.find((n) => n.data.type === "build" && n.data.folderPath === buildFolders[0]) : undefined
     if (source) outBuild = source
-    else {
+    else if (role !== "bilinc") {
       outBuild = store.addNode(bpId, "build", ai.x + 300, ai.y, { title, folderPath: cwd, kind: "code" })
       if (outBuild) store.addEdge(bpId, aiId, outBuild.id)
       createdBuild = true
@@ -539,7 +542,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     await backend.blueprintWriteTool(cwd, UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE)
     log(set, aiId, stubs.length ? `uydurma: placeholder policy (${Array.from(new Set(stubs.flatMap((s) => s.kinds))).join(", ")})` : "uydurma: fill job")
   }
-  const prompt = buildAiPrompt({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills })
+  const prompt = buildAiPrompt({ purpose: opts?.purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   log(set, aiId, `▶ ${poolRefs.join(" + ")} · ${ai.data.mode} · ${cwd}`)
@@ -548,7 +551,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let used: number
   let executionId: string | undefined
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
-  if (ai.data.mode === "orchestration") {
+  if (ai.data.mode === "orchestration" && role !== "bilinc") {
     const runs = useRunsStore.getState()
     const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true })
     if (res.source !== "ai") {
@@ -572,13 +575,18 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } else {
     const handle = runSingle(
       backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, resumeSessionId: opts?.resume ? sessionId : undefined },
+      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc", resumeSessionId: opts?.resume ? sessionId : undefined },
       (line, stream) => log(set, aiId, line, stream),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
     const res = await handle.done
     ok = res.ok
     used = res.tokens
+    if (role === "bilinc" && res.text.trim()) {
+      // The whole reply is the report the wired Eylem node will execute.
+      store.updateNode(bpId, aiId, { data: { report: res.text.trim() } })
+      log(set, aiId, `📄 report: ${res.text.trim().split("\n").length} lines`)
+    }
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined
     if (!ok) log(set, aiId, `✖ ${res.error ?? "failed"}`)

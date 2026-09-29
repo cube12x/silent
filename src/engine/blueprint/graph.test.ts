@@ -128,6 +128,17 @@ describe("uydurma (placeholder) wiring", () => {
     expect(walkPlan(g, "par").map((st) => (st.kind === "ai" ? st.node.id : "par"))).toEqual(["par", "int"])
     expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
   })
+  it("lints a lonely Bilinç or Eylem", () => {
+    const g = bp()
+    const a = g.nodes.find((n) => n.id === "a")!
+    a.data = { ...a.data, role: "bilinc" } as typeof a.data
+    expect(lintBlueprint(g).a).toEqual(["bilinc.noEylem"])
+    const a2 = g.nodes.find((n) => n.id === "a2")!
+    a2.data = { ...a2.data, role: "eylem" } as typeof a2.data
+    g.edges.push({ id: "e9", from: "a", to: "a2" })
+    expect(lintBlueprint(g).a).toBeUndefined()
+    expect(lintBlueprint(g).a2).toBeUndefined()
+  })
   it("lints a repo url an Özel AI cannot clone", () => {
     const g = bp()
     const ai = g.nodes.find((n) => n.id === "a")!
