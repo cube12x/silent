@@ -42,7 +42,7 @@ export function formatRelative(ts: number, now = Date.now()): string {
 }
 
 export function shortPath(path: string, keep = 2): string {
-  const parts = path.split("/").filter(Boolean)
+  const parts = path.split(/[\\/]/).filter(Boolean)
   if (parts.length <= keep) return path
   return `…/${parts.slice(-keep).join("/")}`
 }

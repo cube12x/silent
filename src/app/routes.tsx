@@ -6,6 +6,7 @@ import { AgentDetailScreen } from "@/features/agents/AgentDetailScreen"
 import { SilentCodeScreen } from "@/features/silent-code/SilentCodeScreen"
 import { SettingsScreen } from "@/features/settings/SettingsScreen"
 import { BlueprintScreen } from "@/features/blueprint/BlueprintScreen"
+import { SetupScreen } from "@/features/setup/SetupScreen"
 
 export const router = createBrowserRouter([
   {
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: "blueprint", Component: BlueprintScreen },
       { path: "blueprint/:bpId", Component: BlueprintScreen },
       { path: "settings", Component: SettingsScreen },
+      { path: "setup", Component: SetupScreen },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

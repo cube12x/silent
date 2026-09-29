@@ -111,7 +111,7 @@ function Composer() {
       const name = (newName ?? "").trim()
       if (!name) return
       const backend = await getBackend()
-      const p = await backend.createProjectDir(name)
+      const p = await backend.createProjectDir(name, useSettingsStore.getState().settings.workspaceDir?.trim() || undefined)
       setFolder(p)
       setAgentId(undefined)
       setNewName(null)

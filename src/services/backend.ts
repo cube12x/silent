@@ -6,7 +6,18 @@ export interface AppInfo {
   platform: string
 }
 
+export interface PrereqStatus {
+  id: "node" | "npm" | "git" | "python3" | "xcode-clt"
+  found: boolean
+  version?: string | null
+  path?: string | null
+  note?: string | null
+}
+export type SetupFix = "npm-user-prefix"
+
 export interface LauncherStatus {
+  /** Directory holding the launcher (what goes on PATH). */
+  dir: string
   installed: boolean
   path: string
   appPath: string
@@ -61,12 +72,16 @@ export interface Backend {
   providerModels(providerId: ProviderId): Promise<ProviderModel[]>
   providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   providerLogin(providerId: ProviderId): Promise<void>
+  /** First-run prerequisites (node, npm, git, python3, macOS CLT). */
+  prereqsCheck(): Promise<PrereqStatus[]>
+  /** Allow-listed one-click fixes from the Setup screen (streams like an install). */
+  setupFix(fix: SetupFix, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   cliLauncherStatus(): Promise<LauncherStatus>
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
   /** Blueprint build folders: create, stats, import dropped files, copy between builds. */
-  blueprintBuildDir(blueprint: string, build: string): Promise<string>
+  blueprintBuildDir(blueprint: string, build: string, base?: string): Promise<string>
   blueprintBuildStats(folder: string): Promise<{ fileCount: number; images: string[]; newestMs: number }>
   /** `skipExisting`: mirror semantics — a file with the same name and size is not copied again. */
   blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean): Promise<number>
@@ -78,7 +93,7 @@ export interface Backend {
   /** Shallow-clone reference repositories into `<repo>/.silent/refs/<name>` (host side, no sandbox). */
   syncReferences(repoPath: string, refs: Array<{ name: string; url: string }>): Promise<Array<{ name: string; path: string; ok: boolean; error?: string }>>
   /** Create ~/CubeCode/<slug> (or the configured projects dir) and return its absolute path. */
-  createProjectDir(name: string): Promise<string>
+  createProjectDir(name: string, base?: string): Promise<string>
   /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */
   confirm(message: string, title?: string): Promise<boolean>
   /** Text of `root/rel` (capped), or null when missing. */

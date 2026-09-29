@@ -1,25 +1,26 @@
 import * as React from "react"
 import { cn } from "cn"
-import { Cpu, Database, Download, ExternalLink, KeyRound, Languages, LogIn, RefreshCw, Route, ScrollText, Shield, ShieldCheck, Trash2, Plus, Check } from "lucide-react"
+import { Cpu, Database, FolderOpen, KeyRound, Languages, RefreshCw, Route, ScrollText, Shield, ShieldCheck, Trash2, Plus, Check, Compass } from "lucide-react"
 import { useSettingsStore } from "@/stores/settings"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
-import { GlowCard, KeyValueList, ModelTag, NeonButton, PageHeader, PermissionToggle, ProviderLogo, SectionHeader, TacticalChip, TerminalView } from "@/design-system"
+import { GlowCard, KeyValueList, ModelTag, NeonButton, PageHeader, PermissionToggle, ProviderLogo, SectionHeader, TacticalChip } from "@/design-system"
 import { COST_MODES, PROVIDER_IDS, modelRef, type PermissionKey, type ProviderId, type SubtaskKind } from "@/domain"
 import { PROVIDERS } from "@/providers/registry"
 import { TARGET_TIER } from "@/engine/router"
 import { effortFor, timeoutFor } from "@/engine/effort"
 import type { ModelTier, Effort } from "@/domain"
-import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { getBackend } from "@/services"
-import type { LauncherStatus } from "@/services/backend"
 import { formatRelative } from "@/lib/format"
 import { useT } from "@/i18n"
+import { CliCard } from "./CliCard"
+import { LauncherCard } from "./LauncherCard"
+import { useNavigate } from "react-router"
 
-const SECTION_IDS = ["clis", "models", "language", "routing", "security", "permissions", "logs"] as const
+const SECTION_IDS = ["clis", "workspace", "models", "language", "routing", "security", "permissions", "logs"] as const
 type SectionId = (typeof SECTION_IDS)[number]
-const ICONS: Record<SectionId, React.ReactNode> = { clis: <Cpu />, models: <Database />, language: <Languages />, routing: <Route />, security: <Shield />, permissions: <ShieldCheck />, logs: <ScrollText /> }
+const ICONS: Record<SectionId, React.ReactNode> = { clis: <Cpu />, workspace: <FolderOpen />, models: <Database />, language: <Languages />, routing: <Route />, security: <Shield />, permissions: <ShieldCheck />, logs: <ScrollText /> }
 const KINDS: SubtaskKind[] = ["architecture", "backend", "frontend", "algorithm", "tests", "review", "integration", "docs"]
 const PERMS: PermissionKey[] = ["read", "write", "runTests", "terminal", "gitCommit", "gitPush", "network", "fileCreateDelete"]
 
@@ -28,70 +29,6 @@ function Select<T extends string>({ value, options, onChange, className }: { val
     <select value={value} onChange={(e) => onChange(e.target.value as T)} className={cn("h-8 rounded-md border border-line bg-ink-2 px-2 text-xs text-text-1 outline-none focus:border-cyan/50", className)}>
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
-  )
-}
-
-function CliCard({ id }: { id: ProviderId }) {
-  const t = useT()
-  const info = PROVIDERS[id]
-  const p = useProvidersStore((s) => s.providers[id])
-  const setEnabled = useProvidersStore((s) => s.setEnabled)
-  const install = useProvidersStore((s) => s.install)
-  const login = useProvidersStore((s) => s.login)
-  const [showLog, setShowLog] = React.useState(false)
-  const scanned = useProvidersStore((s) => !!s.lastDetectedAt && !s.detecting)
-  return (
-    <GlowCard tone={p.installed ? (id === "codex" ? "cyan" : "default") : "default"} className={cn("flex flex-col gap-3", !p.installed && "opacity-90")}>
-      <div className="flex items-start gap-3">
-        <ProviderLogo provider={id} size={20} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 font-heading text-sm font-semibold">
-            {info.name}
-            <span className="text-[11px] font-normal text-text-3">{info.vendor}</span>
-            <TacticalChip size="xs" tone={p.installed ? "success" : "neutral"} dot>{p.installed ? t("common.installed") : t("common.notInstalled")}</TacticalChip>
-            <TacticalChip size="xs" tone={info.parserMaturity === "verified" ? "cyan" : "warn"} title={t("settings.parserHint")}>{info.parserMaturity === "verified" ? t("settings.parserVerified") : t("settings.parserBeta")}</TacticalChip>
-          </div>
-          <div className="mono truncate text-[10px] text-text-3">{p.installed ? `${p.detected?.version ?? ""} · ${p.detected?.path ?? ""}` : info.binary}</div>
-          {info.note && <div className="mt-1 text-[11px] text-text-3">{info.note}</div>}
-        </div>
-        {p.installed && <Switch checked={p.enabled} onCheckedChange={(v) => void setEnabled(id, v)} className={cn(p.enabled && "data-[state=checked]:bg-cyan")} aria-label={t("common.enabled")} />}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {!p.installed && scanned && info.installScript && <NeonButton size="sm" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "script") }}><Download />{p.installing ? t("settings.installing") : t("settings.install")}</NeonButton>}
-        {!p.installed && scanned && info.installNpm && info.installNpm !== info.installScript && <NeonButton size="sm" variant="outline" disabled={p.installing} onClick={() => { setShowLog(true); void install(id, "npm") }}><Download />{t("settings.installVia", { method: "npm" })}</NeonButton>}
-        {!p.installed && !scanned && <span className="text-[11px] text-text-3">{t("settings.detectPending")}</span>}
-        {p.installed && <NeonButton size="sm" variant="outline" onClick={() => void login(id)} title={t("settings.loginHint", { cmd: info.loginCommand })}><LogIn />{t("settings.login")}</NeonButton>}
-        <button type="button" onClick={() => void getBackend().then((b) => b.openExternal(info.docsUrl))} className="flex items-center gap-1 text-[11px] text-text-3 hover:text-cyan"><ExternalLink className="size-3" />docs</button>
-        {p.installed && <span className="ml-auto text-[11px] text-text-3">{p.models.length} {t("common.models").toLowerCase()}</span>}
-      </div>
-      {(showLog || p.installLog.length > 0) && <TerminalView lines={p.installLog} live={p.installing} className="h-40" emptyText={t("settings.installLog")} />}
-    </GlowCard>
-  )
-}
-
-function LauncherCard() {
-  const t = useT()
-  const [status, setStatus] = React.useState<LauncherStatus | null>(null)
-  const [busy, setBusy] = React.useState(false)
-  React.useEffect(() => {
-    void getBackend().then((b) => b.cliLauncherStatus()).then(setStatus).catch(() => setStatus(null))
-  }, [])
-  const install = async () => {
-    setBusy(true)
-    try {
-      const b = await getBackend()
-      setStatus(await b.installCliLauncher())
-    } finally {
-      setBusy(false)
-    }
-  }
-  const dir = status?.path.replace(/\/silent$/, "") ?? ""
-  return (
-    <GlowCard className="flex flex-col gap-2">
-      <SectionHeader eyebrow={t("common.cli")} title={t("settings.launcherTitle")} description={t("settings.launcherHint")} actions={<NeonButton size="sm" variant={status?.installed ? "outline" : "default"} disabled={busy || !status} onClick={install}>{t("settings.launcherInstall")}</NeonButton>} />
-      {status?.installed && <div className="mono text-[11px] text-text-2">{t("settings.launcherInstalled", { path: status.path })}</div>}
-      {status && !status.onPath && <div className="mono text-[11px] text-warn">{t("settings.launcherNotOnPath", { dir })}</div>}
-    </GlowCard>
   )
 }
 
@@ -108,6 +45,7 @@ export function SettingsScreen() {
   const removeCustomModel = useProvidersStore((s) => s.removeCustomModel)
   const runs = useRunsStore((s) => s.runs)
   const [section, setSection] = React.useState<SectionId>("clis")
+  const navigate = useNavigate()
   const [custom, setCustom] = React.useState<{ providerId: ProviderId; id: string; label: string }>({ providerId: "codex", id: "", label: "" })
   const available = React.useMemo(() => selectAvailableModels(providers), [providers])
   const modelOptions = available.map((m) => ({ value: modelRef(m.providerId, m.id), label: `${PROVIDERS[m.providerId].name} · ${m.displayName}` }))
@@ -132,6 +70,7 @@ export function SettingsScreen() {
                 <p className="text-sm text-text-2">{t("settings.clisHint")}</p>
                 <NeonButton size="sm" variant="outline" className="ml-auto" onClick={() => void detect()} disabled={detecting}><RefreshCw className={cn(detecting && "animate-spin")} />{detecting ? t("settings.detecting") : t("settings.redetect")}</NeonButton>
                 {lastDetectedAt && <span className="text-[11px] text-text-3">{formatRelative(lastDetectedAt)}</span>}
+                <NeonButton size="sm" variant="outline" onClick={() => navigate("/setup")}><Compass />{t("settings.setupGuide")}</NeonButton>
               </div>
               {lastError && <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{t("settings.detectError", { error: lastError })}</div>}
               {installedIds.length === 0 && !lastError && <div className="text-[11px] text-text-3">{t("settings.alreadyInstalledHint")}</div>}
@@ -144,6 +83,16 @@ export function SettingsScreen() {
                 </>
               )}
             </>
+          )}
+
+          {section === "workspace" && (
+            <GlowCard className="flex flex-col gap-3">
+              <SectionHeader eyebrow={t("common.folder")} title={settings.workspaceDir?.trim() || t("settings.workspaceDefault")} description={t("settings.workspaceHint")} />
+              <div className="flex flex-wrap gap-2">
+                <NeonButton size="sm" onClick={() => void getBackend().then((b) => b.pickDirectory()).then((p) => { if (p) void update({ workspaceDir: p }) })}><FolderOpen />{t("settings.workspaceChoose")}</NeonButton>
+                {settings.workspaceDir && <NeonButton size="sm" variant="outline" onClick={() => void update({ workspaceDir: "" })}>{t("settings.workspaceReset")}</NeonButton>}
+              </div>
+            </GlowCard>
           )}
 
           {section === "models" && (

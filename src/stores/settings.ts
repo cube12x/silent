@@ -18,6 +18,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const backend = await getBackend()
     const stored = await backend.kv.get<Partial<Settings>>("settings.v2")
     const merged: Settings = { ...DEFAULT_SETTINGS, ...stored, security: { ...DEFAULT_SETTINGS.security, ...stored?.security, allowDangerFullAccess: false } }
+    // First run: follow the OS language (Turkish stays Turkish, everyone else starts in English).
+    if (!stored && typeof navigator !== "undefined") merged.language = navigator.language?.toLowerCase().startsWith("tr") ? "tr" : "en"
     set({ settings: merged, loaded: true })
     apply(merged)
   },

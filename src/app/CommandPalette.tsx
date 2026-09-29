@@ -6,6 +6,7 @@ import { useChatsStore } from "@/stores/chats"
 import { useAgentsStore } from "@/stores/agents"
 import { useRunsStore } from "@/stores/runs"
 import { useT } from "@/i18n"
+import { shortcut } from "@/lib/platform"
 
 export function CommandPalette() {
   const t = useT()
@@ -26,7 +27,7 @@ export function CommandPalette() {
       <CommandList>
         <CommandEmpty>—</CommandEmpty>
         <CommandGroup heading={t("common.create")}>
-          <CommandItem onSelect={() => { setOpen(false); openNewSession({ kind: "standard" }) }}><Plus />{t("nav.newChat")}<CommandShortcut>⌘N</CommandShortcut></CommandItem>
+          <CommandItem onSelect={() => { setOpen(false); openNewSession({ kind: "standard" }) }}><Plus />{t("nav.newChat")}<CommandShortcut>{shortcut("N")}</CommandShortcut></CommandItem>
           <CommandItem onSelect={() => { setOpen(false); openNewSession({ kind: "repo-agent" }) }}><Bot />{t("agents.create")}</CommandItem>
           <CommandItem onSelect={() => go("/code")}><Zap />{t("code.newRun")}</CommandItem>
           <CommandItem onSelect={() => go("/settings")}><Settings2 />{t("nav.settings")}</CommandItem>

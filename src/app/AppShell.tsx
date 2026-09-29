@@ -9,6 +9,10 @@ import { CommandPalette } from "./CommandPalette"
 import { NewSessionModal } from "@/features/new-session-modal/NewSessionModal"
 import { TerminalDrawer } from "@/features/silent-code/TerminalDrawer"
 import { useUiStore } from "@/stores/ui"
+import { useProvidersStore } from "@/stores/providers"
+import { useSettingsStore } from "@/stores/settings"
+import { PROVIDER_IDS } from "@/domain"
+import { shouldOpenSetup } from "@/providers/setup"
 
 /** Two-column shell: sidebar | main, with a 48px top bar. No right panel in v2. */
 export function AppShell() {
@@ -18,6 +22,16 @@ export function AppShell() {
   const applyViewport = useUiStore((s) => s.applyViewport)
   const location = useLocation()
   const navigate = useNavigate()
+  const detecting = useProvidersStore((s) => s.detecting)
+  const lastDetectedAt = useProvidersStore((s) => s.lastDetectedAt)
+  const lastError = useProvidersStore((s) => s.lastError)
+  const installedCount = useProvidersStore((s) => PROVIDER_IDS.filter((id) => s.providers[id].installed).length)
+  const setupCompletedAt = useSettingsStore((s) => s.settings.setupCompletedAt)
+
+  // Fresh machine: no CLI found after the first scan → the Setup screen, until completed or skipped.
+  React.useEffect(() => {
+    if (shouldOpenSetup({ detecting, lastDetectedAt, lastError, installedCount, setupCompletedAt, pathname: location.pathname })) navigate("/setup", { replace: true })
+  }, [detecting, lastDetectedAt, lastError, installedCount, setupCompletedAt, location.pathname, navigate])
 
   // `silent run <folder> "<request>"` from the terminal: the launcher wrote autostart.json; pick it up and
   // hand it to the composer, which plans, approves and starts without clicks.

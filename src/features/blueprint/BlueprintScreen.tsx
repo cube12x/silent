@@ -19,6 +19,7 @@ import { BUILTIN_KITS } from "@/domain/kits"
 import { getBackend } from "@/services"
 import { isTauri } from "@/services/backend"
 import { isRepoUrl } from "@/engine/blueprint/prompt"
+import { modKey } from "@/lib/platform"
 import { NodeTerminal } from "./NodeTerminal"
 import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
@@ -545,7 +546,7 @@ export function BlueprintScreen() {
         {bp && <button type="button" onClick={() => { void remove(bp.id); navigate("/blueprint") }} className="ml-auto rounded-sm border border-line px-2 py-1 text-xs text-text-3 hover:text-danger">{t("common.delete")}</button>}
         {bp && <span className="mono shrink-0 rounded-sm border border-line px-2 py-0.5 text-[11px] whitespace-nowrap text-text-2" title={t("bp.tokensHint")}>{t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>}
         {bp && <button type="button" onClick={() => setFull((v) => !v)} title={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} aria-label={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} className="flex shrink-0 items-center gap-1 rounded-sm border border-line px-2 py-1 text-xs text-text-2 hover:text-text-1 [&_svg]:size-3.5">{full ? <Minimize2 /> : <Maximize2 />}{full ? t("bp.exitFullscreen") : t("bp.fullscreen")}</button>}
-        <span className="text-[11px] text-text-3">{t("bp.hint")}</span>
+        <span className="text-[11px] text-text-3">{t("bp.hint", { mod: modKey() })}</span>
       </div>
       {autoOpen && (
         <div className="flex flex-col gap-2 border-b border-line bg-ink-1 px-4 py-3">

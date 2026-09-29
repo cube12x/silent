@@ -26,6 +26,8 @@ interface ProvidersState {
   setEnabled(id: ProviderId, enabled: boolean): Promise<void>
   install(id: ProviderId, method: InstallMethod): Promise<void>
   login(id: ProviderId): Promise<void>
+  /** Setup fix: point npm's global prefix at ~/.npm-global (EACCES with the nodejs.org installer), then install via npm. */
+  fixNpmPrefix(id: ProviderId): Promise<void>
   addCustomModel(id: ProviderId, modelId: string, label?: string): Promise<void>
   removeCustomModel(id: ProviderId, modelId: string): Promise<void>
   /** ModelRefs a CLI rejected at runtime (e.g. not included in the account's plan). Cleared by a re-scan. */
@@ -134,6 +136,22 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     await get().detect()
     const after = get().providers[id]
     if (after.installed) push({ ts: Date.now(), stream: "system", text: `✓ ${after.detected?.path ?? id} ${after.detected?.version ?? ""}` })
+  },
+  async fixNpmPrefix(id) {
+    const backend = await getBackend()
+    const push = (line: TerminalLine) => set((st) => ({ providers: { ...st.providers, [id]: { ...st.providers[id], installLog: [...st.providers[id].installLog, line] } } }))
+    set((st) => ({ providers: { ...st.providers, [id]: { ...st.providers[id], installing: true } } }))
+    try {
+      await new Promise<void>((resolve) => {
+        void backend.setupFix("npm-user-prefix", (e) => {
+          if (e.type === "stdout" || e.type === "stderr") push({ ts: Date.now(), stream: e.type, text: e.data.line })
+          if (e.type === "exited" || e.type === "failed") resolve()
+        }).catch(() => resolve())
+      })
+    } finally {
+      set((st) => ({ providers: { ...st.providers, [id]: { ...st.providers[id], installing: false } } }))
+    }
+    await get().install(id, "npm")
   },
   async login(id) {
     const backend = await getBackend()

@@ -4,7 +4,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
 import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, Repositories, RunHandle } from "./backend"
+import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -54,6 +54,15 @@ export class TauriBackend implements Backend {
     return { cancel: () => invoke<void>("cli_run_cancel", { runId }) }
   }
 
+  prereqsCheck(): Promise<PrereqStatus[]> {
+    return invoke<PrereqStatus[]>("prereqs_check")
+  }
+  async setupFix(fix: SetupFix, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
+    const channel = new Channel<RuntimeEvent>()
+    channel.onmessage = onEvent
+    const runId = await invoke<string>("setup_fix", { fix, onEvent: channel })
+    return { cancel: () => invoke<void>("cli_run_cancel", { runId }) }
+  }
   providerLogin(providerId: ProviderId): Promise<void> {
     return invoke<void>("provider_login", { providerId })
   }
@@ -84,8 +93,8 @@ export class TauriBackend implements Backend {
     return invoke<Array<{ name: string; path: string; ok: boolean; error?: string }>>("refs_sync", { repoPath, refs })
   }
 
-  blueprintBuildDir(blueprint: string, build: string) {
-    return invoke<string>("blueprint_build_dir", { blueprint, build })
+  blueprintBuildDir(blueprint: string, build: string, base?: string) {
+    return invoke<string>("blueprint_build_dir", { blueprint, build, base: base ?? null })
   }
   blueprintBuildStats(folder: string) {
     return invoke<{ fileCount: number; images: string[]; newestMs: number }>("blueprint_build_stats", { folder })
@@ -112,8 +121,8 @@ export class TauriBackend implements Backend {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
   }
 
-  createProjectDir(name: string): Promise<string> {
-    return invoke<string>("create_project_dir", { name })
+  createProjectDir(name: string, base?: string): Promise<string> {
+    return invoke<string>("create_project_dir", { name, base: base ?? null })
   }
 
   async openExternal(url: string): Promise<void> {

@@ -11,6 +11,7 @@ import { PROVIDERS } from "@/providers/registry"
 import { ProviderLogo, TacticalChip } from "@/design-system"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n"
+import { isMac } from "@/lib/platform"
 
 function useTitle(): { workspace: string; title: string } {
   const t = useT()
@@ -39,7 +40,7 @@ export function TopBar() {
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
 
   return (
-    <header className="drag-region flex h-12 items-center gap-3 border-b border-line bg-ink-1/90 pl-[88px] pr-3 backdrop-blur-md">
+    <header data-tauri-drag-region className={cn("drag-region flex h-12 items-center gap-3 border-b border-line bg-ink-1/90 pr-3 backdrop-blur-md", isMac() ? "pl-[88px]" : "pl-3")}>
       <div className="no-drag min-w-0">
         <div className="text-[9px] font-semibold tracking-[0.2em] text-text-3 uppercase">{workspace}</div>
         <div className="truncate font-heading text-[13px] font-semibold text-text-1">{title}</div>
@@ -60,7 +61,7 @@ export function TopBar() {
             </Tooltip>
           )
         })}
-        {installed.length === 0 && <TacticalChip tone="warn" dot>{t("top.noCli")}</TacticalChip>}
+        {installed.length === 0 && <button type="button" onClick={() => navigate("/setup")}><TacticalChip tone="warn" dot>{t("top.noCli")}</TacticalChip></button>}
       </div>
       <div className="no-drag ml-auto flex items-center gap-2">
         <TacticalChip tone={active + bpActive ? "cyan" : "neutral"} dot pulse={active + bpActive > 0}><Cpu className="size-3" />{active + bpActive} {t("top.activeAis")}</TacticalChip>

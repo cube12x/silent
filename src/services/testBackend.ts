@@ -1,5 +1,5 @@
 import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, Backend, KvStore, Repositories, RunHandle } from "./backend"
+import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
 export class TestBackend implements Backend {
@@ -29,11 +29,18 @@ export class TestBackend implements Backend {
     return { cancel: async () => {} }
   }
   async providerLogin() {}
+  prereqs: PrereqStatus[] = []
+  async prereqsCheck(): Promise<PrereqStatus[]> {
+    return this.prereqs
+  }
+  async setupFix(): Promise<RunHandle> {
+    return { cancel: async () => {} }
+  }
   async cliLauncherStatus() {
-    return { installed: false, path: "/opt/homebrew/bin/silent", appPath: "/Applications/Silent.app", onPath: true }
+    return { installed: false, path: "/opt/homebrew/bin/silent", dir: "/opt/homebrew/bin", appPath: "/Applications/Silent.app", onPath: true }
   }
   async installCliLauncher() {
-    return { installed: true, path: "/opt/homebrew/bin/silent", appPath: "/Applications/Silent.app", onPath: true }
+    return { installed: true, path: "/opt/homebrew/bin/silent", dir: "/opt/homebrew/bin", appPath: "/Applications/Silent.app", onPath: true }
   }
   async repoInspect(path: string): Promise<RepoInfo> {
     return { path, exists: true, isGitRepo: true, name: path.split("/").pop() ?? path, branch: "main", fileCount: 1, languages: [] }

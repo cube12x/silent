@@ -3,6 +3,7 @@ import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, Termi
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
+import { useSettingsStore } from "./settings"
 import { useProvidersStore } from "./providers"
 import { composeAiInput, firstIncoming, firstOutgoing, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
@@ -65,6 +66,11 @@ interface BlueprintsState {
 
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const watchSince = new Map<string, number>()
+
+/** Settings › workspace folder (undefined = the backend default, ~/CubeCode). */
+function workspaceDir(): string | undefined {
+  return useSettingsStore.getState().settings.workspaceDir?.trim() || undefined
+}
 
 const LOG_CAP = 1500
 const LOG_FLUSH_MS = 100
@@ -345,7 +351,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const backend = await getBackend()
     let folder = node.data.folderPath
     if (!folder) {
-      folder = await backend.blueprintBuildDir(bp.name, node.data.title || "build")
+      folder = await backend.blueprintBuildDir(bp.name, node.data.title || "build", workspaceDir())
       get().updateNode(id, nodeId, { data: { folderPath: folder } })
     }
     const n = await backend.blueprintBuildImport(folder, paths)
@@ -368,7 +374,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       if (srcFolder) {
         const src = await backend.blueprintBuildStats(srcFolder)
         if (src.images.length) {
-          if (!folder) folder = await backend.blueprintBuildDir(bp.name, node.data.title || "photos")
+          if (!folder) folder = await backend.blueprintBuildDir(bp.name, node.data.title || "photos", workspaceDir())
           imported = await backend.blueprintBuildImport(folder, src.images.map((rel) => `${srcFolder}/${rel}`), undefined, true)
         }
       }
@@ -499,7 +505,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let cwd = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
   const title = promptTitles.find(Boolean) || (ai.data.title ?? "") || "build"
   if (!cwd) {
-    cwd = await backend.blueprintBuildDir(bp.name, title)
+    cwd = await backend.blueprintBuildDir(bp.name, title, workspaceDir())
   }
   if (!outBuild) {
     // Develop flow (Build → Prompt → AI): the AI works inside that build, so the same Build node is updated

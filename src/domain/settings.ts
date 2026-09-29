@@ -14,6 +14,10 @@ export interface CustomModel {
 
 export interface Settings {
   language: Language
+  /** Set when the first-run Setup screen was completed or skipped. */
+  setupCompletedAt?: number
+  /** Projects/blueprint builds root; empty = ~/CubeCode. */
+  workspaceDir?: string
   /** ModelRef `provider:model`. Empty until a CLI is detected. */
   defaultModelRef: string
   fallbackModelRef: string

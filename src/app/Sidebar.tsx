@@ -1,4 +1,5 @@
 import * as React from "react"
+import { shortcut } from "@/lib/platform"
 import { NavLink, useNavigate } from "react-router"
 import { cn } from "cn"
 import { Bot, ChevronsLeft, ChevronsRight, Cpu, GitBranch, MessageSquare, Plus, Search, Settings2, Zap, Languages, Workflow, Trash2 } from "lucide-react"
@@ -118,7 +119,7 @@ export function Sidebar() {
         <button type="button" onClick={() => openNewSession({ kind: "standard" })} className={cn("flex h-8 flex-1 items-center justify-center gap-2 rounded-lg border border-cyan/40 bg-cyan/10 text-[13px] font-medium text-cyan transition-all hover:bg-cyan/15 ", collapsed && "size-8 flex-none")}>
           <Plus className="size-4" />
           {!collapsed && <span>{t("nav.newChat")}</span>}
-          {!collapsed && <Kbd className="ml-auto border-cyan/30 bg-transparent text-cyan/70">⌘N</Kbd>}
+          {!collapsed && <Kbd className="ml-auto border-cyan/30 bg-transparent text-cyan/70">{shortcut("N")}</Kbd>}
         </button>
         <button type="button" onClick={() => setPalette(true)} className="flex size-8 items-center justify-center rounded-lg border border-line bg-ink-2 text-text-2 hover:border-line-strong hover:text-text-1" aria-label={t("nav.search")}><Search className="size-4" /></button>
         {collapsed && <button type="button" onClick={toggle} className="flex size-8 items-center justify-center rounded-lg text-text-3 hover:bg-ink-3 hover:text-text-1" aria-label={t("nav.expand")}><ChevronsRight className="size-4" /></button>}

@@ -6,6 +6,8 @@ import { useProvidersStore } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
 import { useBlueprintsStore } from "@/stores/blueprints"
 import { useSettingsStore } from "@/stores/settings"
+import { getBackend } from "@/services"
+import { initPlatform } from "@/lib/platform"
 
 /** Hydrate every store. No seeding: the app starts empty and real. */
 let inflight: Promise<void> | undefined
@@ -16,6 +18,7 @@ export function bootstrap(): Promise<void> {
 }
 
 async function run(): Promise<void> {
+  initPlatform((await (await getBackend()).appInfo()).platform)
   await useSettingsStore.getState().load()
   useI18nStore.getState().setLanguage(useSettingsStore.getState().settings.language)
   await Promise.all([useAgentsStore.getState().load(), useChatsStore.getState().load(), useRunsStore.getState().load(), useMemoryStore.getState().load()])
