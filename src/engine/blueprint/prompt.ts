@@ -84,3 +84,10 @@ export function buildAiPrompt(i: AiPromptInput): string {
   if (task) blocks.push(task)
   return blocks.join("\n\n")
 }
+
+/** The report part of a Bilinç reply: from the last `# FINDINGS` heading on (the running commentary before it is dropped). */
+export function extractReport(text: string): string {
+  const t = text.trim()
+  const idx = t.toUpperCase().lastIndexOf("# FINDINGS")
+  return idx >= 0 ? t.slice(idx).trim() : t
+}

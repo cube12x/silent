@@ -12,7 +12,7 @@ import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
 import { BUILTIN_KITS } from "@/domain/kits"
 import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
-import { aiTaskText, buildAiPrompt, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
+import { aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -583,9 +583,10 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     ok = res.ok
     used = res.tokens
     if (role === "bilinc" && res.text.trim()) {
-      // The whole reply is the report the wired Eylem node will execute.
-      store.updateNode(bpId, aiId, { data: { report: res.text.trim() } })
-      log(set, aiId, `📄 report: ${res.text.trim().split("\n").length} lines`)
+      // The report (from `# FINDINGS` on) is what the wired Eylem node executes; the commentary before it is dropped.
+      const report = extractReport(res.text)
+      store.updateNode(bpId, aiId, { data: { report } })
+      log(set, aiId, `📄 report: ${report.split("\n").length} lines`)
     }
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined

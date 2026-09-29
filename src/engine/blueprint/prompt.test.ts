@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aiTaskText, buildAiPrompt, isRepoUrl, repoName } from "./prompt"
+import { aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -48,5 +48,9 @@ describe("Özel AI prompt", () => {
     expect(e).toContain("## Report from Bilinç · Fable")
     expect(aiTaskText({ wired: "", reports: [{ title: "b", report: "r" }] })).not.toBe("")
     expect(aiTaskText({ wired: "", reports: [] })).toBe("")
+  })
+  it("keeps only the report part of a Bilinç reply", () => {
+    expect(extractReport("Still reading…\n\nChecking x.\n\n# FINDINGS\n- a.ts:1 bug\n# ACTIONS\n1. fix")).toBe("# FINDINGS\n- a.ts:1 bug\n# ACTIONS\n1. fix")
+    expect(extractReport("no headings at all")).toBe("no headings at all")
   })
 })
