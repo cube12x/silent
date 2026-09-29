@@ -1,7 +1,6 @@
 //! Real CLI execution, installation and login. Every run streams `RuntimeEvent`s over a Channel.
 
 use std::collections::HashMap;
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,6 +30,19 @@ impl RunRegistry {
         Ok(())
     }
 
+    /// Flip every active run's cancel flag (app exit on Windows/Linux, where closing the window quits).
+    pub fn cancel_all(&self) -> usize {
+        let Ok(map) = self.0.lock() else { return 0 };
+        for sender in map.values() {
+            let _ = sender.send(true);
+        }
+        map.len()
+    }
+
+    pub fn active(&self) -> usize {
+        self.0.lock().map(|m| m.len()).unwrap_or(0)
+    }
+
     fn cancel(&self, run_id: &str) -> Result<(), String> {
         let map = self
             .0
@@ -46,7 +58,7 @@ impl RunRegistry {
     }
 }
 
-fn spawn_registered(
+pub(crate) fn spawn_registered(
     registry: &RunRegistry,
     run_id: String,
     config: SpawnConfig,
@@ -88,6 +100,7 @@ fn spawn_registered_with_cleanup(
 
 #[tauri::command]
 pub async fn cli_run_start(
+    app: tauri::AppHandle,
     registry: State<'_, RunRegistry>,
     request: CliRunRequest,
     on_event: Channel<RuntimeEvent>,
@@ -100,8 +113,8 @@ pub async fn cli_run_start(
     }
     let adapter = adapter_for(request.provider_id);
     let spec = registry::spec(request.provider_id);
-    let program =
-        binaries::resolve_any(adapter.binary(), adapter.alt_binaries()).ok_or_else(|| {
+    let (program, shim_args) =
+        binaries::resolve_program(adapter.binary(), adapter.alt_binaries()).ok_or_else(|| {
             format!(
                 "{} not found. Install it ({}) or add `{}` to PATH.",
                 spec.name,
@@ -111,7 +124,8 @@ pub async fn cli_run_start(
                 adapter.binary()
             )
         })?;
-    let args = adapter.build_args(&request);
+    let mut args = shim_args;
+    args.extend(adapter.build_args(&request));
     // Argv without the prompt (the last positional) so runs can be reproduced from the log file.
     log::info!(
         "spawn {} {} [{}] cwd={:?}",
@@ -134,22 +148,8 @@ pub async fn cli_run_start(
         .map(Into::into)
         .or_else(binaries::home);
     config.timeout = Duration::from_secs(request.timeout_secs.unwrap_or(40 * 60).clamp(60, 7200));
-    // Raw JSONL evidence per run: ~/Library/Logs/com.silent.workstation/raw/<run id>.jsonl
-    config.raw_log = binaries::home().map(|h| {
-        let safe: String = request
-            .run_id
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        h.join("Library/Logs/com.silent.workstation/raw")
-            .join(format!("{safe}.jsonl"))
-    });
+    // Raw JSONL evidence per run: <app log dir>/raw/<run id>.jsonl
+    config.raw_log = crate::app_paths::raw_run_log(&app, &request.run_id);
     let run_id = request.run_id.clone();
     // Codex's schema file was written by `build_args`; drop it once the run is over.
     let temp_files = if request.provider_id == ProviderId::Codex && request.schema().is_some() {
@@ -191,21 +191,17 @@ pub async fn provider_install(
     on_event: Channel<RuntimeEvent>,
 ) -> Result<String, String> {
     let spec = registry::spec(provider_id);
-    let command = match method {
-        InstallMethod::Script => spec.install_script.or(spec.install_npm),
-        InstallMethod::Npm => spec.install_npm.or(spec.install_script),
-    }
-    .ok_or_else(|| format!("{} has no install command", spec.name))?;
-    let mut config = SpawnConfig::new(
-        "/bin/sh",
-        vec![
-            "-lc".into(),
-            format!(
-                "export PATH=\"{}:$PATH\"; {command}",
-                binaries::augmented_path()
-            ),
-        ],
-    );
+    // Windows has no `curl … | bash`: only the npm variant is offered there.
+    let command = if cfg!(windows) {
+        spec.install_npm.ok_or_else(|| format!("{} cannot be installed from Silent on Windows; follow its docs.", spec.name))?
+    } else {
+        match method {
+            InstallMethod::Script => spec.install_script.or(spec.install_npm),
+            InstallMethod::Npm => spec.install_npm.or(spec.install_script),
+        }
+        .ok_or_else(|| format!("{} has no install command", spec.name))?
+    };
+    let mut config = super::shell::shell_config(command);
     config.timeout = Duration::from_secs(15 * 60);
     let run_id = format!("install:{provider_id}:{}", std::process::id());
     let parser: silent_runtime::LineParser = Box::new(|line: &str| {
@@ -223,32 +219,5 @@ pub async fn provider_install(
 #[tauri::command]
 pub async fn provider_login(provider_id: ProviderId) -> Result<(), String> {
     let spec = registry::spec(provider_id);
-    let command = spec.login_command;
-    if cfg!(target_os = "macos") {
-        let script = format!(
-            "tell application \"Terminal\" to do script \"{}\"",
-            command.replace('"', "\\\"")
-        );
-        let status = tokio::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .arg("-e")
-            .arg("tell application \"Terminal\" to activate")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| format!("could not open Terminal: {e}"))?;
-        if status.status.success() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Terminal refused: {}. Run manually: {command}",
-                String::from_utf8_lossy(&status.stderr).trim()
-            ))
-        }
-    } else {
-        Err(format!("open a terminal and run: {command}"))
-    }
+    super::terminal::open_in_terminal(&format!("Silent - {} login", spec.name), spec.login_command).await
 }

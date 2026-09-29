@@ -16,9 +16,8 @@ pub struct Codex;
 /// `service_tier = "..."` from the user's `~/.codex/config.toml`, if any. Workers ignore the rest of
 /// that file (plugins, MCP servers, notify hooks) but must keep the paid speed tier.
 pub fn user_service_tier() -> Option<String> {
-    let home = std::env::var_os("HOME")?;
-    let text =
-        std::fs::read_to_string(std::path::Path::new(&home).join(".codex/config.toml")).ok()?;
+    let home = crate::paths::home()?;
+    let text = std::fs::read_to_string(home.join(".codex/config.toml")).ok()?;
     text.lines().find_map(|l| {
         let l = l.trim();
         let rest = l
@@ -67,19 +66,12 @@ pub fn build_args_with(req: &CliRunRequest, service_tier: Option<&str>) -> Vec<S
     // Package managers write their caches outside the repo (~/.npm, ~/.cache, ~/Library/Caches); the
     // workspace-write sandbox denies that with a misleading "root-owned files" npm error (2026-09-25).
     if req.sandbox == SandboxMode::WorkspaceWrite {
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = std::path::PathBuf::from(home);
-            let roots = [
-                ".npm",
-                ".cache",
-                "Library/Caches",
-                ".cargo/registry",
-                ".bun/install/cache",
-            ]
-            .iter()
-            .map(|r| format!("\"{}\"", home.join(r).display()))
-            .collect::<Vec<_>>()
-            .join(",");
+        if let Some(home) = crate::paths::home() {
+            let roots = crate::paths::cache_roots(&home, crate::paths::Os::current())
+                .iter()
+                .map(|r| format!("\"{}\"", r.display().to_string().replace('\\', "\\\\")))
+                .collect::<Vec<_>>()
+                .join(",");
             args.push("-c".into());
             args.push(format!("sandbox_workspace_write.writable_roots=[{roots}]"));
         }

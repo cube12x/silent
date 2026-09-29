@@ -78,11 +78,18 @@ pub enum RunExit {
     TimedOut,
 }
 
-fn isolate_process_group(command: &mut Command) {
+/// Platform setup for every child Silent spawns: its own process group on unix (so a cancel
+/// reaches grandchildren), no console window on Windows (a GUI app would flash one per spawn).
+pub fn configure_child(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.as_std_mut().process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 }
 
@@ -105,7 +112,15 @@ async fn terminate(child: &mut Child, grace: Duration) {
     if let Some(pid) = pid {
         signal_group(pid, "TERM").await;
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    if let Some(pid) = pid {
+        // Kill the whole tree: the CLI's node/python/browser children would otherwise outlive it.
+        let mut kill = Command::new("taskkill");
+        kill.args(["/T", "/F", "/PID", &pid.to_string()]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        configure_child(&mut kill);
+        let _ = kill.status().await;
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = child.start_kill();
     }
@@ -209,7 +224,7 @@ where
     if let Some(cwd) = &config.cwd {
         command.current_dir(cwd);
     }
-    isolate_process_group(&mut command);
+    configure_child(&mut command);
 
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -412,6 +427,7 @@ mod tests {
         (events, move |event| writer.lock().unwrap().push(event))
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn streams_parsed_events_then_exits() {
         let (events, sink) = collector();
@@ -444,6 +460,7 @@ mod tests {
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: Some(3) }));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn cancel_terminates_promptly() {
         let (events, sink) = collector();
@@ -469,6 +486,7 @@ mod tests {
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn active_process_outlives_soft_limit_until_hard_limit() {
         let (events, sink) = collector();
@@ -499,6 +517,7 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, .. } if code == "timeout" && message.contains("hard limit"))), "{events:?}");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn timeout_kills_process() {
         let (events, sink) = collector();
@@ -533,6 +552,7 @@ mod tests {
         assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn oversized_line_is_reported_not_fatal() {
         let (events, sink) = collector();
@@ -554,5 +574,32 @@ mod tests {
             |e| matches!(e, RuntimeEvent::Stderr { line } if line.contains("reader stopped"))
         ));
         assert!(matches!(events.last(), Some(RuntimeEvent::Exited { .. })));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn streams_parsed_events_then_exits_windows() {
+        let (events, sink) = collector();
+        let config = SpawnConfig::new("cmd", vec!["/C".into(), "echo one & echo two 1>&2 & exit 3".into()]);
+        let (_handle, rx) = RunHandle::new();
+        let exit = run_streaming(config, Box::new(|l: &str| vec![RuntimeEvent::stdout(l)]), sink, rx).await.unwrap();
+        assert_eq!(exit, RunExit::Exited(Some(3)));
+        let got = events.lock().unwrap();
+        assert!(got.iter().any(|e| matches!(e, RuntimeEvent::Stdout { line } if line.trim() == "one")));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn cancel_terminates_promptly_windows() {
+        let (_events, sink) = collector();
+        let config = SpawnConfig::new("cmd", vec!["/C".into(), "ping -n 31 127.0.0.1 >NUL".into()]);
+        let (handle, rx) = RunHandle::new();
+        let task = tokio::spawn(run_streaming(config, Box::new(|_: &str| Vec::new()), sink, rx));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let started = std::time::Instant::now();
+        handle.cancel();
+        let exit = task.await.unwrap().unwrap();
+        assert_eq!(exit, RunExit::Cancelled);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }

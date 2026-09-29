@@ -48,7 +48,7 @@ pub const SPECS: [ProviderSpec; 11] = [
         alt_binaries: &[],
         install_script: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
         install_npm: Some("npm install -g @xai-official/grok"),
-        login_command: "grok",
+        login_command: "grok login",
     },
     ProviderSpec {
         id: ProviderId::Gemini,
@@ -125,6 +125,20 @@ pub fn spec(id: ProviderId) -> &'static ProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The TypeScript registry (src/providers/registry.ts) is what the UI shows; the Rust spec is what runs.
+    #[test]
+    fn login_and_install_commands_match_the_ts_registry() {
+        let ts = include_str!("../../../../src/providers/registry.ts");
+        for s in SPECS.iter() {
+            let block_start = ts.find(&format!("\n  {}: {{", s.id)).unwrap_or_else(|| panic!("{} missing in registry.ts", s.id));
+            let block = &ts[block_start..ts[block_start + 1..].find("\n  }").map(|i| block_start + 1 + i).unwrap_or(ts.len())];
+            assert!(block.contains(&format!("loginCommand: \"{}\"", s.login_command)), "{}: loginCommand drift (rust: {})", s.id, s.login_command);
+            if let Some(npm) = s.install_npm {
+                assert!(block.contains(npm), "{}: installNpm drift", s.id);
+            }
+        }
+    }
 
     #[test]
     fn every_provider_has_spec_and_install_path() {

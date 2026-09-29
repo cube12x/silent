@@ -51,18 +51,16 @@ async fn detect(spec: &ProviderSpec) -> DetectedProvider {
             error: None,
         };
     };
-    let output = tokio::time::timeout(
-        Duration::from_secs(3),
-        Command::new(&path)
-            .arg("--version")
-            .env("PATH", binaries::augmented_path())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await;
+    let mut probe = Command::new(&path);
+    probe
+        .arg("--version")
+        .env("PATH", binaries::augmented_path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    silent_runtime::spawn::configure_child(&mut probe);
+    let output = tokio::time::timeout(Duration::from_secs(3), probe.output()).await;
     let path_str = Some(path.display().to_string());
     match output {
         Ok(Ok(out)) => {

@@ -5,6 +5,7 @@
 pub mod cli;
 pub mod error;
 pub mod events;
+pub mod paths;
 pub mod redaction;
 pub mod spawn;
 

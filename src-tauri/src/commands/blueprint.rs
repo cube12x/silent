@@ -36,16 +36,14 @@ fn slug(s: &str) -> String {
     }
 }
 
-fn blueprints_root() -> Result<PathBuf, String> {
-    super::binaries::home()
-        .map(|h| h.join("CubeCode").join("blueprints"))
-        .ok_or_else(|| "home directory unavailable".into())
+fn blueprints_root(base: Option<&str>) -> Result<PathBuf, String> {
+    Ok(crate::app_paths::workspace_root(base)?.join("blueprints"))
 }
 
 /// Create (or reuse) the folder for a build node and return its absolute path.
 #[tauri::command]
-pub fn blueprint_build_dir(blueprint: String, build: String) -> Result<String, String> {
-    let dir = blueprints_root()?.join(slug(&blueprint)).join(slug(&build));
+pub fn blueprint_build_dir(blueprint: String, build: String, base: Option<String>) -> Result<String, String> {
+    let dir = blueprints_root(base.as_deref())?.join(slug(&blueprint)).join(slug(&build));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir.to_string_lossy().into_owned())
 }
@@ -113,7 +111,7 @@ fn walk(dir: &Path, root: &Path, stats: &mut BuildStats, budget: &mut usize, out
                 || lower.ends_with(".gif")
             {
                 if let Ok(rel) = path.strip_prefix(root) {
-                    stats.images.push(rel.to_string_lossy().into_owned());
+                    stats.images.push(silent_runtime::paths::to_slash(rel));
                 }
             }
             if let Ok(m) = meta.modified() {

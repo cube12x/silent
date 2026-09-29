@@ -5,10 +5,13 @@ pub mod cli;
 pub mod files;
 pub mod launcher;
 pub mod models;
+pub mod prereqs;
 pub mod project;
 pub mod providers;
 pub mod refs;
 pub mod repo;
+pub mod shell;
+pub mod terminal;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -307,15 +307,10 @@ pub async fn antigravity_models() -> Vec<ProviderModel> {
     let Some(program) = binaries::resolve("agy") else {
         return Vec::new();
     };
-    let out = tokio::time::timeout(
-        std::time::Duration::from_secs(20),
-        tokio::process::Command::new(program)
-            .arg("models")
-            .env("PATH", binaries::augmented_path())
-            .stdin(std::process::Stdio::null())
-            .output(),
-    )
-    .await;
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.arg("models").env("PATH", binaries::augmented_path()).stdin(std::process::Stdio::null());
+    silent_runtime::spawn::configure_child(&mut cmd);
+    let out = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let Ok(Ok(out)) = out else { return Vec::new() };
     let text = String::from_utf8_lossy(&out.stdout);
     let mut models = Vec::new();

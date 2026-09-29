@@ -89,7 +89,7 @@ fn walk_changed(
             *budget -= 1;
             if meta.modified().map(|m| m >= since).unwrap_or(false) {
                 if let Ok(rel) = path.strip_prefix(root) {
-                    out.push(rel.to_string_lossy().into_owned());
+                    out.push(silent_runtime::paths::to_slash(rel));
                 }
             }
         }

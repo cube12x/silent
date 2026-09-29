@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 
-use super::binaries;
 
 fn slug(name: &str) -> String {
     let s: String = name
@@ -31,11 +30,10 @@ fn slug(name: &str) -> String {
     }
 }
 
-/// `~/CubeCode/<slug>` (created if missing). Never overwrites: an existing folder is returned as is.
+/// `<workspace>/<slug>` (created if missing; workspace = Settings folder or `~/CubeCode`). Never overwrites.
 #[tauri::command]
-pub fn create_project_dir(name: String) -> Result<String, String> {
-    let home = binaries::home().ok_or("no HOME")?;
-    let base: PathBuf = home.join("CubeCode");
+pub fn create_project_dir(name: String, base: Option<String>) -> Result<String, String> {
+    let base: PathBuf = crate::app_paths::workspace_root(base.as_deref())?;
     let dir = base.join(slug(&name));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir.display().to_string())

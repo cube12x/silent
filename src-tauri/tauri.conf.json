@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Silent",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "identifier": "com.silent.workstation",
   "build": {
     "frontendDist": "../dist",
@@ -35,7 +35,10 @@
     "active": true,
     "targets": [
       "app",
-      "dmg"
+      "dmg",
+      "deb",
+      "appimage",
+      "nsis"
     ],
     "icon": [
       "icons/32x32.png",
@@ -46,7 +49,18 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "category": "DeveloperTool",
+    "shortDescription": "Orchestrates local AI coding CLIs (Codex, Claude Code, Grok, Kimi, Antigravity)",
+    "longDescription": "Silent plans a request, splits it into tasks, runs them on the AI CLIs installed on your machine and shows every terminal live. Blueprints wire prompts, AIs and folders into reusable pipelines."
   },
   "plugins": {
     "sql": {

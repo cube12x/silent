@@ -1,12 +1,17 @@
-//! `silent` terminal command: a tiny shell script that opens the desktop app (`open -a`).
-//! Silent itself stays a GUI app; the command only launches it.
+//! `silent` terminal command: a tiny script that starts the desktop app with the arguments it was
+//! given (`silent run …`, `silent bp …`, `silent reload`); the app parses them (see `autostart.rs`).
+//! No python, no hardcoded data directories: the script only knows where the app is.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::binaries;
+use silent_runtime::paths;
 
-/// The `.app` bundle containing the running executable (dev builds fall back to the executable).
+/// The app to start: the `.app` bundle on macOS, `$APPIMAGE` on Linux (inside a mounted AppImage
+/// `current_exe` points into a temporary mount), else the executable itself.
 fn app_path() -> PathBuf {
+    if let Some(appimage) = std::env::var_os("APPIMAGE").filter(|v| !v.is_empty()) {
+        return PathBuf::from(appimage);
+    }
     let exe = std::env::current_exe().unwrap_or_default();
     exe.ancestors()
         .find(|p| p.extension().is_some_and(|e| e == "app"))
@@ -14,23 +19,55 @@ fn app_path() -> PathBuf {
         .unwrap_or(exe)
 }
 
-/// Where the launcher goes: Homebrew's bin when writable (already on PATH), else ~/.local/bin.
+/// Where the launcher goes: macOS → Homebrew's bin when writable (already on PATH) else ~/.local/bin;
+/// Linux → ~/.local/bin; Windows → %LOCALAPPDATA%\Silent\bin\silent.cmd.
 fn launcher_path() -> PathBuf {
-    let brew = PathBuf::from("/opt/homebrew/bin");
-    if brew.is_dir()
-        && std::fs::metadata(&brew)
-            .map(|m| !m.permissions().readonly())
-            .unwrap_or(false)
-    {
-        if let Ok(probe) = std::fs::File::create(brew.join(".silent-write-test")) {
-            drop(probe);
-            let _ = std::fs::remove_file(brew.join(".silent-write-test"));
-            return brew.join("silent");
+    if cfg!(windows) {
+        let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).or_else(|| paths::home().map(|h| h.join("AppData").join("Local"))).unwrap_or_default();
+        return base.join("Silent").join("bin").join("silent.cmd");
+    }
+    if cfg!(target_os = "macos") {
+        let brew = PathBuf::from("/opt/homebrew/bin");
+        if brew.is_dir() {
+            if let Ok(probe) = std::fs::File::create(brew.join(".silent-write-test")) {
+                drop(probe);
+                let _ = std::fs::remove_file(brew.join(".silent-write-test"));
+                return brew.join("silent");
+            }
         }
     }
-    binaries::home()
-        .unwrap_or_default()
-        .join(".local/bin/silent")
+    paths::home().unwrap_or_default().join(".local/bin/silent")
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LauncherKind {
+    /// `open -n -a <app>` keeps the app detached from the terminal; `-n` forces a second process whose
+    /// argv the single-instance plugin forwards to the running app.
+    MacApp,
+    /// Linux binary / AppImage / mac dev build: detach with nohup.
+    UnixExe,
+    /// `start "" <exe>` returns immediately.
+    WindowsCmd,
+}
+
+/// The launcher script body for `target`.
+pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
+    let t = target.display();
+    match kind {
+        LauncherKind::MacApp => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload).\nexec open -n -a \"{t}\" --args --cwd \"$PWD\" \"$@\"\n"),
+        LauncherKind::UnixExe => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload).\nnohup \"{t}\" --cwd \"$PWD\" \"$@\" >/dev/null 2>&1 &\n"),
+        LauncherKind::WindowsCmd => format!("@echo off\r\nrem Silent - opens the desktop app with your arguments (silent run ... | silent bp ... | silent reload).\r\nstart \"\" \"{t}\" --cwd \"%CD%\" %*\r\n"),
+    }
+}
+
+fn launcher_kind(app: &Path) -> LauncherKind {
+    if cfg!(windows) {
+        LauncherKind::WindowsCmd
+    } else if app.extension().is_some_and(|e| e == "app") {
+        LauncherKind::MacApp
+    } else {
+        LauncherKind::UnixExe
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -38,6 +75,8 @@ fn launcher_path() -> PathBuf {
 pub struct LauncherStatus {
     pub installed: bool,
     pub path: String,
+    /// Directory holding the launcher (what the user adds to PATH when `on_path` is false).
+    pub dir: String,
     pub app_path: String,
     pub on_path: bool,
 }
@@ -45,89 +84,15 @@ pub struct LauncherStatus {
 fn status() -> LauncherStatus {
     let path = launcher_path();
     let dir = path.parent().map(PathBuf::from).unwrap_or_default();
-    let on_path = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).any(|d| d == dir))
-        .unwrap_or(false);
+    let on_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).any(|d| d == dir)).unwrap_or(false);
     LauncherStatus {
         installed: path.is_file(),
         path: path.display().to_string(),
+        dir: dir.display().to_string(),
         app_path: app_path().display().to_string(),
         on_path,
     }
 }
-
-/// `silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent "Pixel Ustası"] <folder> <request…>` queues a run
-/// for the app (plan → approve → start) by writing `autostart.json`; the app is opened as usual afterwards.
-const RUN_PRELUDE: &str = r#"#!/bin/sh
-# Silent — opens the desktop app. Installed by Silent > Settings.
-# Usage: silent                       open the app
-#        silent run [--kit ID] [--no-polish] [--cost economy|balanced|max-quality] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>
-#        silent bp <blueprint name|id> [node title|id]    trigger a Blueprint node (default: its Start button)
-#        silent bp answer <blueprint> <node> <answer…>      answer a node's blocked worker question(s)
-#        silent bp only <blueprint> <node>                  run just that node (not the AIs wired after it)
-#        silent reload                                      reload the app page (blank/black window)
-#        silent bp auto <description…>                      let the connected Claude design a new blueprint
-if [ "$1" = "reload" ]; then
-  dir="$HOME/Library/Application Support/com.silent.workstation"
-  mkdir -p "$dir"
-  printf '{"folder":"","prompt":"","reload":true}' > "$dir/autostart.json"
-  echo "queued: reload"
-  set --
-fi
-if [ "$1" = "bp" ]; then
-  shift
-  answer=""; only=""; auto=""
-  if [ "$1" = "only" ]; then shift; only="1"; fi
-  if [ "$1" = "auto" ]; then
-    shift
-    if [ -z "$1" ]; then echo "usage: silent bp auto <what you want built…>" >&2; exit 2; fi
-    auto="$*"; bpref=""; node=""
-  elif [ "$1" = "answer" ]; then
-    shift
-    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then echo "usage: silent bp answer <blueprint name|id> <node title|id> <answer…>" >&2; exit 2; fi
-    bpref="$1"; node="$2"; shift 2; answer="$*"
-  else
-    if [ -z "$1" ]; then echo "usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…>" >&2; exit 2; fi
-    bpref="$1"; node="$2"
-  fi
-  dir="$HOME/Library/Application Support/com.silent.workstation"
-  mkdir -p "$dir"
-  python3 - "$bpref" "$node" "$answer" "$only" "$auto" > "$dir/autostart.json" <<'PY'
-import json, sys
-print(json.dumps({"folder": "", "prompt": "", "blueprint": {"ref": sys.argv[1], "node": sys.argv[2] or None, "answer": sys.argv[3] or None, "only": bool(sys.argv[4]), "auto": sys.argv[5] or None}}))
-PY
-  if [ -n "$auto" ]; then echo "queued auto blueprint"; elif [ -n "$answer" ]; then echo "queued answer for: $bpref / $node"; else echo "queued blueprint: $bpref"; fi
-  set --
-fi
-if [ "$1" = "run" ]; then
-  shift
-  kit=""; polish=""; cost=""; pool=""; prefer=""; agent=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --kit) kit="$2"; shift 2 ;;
-      --no-polish) polish="false"; shift ;;
-      --cost) cost="$2"; shift 2 ;;
-      --pool) pool="$2"; shift 2 ;;
-      --prefer) prefer="$2"; shift 2 ;;
-      --agent) agent="$2"; shift 2 ;;
-      *) break ;;
-    esac
-  done
-  folder="$1"; shift
-  if [ -z "$folder" ] || [ $# -eq 0 ]; then echo "usage: silent run [--kit ID] [--no-polish] [--cost MODE] <folder> <request…>" >&2; exit 2; fi
-  mkdir -p "$folder" || exit 1
-  folder=$(cd "$folder" && pwd)
-  dir="$HOME/Library/Application Support/com.silent.workstation"
-  mkdir -p "$dir"
-  python3 - "$folder" "$*" "$kit" "$polish" "$cost" "$pool" "$prefer" "$agent" > "$dir/autostart.json" <<'PY'
-import json, sys
-pool = [p for p in sys.argv[6].split(",") if p] if len(sys.argv) > 6 else []
-print(json.dumps({"folder": sys.argv[1], "prompt": sys.argv[2], "kit": sys.argv[3] or None, "polish": (sys.argv[4] == "true") if sys.argv[4] else None, "cost": sys.argv[5] or None, "pool": pool, "prefer": sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] else None, "agent": sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] else None}))
-PY
-  echo "queued: $folder"
-  set --
-fi
-"#;
 
 #[tauri::command]
 pub fn cli_launcher_status() -> LauncherStatus {
@@ -141,24 +106,41 @@ pub fn install_cli_launcher() -> Result<LauncherStatus, String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     let app = app_path();
-    let script = if app.extension().is_some_and(|e| e == "app") {
-        format!(
-            "{}exec open -a \"{}\" --args \"$@\"\n",
-            RUN_PRELUDE,
-            app.display()
-        )
-    } else {
-        format!(
-            "#!/bin/sh\n# Silent (dev build) — launches the app executable.\nexec \"{}\" \"$@\"\n",
-            app.display()
-        )
-    };
+    let script = launcher_script(launcher_kind(&app), &app);
     std::fs::write(&path, script).map_err(|e| format!("{}: {e}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| e.to_string())?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
     }
     Ok(status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scripts_forward_arguments_and_the_terminal_cwd_without_python() {
+        let mac = launcher_script(LauncherKind::MacApp, Path::new("/Applications/Silent.app"));
+        assert!(mac.starts_with("#!/bin/sh\n"));
+        assert!(mac.contains("exec open -n -a \"/Applications/Silent.app\" --args --cwd \"$PWD\" \"$@\""));
+        let unix = launcher_script(LauncherKind::UnixExe, Path::new("/home/a/Silent.AppImage"));
+        assert!(unix.contains("nohup \"/home/a/Silent.AppImage\" --cwd \"$PWD\" \"$@\""));
+        let win = launcher_script(LauncherKind::WindowsCmd, Path::new("C:\\Program Files\\Silent\\silent.exe"));
+        assert!(win.starts_with("@echo off\r\n"));
+        assert!(win.contains("start \"\" \"C:\\Program Files\\Silent\\silent.exe\" --cwd \"%CD%\" %*"));
+        for s in [&mac, &unix, &win] {
+            assert!(!s.contains("python"));
+            assert!(!s.contains("Library/Application Support"));
+        }
+    }
+
+    #[test]
+    fn kind_follows_the_target() {
+        if !cfg!(windows) {
+            assert_eq!(launcher_kind(Path::new("/Applications/Silent.app")), LauncherKind::MacApp);
+            assert_eq!(launcher_kind(Path::new("/usr/bin/silent")), LauncherKind::UnixExe);
+        }
+    }
 }

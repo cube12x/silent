@@ -43,12 +43,7 @@ pub fn build_args(req: &CliRunRequest) -> Vec<String> {
         // `acceptEdits` auto-approves writes only inside the working directory and `--add-dir`s; a worker
         // writing a scratch script to /tmp was denied (2026-09-25). Grant the OS temp dir as well.
         args.push("--add-dir".into());
-        args.push(
-            std::env::temp_dir()
-                .to_string_lossy()
-                .trim_end_matches('/')
-                .to_string(),
-        );
+        args.push(crate::paths::temp_dir_str());
         // Workers also reach for the classic /tmp (screenshots, bots); Read/Write there were denied (2026-09-25).
         if cfg!(unix) && std::env::temp_dir() != std::path::Path::new("/tmp") {
             args.push("--add-dir".into());

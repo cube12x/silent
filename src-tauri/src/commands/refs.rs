@@ -95,24 +95,16 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
             });
             continue;
         }
-        let res = tokio::time::timeout(
-            Duration::from_secs(240),
-            Command::new("git")
-                .args([
-                    "clone",
-                    "--depth",
-                    "1",
-                    "--single-branch",
-                    "--quiet",
-                    &r.url,
-                    &path,
-                ])
-                .env("PATH", super::binaries::augmented_path())
-                .env("GIT_TERMINAL_PROMPT", "0")
-                .stdin(Stdio::null())
-                .output(),
-        )
-        .await;
+        // A Finder/Start-menu launched app has a minimal PATH: find git where the user installed it.
+        let git = super::binaries::resolve("git").unwrap_or_else(|| "git".into());
+        let mut clone = Command::new(git);
+        clone
+            .args(["clone", "--depth", "1", "--single-branch", "--quiet", &r.url, &path])
+            .env("PATH", super::binaries::augmented_path())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(Stdio::null());
+        silent_runtime::spawn::configure_child(&mut clone);
+        let res = tokio::time::timeout(Duration::from_secs(240), clone.output()).await;
         let ok = matches!(&res, Ok(Ok(o)) if o.status.success());
         log::info!(
             "refs_sync {} ok={ok} in {:.1}s",
