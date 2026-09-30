@@ -621,7 +621,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     await backend.blueprintWriteTool(cwd, UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE)
     log(set, aiId, stubs.length ? `uydurma: placeholder policy (${Array.from(new Set(stubs.flatMap((s) => s.kinds))).join(", ")})` : "uydurma: fill job")
   }
-  // Dönüştürücü: ship the converter tool into the working folder so this AI (and the converter role) can convert assets on demand.
+  // Dönüştürücü: ship the converter tool into the working folder so this AI (and the converter role) can convert assets on
+  // demand. Orchestration prompts go to the planner as the user's request, so the toolkit line is left to the worker briefs there.
   let converterTool = false
   try {
     await backend.blueprintWriteTool(cwd, DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE)
@@ -629,7 +630,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } catch (e) {
     log(set, aiId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`)
   }
-  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool, role, reports })
+  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a

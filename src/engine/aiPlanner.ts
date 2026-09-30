@@ -110,18 +110,18 @@ export interface AiPlanResult {
   raw: string
 }
 
-/** Ask a real CLI for a structured plan. Throws on failure; callers fall back to the heuristic planner. */
-export async function requestAiPlan(runner: PlannerRunner, ctx: AiPlanContext, model: ProviderModel, onLog?: (line: string) => void): Promise<AiPlanResult> {
+/** One CLI call: the last agent message (raw text) and the failure message, if the run failed before answering. */
+async function askOnce(runner: PlannerRunner, prompt: string, ctx: AiPlanContext, model: ProviderModel, onLog?: (line: string) => void): Promise<{ raw: string; failed?: string }> {
   let raw = ""
   let failed: string | undefined
-  const done = new Promise<void>((resolve) => {
+  await new Promise<void>((resolve) => {
     void runner
       .cliStart(
         {
           runId: `plan:${newId("p")}`,
           providerId: model.providerId,
           modelId: model.id,
-          prompt: buildPlannerPrompt(ctx),
+          prompt,
           cwd: ctx.repoPath,
           sandbox: "read-only",
           ephemeral: true,
@@ -141,10 +141,35 @@ export async function requestAiPlan(runner: PlannerRunner, ctx: AiPlanContext, m
         resolve()
       })
   })
-  await done
-  if (failed && !raw) throw new Error(failed)
-  const plan = parseAiPlan(raw)
-  if (!plan) throw new Error("planner returned no valid JSON")
+  return { raw, failed }
+}
+
+/** What the planner sent back, trimmed for an error message. */
+function replyHead(raw: string): string {
+  const t = raw.replace(/\s+/g, " ").trim()
+  return t ? `reply began: "${t.slice(0, 160)}${t.length > 160 ? "…" : ""}"` : "empty reply"
+}
+
+/**
+ * Ask a real CLI for a structured plan. A reply that is not a JSON plan (prose, a question, a truncated object, an
+ * empty message after a transient API hiccup) gets ONE repair round with the offending head quoted back; only then
+ * does this throw, naming what came back so the failure is diagnosable. Callers fall back to the heuristic planner.
+ */
+export async function requestAiPlan(runner: PlannerRunner, ctx: AiPlanContext, model: ProviderModel, onLog?: (line: string) => void): Promise<AiPlanResult> {
+  const prompt = buildPlannerPrompt(ctx)
+  const first = await askOnce(runner, prompt, ctx, model, onLog)
+  if (first.failed && !first.raw) throw new Error(first.failed)
+  let plan = parseAiPlan(first.raw)
+  let raw = first.raw
+  if (!plan) {
+    onLog?.(`planner reply was not a JSON plan (${replyHead(first.raw)}); asking once more`)
+    const repair = `${prompt}\n\nYOUR PREVIOUS REPLY WAS NOT A VALID JSON PLAN (${replyHead(first.raw)}). Reply with ONLY the JSON object required by the schema: no prose, no code fence, no questions outside the \`questions\` field.`
+    const second = await askOnce(runner, repair, ctx, model, onLog)
+    if (second.failed && !second.raw) throw new Error(second.failed)
+    plan = parseAiPlan(second.raw)
+    raw = second.raw
+    if (!plan) throw new Error(`planner returned no valid JSON after 2 attempts (${replyHead(second.raw)})`)
+  }
   return { plan, model, raw }
 }
 

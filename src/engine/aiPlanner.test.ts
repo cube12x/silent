@@ -44,6 +44,39 @@ describe("AI planner", () => {
     expect(buildPlannerPrompt({ ...ctx, previous: { title: "v1", summaries: ["did X"], deviations: [] } })).toMatch(/CONTINUES A PREVIOUS RUN/)
   })
 
+  it("asks once more with the reply head quoted when the first answer is not a JSON plan", async () => {
+    const prompts: string[] = []
+    const replies = ["Sure! Before I plan, which engine do you prefer?", JSON.stringify(PLAN)]
+    const runner = {
+      cliStart: async (req: { prompt: string }, onEvent: (e: RuntimeEvent) => void) => {
+        prompts.push(req.prompt)
+        const text = replies.shift() ?? ""
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text } })
+          onEvent({ type: "exited", data: { code: 0 } })
+        })
+        return { cancel: async () => {} }
+      },
+    }
+    const ctx = { prompt: "Anime app", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "strong", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof requestAiPlan>[1]
+    const res = await requestAiPlan(runner, ctx, TEST_MODELS[3])
+    expect(res.plan.subtasks.length).toBeGreaterThan(0)
+    expect(prompts.length).toBe(2)
+    expect(prompts[1]).toMatch(/PREVIOUS REPLY WAS NOT A VALID JSON PLAN \(reply began: "Sure! Before I plan/)
+  })
+  it("names what came back when both attempts fail", async () => {
+    const runner = {
+      cliStart: async (_req: { prompt: string }, onEvent: (e: RuntimeEvent) => void) => {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "" } })
+          onEvent({ type: "exited", data: { code: 0 } })
+        })
+        return { cancel: async () => {} }
+      },
+    }
+    const ctx = { prompt: "x", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "strong", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof requestAiPlan>[1]
+    await expect(requestAiPlan(runner, ctx, TEST_MODELS[3])).rejects.toThrow(/no valid JSON after 2 attempts \(empty reply\)/)
+  })
   it("offers the pool with strengths and asks for a per-task model", () => {
     const ctx = { prompt: "Build a game", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "en" } as Parameters<typeof buildPlannerPrompt>[0]
     const prompt = buildPlannerPrompt(ctx)
