@@ -8,7 +8,7 @@ export const tr = {
     new: "Yeni blueprint",
     newName: "Blueprint {n}",
     none: "Henüz blueprint yok. \"Yeni blueprint\" ile başla, tuvalde sağ tıkla.",
-    hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır · 4 tık: terminal · {mod}Z geri al",
+    hint: "Sağ tık: kutu ekle · kabloyla bağla · seçili kutuda Enter veya çift tık: çalıştır · 4 tık: AI'da terminal, Build'de klasör · {mod}Z geri al",
     stubFolder: "Yer tutucu klasörü", stubKinds: "Uydurulacak türler", stubEmpty: "tür seçilmedi", stubHint: "Uydurma → AI: o AI gerçek asset yerine adı prompt olan yer tutucular üretir (PNG üstünde adı yazar, ses kısa ton, manifestte prompt). AI → Uydurma: o AI manifestteki prompt'lardan gerçek asset'leri üretir. Amaç: pahalı modelin çizim/ses için token yakmaması.",
     fit: "Sığdır",
     auto: "AI ile oluştur", autoRun: "Oluştur", autoWorking: "Claude blueprint'i kuruyor…", autoPlaceholder: "Ne yapılsın? Örn: \"Cuphead tarzı boss oyunu; mimari Opus 5.5, görseller Astra, arka planlar Grok, sesler Astra; 1 saatlik oyun\"", autoHint: "Bağlı Claude CLI kutuları, prompt'ları, modelleri ve kabloları tasarlar; sonra elle düzenleyebilirsin (terminal: silent bp auto \"…\")",

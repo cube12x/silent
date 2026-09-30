@@ -105,6 +105,10 @@ export class TestBackend implements Backend {
     return `/Users/demo/CubeCode/${name}`
   }
   async openExternal() {}
+  opened: string[] = []
+  async openPath(path: string) {
+    this.opened.push(path)
+  }
   async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
     if (this.preview && _request.runId.startsWith("plan:")) {
       // Dev preview only: a canned planner reply so the Task→Plan→Start UI can be reviewed without a CLI.

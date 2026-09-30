@@ -90,6 +90,7 @@ pub fn run() {
             commands::launcher::cli_launcher_status,
             commands::launcher::install_cli_launcher,
             commands::project::create_project_dir,
+            commands::project::open_path,
             commands::files::read_project_file,
             commands::files::repo_changed_files,
             commands::files::list_project_files,

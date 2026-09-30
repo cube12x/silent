@@ -105,6 +105,8 @@ export interface Backend {
   /** `root/rel` as a base64 blob with its mime type (image/audio/JSON previews), or null when missing. */
   readProjectBlob(root: string, rel: string, maxBytes?: number): Promise<ProjectBlob | null>
   openExternal(url: string): Promise<void>
+  /** Show a folder in Finder / Explorer / the desktop file browser (4 clicks on a Build box). */
+  openPath(path: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore
   db: Repositories

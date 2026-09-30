@@ -10,7 +10,7 @@ export const en: Dictionary = {
     new: "New blueprint",
     newName: "Blueprint {n}",
     none: "No blueprint yet. Create one and right-click the canvas.",
-    hint: "Right-click: add node · drag wires · Enter or double-click on a node: run · 4 clicks: terminal · {mod}Z undo",
+    hint: "Right-click: add node · drag wires · Enter or double-click on a node: run · 4 clicks: terminal on an AI, folder on a Build · {mod}Z undo",
     stubFolder: "Placeholder folder", stubKinds: "Kinds to stand in for", stubEmpty: "no kinds selected", stubHint: "Placeholder → AI: that AI registers prompt-named placeholders instead of real assets (PNG shows its name, audio is a short tone, manifest keeps the prompt). AI → Placeholder: that AI generates the real assets from the manifest prompts. Goal: the expensive model never spends tokens drawing or synthesising.",
     fit: "Fit view",
     auto: "Create with AI", autoRun: "Create", autoWorking: "Claude is designing the blueprint…", autoPlaceholder: "What should be built? e.g. \"Cuphead-style boss game; architecture Opus 5.5, visuals Astra, backgrounds Grok, audio Astra; one hour of play\"", autoHint: "The connected Claude CLI designs the nodes, prompts, models and wires; edit by hand afterwards (terminal: silent bp auto \"…\")",

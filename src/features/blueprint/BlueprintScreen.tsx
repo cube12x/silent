@@ -22,10 +22,12 @@ import { isRepoUrl } from "@/engine/blueprint/prompt"
 import { PROVIDERS } from "@/providers/registry"
 import { modKey } from "@/lib/platform"
 import { NodeTerminal } from "./NodeTerminal"
+import { DOUBLE_CLICK_RUN_DELAY_MS, createClickGate } from "./clickGate"
 import { FilesTab } from "./FilesTab"
 import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
+import { reportError } from "@/stores/notify"
 
 const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: string }> = [
   { type: "prompt", key: "prompt" },
@@ -60,7 +62,10 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
   const [menu, setMenu] = React.useState<{ x: number; y: number; left: number; top: number } | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
-  const quadClick = React.useRef({ id: "", n: 0, at: 0 })
+  // Four quick clicks open the terminal/folder; a double click runs the node only when no 3rd click follows.
+  const clickGate = React.useRef(createClickGate())
+  const pendingRun = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  React.useEffect(() => () => clearTimeout(pendingRun.current), [])
   // Fit only when the blueprint opens with nodes; on an empty canvas React Flow would defer the fit to the first added node and zoom into it.
   const [fitOnInit] = React.useState(() => (bp?.nodes.length ?? 0) > 0)
 
@@ -219,22 +224,25 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          onNodeDoubleClick={(_, n) => { const node = bp.nodes.find((x) => x.id === n.id); if (node) trigger(node) }}
+          onNodeDoubleClick={(_, n) => {
+            // Deferred: the 3rd click of a quad sequence cancels it, so opening a terminal never restarts a finished node.
+            if (!clickGate.current.runOnDoubleClick(n.id, Date.now())) return
+            clearTimeout(pendingRun.current)
+            pendingRun.current = setTimeout(() => {
+              pendingRun.current = undefined
+              const node = useBlueprintsStore.getState().byId(bpId)?.nodes.find((x) => x.id === n.id)
+              if (node) trigger(node)
+            }, DOUBLE_CLICK_RUN_DELAY_MS)
+          }}
           onNodeClick={(_, n) => {
-            // Four quick clicks on the same node open its terminal (double-click still runs it). Own counter: the
+            // Four quick clicks on the same node open its terminal (AI) or its folder (Build). Own counter: the
             // native click `detail` resets per pointer sequence in WebKit/automation and never reaches 4 reliably.
-            const now = Date.now()
-            const q = quadClick.current
-            if (q.id === n.id && now - q.at < 600) q.n += 1
-            else {
-              q.id = n.id
-              q.n = 1
+            const r = clickGate.current.click(n.id, Date.now())
+            if (r.cancelPending) {
+              clearTimeout(pendingRun.current)
+              pendingRun.current = undefined
             }
-            q.at = now
-            if (q.n >= 4) {
-              q.n = 0
-              onNodeQuadClick(n.id)
-            }
+            if (r.quad) onNodeQuadClick(n.id)
           }}
           onPaneClick={() => setMenu(null)}
           fitView={fitOnInit}
@@ -632,7 +640,19 @@ export function BlueprintScreen() {
         <FilesTab bp={bp} initialFix={pendingFix} onFixConsumed={() => setPendingFix(null)} />
       ) : bp ? (
         <ReactFlowProvider>
-          <Canvas key={bp.id} bpId={bp.id} onNodeQuadClick={(id) => setTerminalNode((cur) => (cur === id ? undefined : id))} />
+          <Canvas
+            key={bp.id}
+            bpId={bp.id}
+            onNodeQuadClick={(id) => {
+              const node = bp.nodes.find((n) => n.id === id)
+              if (node && (node.data.type === "build" || node.data.type === "buildPhoto")) {
+                const folder = node.data.folderPath
+                if (folder) void getBackend().then((b) => b.openPath(folder)).catch((e) => reportError(e, "open folder"))
+                return
+              }
+              setTerminalNode((cur) => (cur === id ? undefined : id))
+            }}
+          />
           <NodeTerminal bpId={bp.id} nodeId={terminalNode} onClose={() => setTerminalNode(undefined)} />
         </ReactFlowProvider>
       ) : (

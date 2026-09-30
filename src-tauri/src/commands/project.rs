@@ -48,3 +48,29 @@ mod tests {
         assert_eq!(slug("   "), "project");
     }
 }
+
+/// Show a folder (or a file's folder) in the OS file browser: Finder, Explorer or the desktop's default handler.
+/// Four quick clicks on a Build box call this so the user can watch what an AI is writing while it runs.
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(path.trim());
+    if !p.exists() {
+        return Err(format!("{} does not exist yet", p.display()));
+    }
+    let target = if p.is_dir() { p.clone() } else { p.parent().map(PathBuf::from).unwrap_or(p.clone()) };
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(&target);
+        c
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(&target);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&target);
+        c
+    };
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.spawn().map(|_| ()).map_err(|e| format!("could not open {}: {e}", target.display()))
+}

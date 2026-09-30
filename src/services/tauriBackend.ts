@@ -138,6 +138,10 @@ export class TauriBackend implements Backend {
     await openShell(url)
   }
 
+  openPath(path: string): Promise<void> {
+    return invoke<void>("open_path", { path })
+  }
+
   async cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
     const channel = new Channel<RuntimeEvent>()
     channel.onmessage = onEvent
