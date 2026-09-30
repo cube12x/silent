@@ -18,6 +18,8 @@ export interface ExecutorOptions {
   maxConcurrency?: number
   /** Live host-load cap (Faz 3): read before every scheduling pass; Infinity = no extra cap. */
   concurrency?: () => number
+  /** Warm sessions (Faz 3): a new task on the same model resumes the previous task's finished CLI session, so the files it already read stay in (cached) context. The runs store passes Settings.warmSessions. */
+  warmSessions?: boolean
   /** Gateway brief prepended to every job. */
   gatewayBrief?: string
   sandbox?: "read-only" | "workspace-write"
@@ -59,6 +61,10 @@ export class Executor {
   private polishIds = new Set<string>()
   private polishScore?: number
   private polishNotes?: string
+  /** Warm sessions: model → finished session of its last task (with the tokens it has consumed so far). */
+  private warm = new Map<string, { sessionId: string; tokens: number }>()
+  /** Tokens consumed per session id (uncached input + output), for the warm-session ceiling. */
+  private sessionTokens = new Map<string, number>()
   private waiters = new Map<string, (answer: string | null) => void>()
   /** Files the run touched so far (worker file events + host scan); the polish reviewer reads their diff instead of replaying everything. */
   private changedFiles: string[] = []
@@ -215,7 +221,14 @@ export class Executor {
       attemptNo += 1
       let retriesOnModel = 0
       let continuations = 0
-      let result = await this.attempt(subtask, modelId, attemptNo, cause)
+      const warm = cause === "initial" ? this.takeWarm(modelId) : undefined
+      let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm)
+      // A warm session that could not be resumed (expired, CLI refused) costs one fresh attempt, never a model change.
+      if (warm && !result.ok && !result.blocked && !result.timedOut) {
+        attemptNo += 1
+        this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: "warm session failed → fresh session", at: this.now() })
+        result = await this.attempt(subtask, modelId, attemptNo, "retry")
+      }
       // The worker asked the user something: block, wait for the answer, resume the same session.
       let questions = 0
       while (!result.ok && result.blocked && !this.cancelled) {
@@ -257,6 +270,8 @@ export class Executor {
         this.bus.emit({ type: "subtask.deviations", runId: this.run.id, subtaskId, deviations: [...subtask.deviations], notes: [...(subtask.notes ?? [])], at: this.now() })
       }
       if (result.ok) {
+        const sessionId = subtask.attempts.at(-1)?.sessionId
+        if (sessionId && this.opts.warmSessions) this.warm.set(modelId, { sessionId, tokens: this.sessionTokens.get(sessionId) ?? 0 })
         subtask.summary = result.summary
         this.summaries.set(subtaskId, result.summary)
         this.bus.emit({ type: "subtask.summary", runId: this.run.id, subtaskId, summary: result.summary, at: this.now() })
@@ -369,6 +384,20 @@ export class Executor {
     await this.drain(limit)
   }
 
+  /** Warm session ceiling: past this many consumed tokens the session's context is too full to host another task safely. */
+  static readonly WARM_SESSION_MAX_TOKENS = 120_000
+
+  /** Take (and reserve) the warm session of `modelId` if the CLI can resume and the session is still light. */
+  private takeWarm(modelId: string): string | undefined {
+    if (!this.opts.warmSessions) return undefined
+    const w = this.warm.get(modelId)
+    if (!w) return undefined
+    this.warm.delete(modelId)
+    const providerId = (this.models.get(modelId)?.providerId ?? parseModelRef(modelId).providerId) as ProviderId
+    if (!providerInfo(providerId).capabilities.resume || w.tokens > Executor.WARM_SESSION_MAX_TOKENS) return undefined
+    return w.sessionId
+  }
+
   private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string) {
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
@@ -388,7 +417,10 @@ export class Executor {
         if (!subtask.files.includes(path)) subtask.files.push(path)
         this.bus.emit({ type: "worker.file", runId: this.run.id, subtaskId: subtask.id, path, at: this.now() })
       },
-      usage: (tokens, costUsd) => this.bus.emit({ type: "worker.usage", runId: this.run.id, subtaskId: subtask.id, tokens, costUsd, at: this.now() }),
+      usage: (tokens, costUsd) => {
+        if (attempt.sessionId) this.sessionTokens.set(attempt.sessionId, (this.sessionTokens.get(attempt.sessionId) ?? 0) + tokens)
+        this.bus.emit({ type: "worker.usage", runId: this.run.id, subtaskId: subtask.id, tokens, costUsd, at: this.now() })
+      },
       session: (sessionId) => {
         attempt.sessionId = sessionId
         this.bus.emit({ type: "subtask.session", runId: this.run.id, subtaskId: subtask.id, sessionId, at: this.now() })
@@ -402,7 +434,9 @@ export class Executor {
       attempt: n,
       brief: answer !== undefined
         ? `The user answered your question: ${answer}\n\nContinue the task with this answer. When done, reply with a concise summary, then a "SILENT_DEVIATIONS:" list (or "SILENT_DEVIATIONS: none").`
-        : resumeSessionId
+        : cause === "warm"
+          ? `NEW TASK (unrelated to the previous one in this session — forget its instructions, keep what you learned about the repository):\n\n${this.brief(subtask, modelId)}`
+          : resumeSessionId
           ? "You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it, followed by a \"SILENT_DEVIATIONS:\" list (or \"SILENT_DEVIATIONS: none\")."
           : this.brief(subtask, modelId),
       repoPath: this.run.repoPath,

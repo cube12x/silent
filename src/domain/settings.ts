@@ -39,6 +39,8 @@ export interface Settings {
     level: "error" | "warn" | "info" | "debug"
     keepTerminalLines: number
   }
+  /** Warm sessions (Faz 3): a new orchestration task resumes the previous task's finished session on the same model (default on; ceiling 120k tokens per session). */
+  warmSessions?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -54,4 +56,5 @@ export const DEFAULT_SETTINGS: Settings = {
   security: { allowDangerFullAccess: false, redactSecrets: true, requireApprovalForGitPush: true },
   defaultPermissions: DEFAULT_PERMISSIONS,
   logs: { level: "info", keepTerminalLines: 5000 },
+  warmSessions: true,
 }

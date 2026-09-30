@@ -339,6 +339,7 @@ export const tr = {
     permsHint: "Yeni ajanlar için varsayılanlar; Gateway bunları daraltır, git push'u asla açamaz.",
     logLevel: "Günlük seviyesi",
     keepLines: "Alt görev başına saklanan terminal satırı",
+    warmSessions: "Sıcak oturum (orkestrasyon)", warmSessionsHint: "Aynı modeldeki sonraki görev, biten görevin CLI oturumunu devam ettirir: okunan dosyalar önbellekli bağlamda kalır, repo yeniden taranmaz. Oturum 120k tokenı geçince taze oturum açılır.",
     runsStored: "Kayıtlı çalıştırma",
     database: "Veritabanı",
     settingsFile: "Ayarlar dosyası",

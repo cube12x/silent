@@ -197,6 +197,10 @@ export function SettingsScreen() {
                   ))}
                 </div>
               </div>
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-line bg-ink-2/50 px-3 py-2 text-sm">
+                <span className="flex flex-col"><span>{t("settings.warmSessions")}</span><span className="text-[11px] text-text-3">{t("settings.warmSessionsHint")}</span></span>
+                <input type="checkbox" checked={settings.warmSessions !== false} onChange={(e) => void update((s) => ({ ...s, warmSessions: e.target.checked }))} />
+              </label>
             </GlowCard>
           )}
 

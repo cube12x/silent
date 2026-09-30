@@ -427,3 +427,54 @@ describe("load guard in the executor (Faz 3)", () => {
     expect(peak).toBe(1)
   })
 })
+
+describe("warm sessions (Faz 3)", () => {
+  class SessionWorker implements Worker {
+    readonly id = "w"
+    jobs: WorkerJob[] = []
+    private n = 0
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.jobs.push(job)
+      this.n += 1
+      const sessionId = job.resumeSessionId ?? `sess-${this.n}`
+      sink.session(sessionId)
+      sink.usage(1000, 0)
+      sink.state("coding", 50)
+      return { done: Promise.resolve({ ok: true, summary: `done ${job.subtask.title}` }), cancel: async () => {} }
+    }
+  }
+  it("a task on the same model resumes the previous task's finished session and says it is a new task", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    expect(run.plan.length).toBeGreaterThan(1)
+    const worker = new SessionWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, warmSessions: true })
+    expect(await exec.start()).toBe("completed")
+    expect(worker.jobs[0].resumeSessionId).toBeUndefined()
+    expect(worker.jobs[1].resumeSessionId).toBe("sess-1")
+    expect(worker.jobs[1].brief).toMatch(/^NEW TASK/)
+    expect(worker.jobs[1].brief).toMatch(/Task: /)
+  })
+  it("is off when the option is false, and a session that already carries too many tokens is not reused", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    const off = new SessionWorker()
+    expect(await new Executor(run, () => off, new EventBus(), { models: TEST_MODELS }).start()).toBe("completed")
+    expect(off.jobs.every((j) => !j.resumeSessionId)).toBe(true)
+    class HeavyWorker extends SessionWorker {
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        const h = super.start(job, sink)
+        sink.usage(200_000, 0)
+        return h
+      }
+    }
+    const heavy = new HeavyWorker()
+    const run2 = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run2.plan = run2.plan.map((s) => ({ ...s, dependsOn: [] }))
+    expect(await new Executor(run2, () => heavy, new EventBus(), { models: TEST_MODELS, warmSessions: true }).start()).toBe("completed")
+    expect(heavy.jobs.every((j) => !j.resumeSessionId)).toBe(true)
+  })
+})

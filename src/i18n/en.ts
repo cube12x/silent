@@ -341,6 +341,7 @@ export const en: Dictionary = {
     permsHint: "Defaults for new agents; the Gateway can narrow them and can never enable git push.",
     logLevel: "Log level",
     keepLines: "Terminal lines kept per subtask",
+    warmSessions: "Warm sessions (orchestration)", warmSessionsHint: "The next task on the same model resumes the finished task's CLI session: files already read stay in cached context, no repo re-scan. A session past 120k tokens is not reused.",
     runsStored: "Runs stored",
     database: "Database",
     settingsFile: "Settings file",
