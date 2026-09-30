@@ -30,7 +30,17 @@ Investigate the task thoroughly, then reply with a report and nothing else:
 1. numbered, concrete, minimal edits another AI will apply verbatim: file, what to change, expected result, how to verify
 Keep the report self-contained; the next AI has not seen this conversation.`
 
-export type BpReportKind = "bilinc" | "donusturucu"
+export type BpReportKind = "bilinc" | "donusturucu" | "check" | "kesifci"
+
+/** Keşifçi: a cheap read-only scout. Its report is the map the next (expensive) AI works from instead of re-scanning. */
+export const KESIFCI_POLICY = `You are the KEŞİFÇİ (scout) step: READ-ONLY reconnaissance for the task below on a cheap model — do not create, modify or delete any file, do not run installers or formatters (reading files, grep, running tests to observe is fine).
+Find exactly what the next AI must touch and reply with a report and nothing else:
+# RECON
+- <file>:<lines> — what is there and why it matters for the task (quote the key lines)
+- contracts/types/tests the change must respect
+# PLAN
+1. numbered, concrete edits (file, what to change, how to verify) the next AI can apply without re-reading the repository
+Keep it under 120 lines; the next AI has not seen this conversation.`
 
 /** Dönüştürücü: converts the wired assets into the format the next step needs, with the bundled tool, and reports a manifest. */
 export const DONUSTURUCU_POLICY = `You are the DÖNÜŞTÜRÜCÜ (converter) step. Your job: bring the assets wired into you (folders, sheets, photos, WAVs) into the exact format the next step needs — the Purpose and the wired prompts say what that is. Use the bundled tool for every conversion; never hand-write image or audio bytes:
@@ -57,9 +67,25 @@ export function convertedBrief(all: Array<{ title: string; report: string; kind?
   return `Converted assets (produced by the converter step below; use these files, they are already in the needed format):\n${body}`
 }
 
+/** Denetçi: a failed automated check is the work order of the wired fixer AI. */
+export function checkBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind === "check")
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `The automated check (Denetçi) below FAILED. Fix the cause with the smallest safe change (do not disable or weaken the checks), then re-run the same commands until they are green; finish with a short summary of what was wrong and what you changed.\n\n${body}`
+}
+
+/** Keşifçi: the scout's findings, so the expensive AI starts editing instead of re-scanning. */
+export function reconBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind === "kesifci")
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `Recon (already done by a read-only scout — do not re-scan the repository or grep around; open only the files named here, then edit):\n${body}`
+}
+
 /** Eylem: the brief that turns Bilinç reports into work. */
 export function eylemBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
-  const reports = all.filter((r) => r.kind !== "donusturucu")
+  const reports = all.filter((r) => !r.kind || r.kind === "bilinc")
   if (!reports.length) return ""
   const body = reports.map((r) => `## Report from ${r.title}\n${r.report.trim()}`).join("\n\n")
   return `You are the EYLEM (action) step: apply the ACTIONS of the read-only reports below exactly, in order, verifying each as the report says. Do not re-investigate what the reports already settled; if an action is impossible, say why in your summary.\n\n${body}`
@@ -82,8 +108,8 @@ export interface AiPromptInput {
   /** Uydurma: stub → ai (placeholder producer) / ai → stub (filler). */
   stubs?: BpStubData[]
   fills?: BpStubData[]
-  /** Bilinç / Eylem / Dönüştürücü role of this node. */
-  role?: "bilinc" | "eylem" | "donusturucu"
+  /** Bilinç / Eylem / Dönüştürücü / Keşifçi role of this node. */
+  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci"
   /** Reports of the Bilinç (work order) and Dönüştürücü (converted assets) nodes wired into it. */
   reports?: Array<{ title: string; report: string; kind?: BpReportKind }>
   /** The converter tool is shipped into the working folder: tell the AI it may convert assets on demand. */
@@ -97,7 +123,7 @@ export interface AiPromptInput {
  * purpose field as the task (it usually has no wired prompt — the wired nodes are asset folders). Other roles keep the
  * purpose for Reload only.
  */
-export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
+export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kesifci" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
   if (override) return override
   const own = nodePurpose?.trim()
   return role === "donusturucu" && own ? own : undefined
@@ -105,7 +131,7 @@ export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | unde
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
-  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
+  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
 
 /**
@@ -124,10 +150,12 @@ export function buildAiPrompt(i: AiPromptInput): string {
       `Reference repositories (already cloned under .silent/refs; study them, copy from them only when the task says so):\n${i.refPaths.map((r) => `- ${r.path}${r.hint ? ` — ${r.hint}` : ""}`).join("\n")}`,
     )
   }
+  const readOnly = i.role === "bilinc" || i.role === "kesifci"
   if (i.role === "bilinc") blocks.push(BILINC_POLICY)
+  if (i.role === "kesifci") blocks.push(KESIFCI_POLICY)
   if (i.role === "donusturucu") blocks.push(DONUSTURUCU_POLICY)
-  else if (i.converterTool && i.role !== "bilinc") blocks.push(CONVERTER_TOOLKIT)
-  if (i.imageTool && i.role !== "bilinc") blocks.push(IMAGE_TOOL_HINT)
+  else if (i.converterTool && !readOnly) blocks.push(CONVERTER_TOOLKIT)
+  if (i.imageTool && !readOnly) blocks.push(IMAGE_TOOL_HINT)
   const instructions = i.instructions?.trim()
   if (instructions) blocks.push(`# Base instructions\n${instructions}`)
   const task = aiTaskText(i)
@@ -139,6 +167,6 @@ export function buildAiPrompt(i: AiPromptInput): string {
 export function extractReport(text: string): string {
   const t = text.trim()
   const upper = t.toUpperCase()
-  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"))
+  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"))
   return idx >= 0 ? t.slice(idx).trim() : t
 }

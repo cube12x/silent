@@ -296,6 +296,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       variable: { type: "variable" },
       wizard: { type: "wizard", modelRef: "", purpose: "" },
       stub: { type: "stub", kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" },
+      check: { type: "check", commands: [], maxLines: 40, timeoutSecs: 900 },
     }
     const node: BpNode = { id: newId("n"), type, x: Math.round(x), y: Math.round(y), data: { ...defaults[type], ...(data ?? {}) } as BpNodeData, status: "idle" }
     get().update(id, (b) => ({ ...b, nodes: [...b.nodes, node] }))
@@ -340,7 +341,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     // Double-trigger guard: Enter pressed twice or `silent bp` repeated must not start a second run of the same node
     // (three concurrent orchestrations on one folder happened on 2026-09-26).
-    const ais = plan.flatMap((st) => (st.kind === "ai" ? [st.node] : st.heads))
+    const ais = plan.flatMap((st) => (st.kind === "ai" ? [st.node] : st.kind === "parallel" ? st.heads : []))
     const busy = ais.find((ai) => get().running[ai.id])
     if (busy) {
       log(set, nodeId, `⚠ ${busy.data.type === "ai" && busy.data.title ? busy.data.title : busy.id} is already running — wait or cancel it first`)
@@ -350,6 +351,14 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       if (step.kind === "ai") {
         const ok = await execAi(id, step.node.id, opts)
         if (!ok) break
+      } else if (step.kind === "check") {
+        // Denetçi: no model. Green → the chain goes on; red → the wired fixer AIs get the report and the chain stops here.
+        const ok = await execCheck(id, step.node.id)
+        if (!ok) {
+          const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
+          for (const f of fixers) await execAi(id, f.id, { ...opts, parallel: false })
+          break
+        }
       } else {
         // Paralel button: every head starts now; the chain continues only when all of them are done.
         const names = step.heads.map((h) => (h.data.type === "ai" && h.data.title ? h.data.title : h.id))
@@ -517,6 +526,63 @@ function aiWorkingFolder(bp: Blueprint, aiId: string): string | undefined {
   return out && out.data.type === "build" ? out.data.folderPath || undefined : undefined
 }
 
+/** Denetçi: run the node's commands in the wired folder without any model; the report goes on the node. */
+async function execCheck(bpId: string, nodeId: string): Promise<boolean> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "check") return false
+  const source = incoming(bp, nodeId)
+  const buildIn = source.find((n) => n.data.type === "build" || n.data.type === "buildPhoto")
+  const aiIn = source.find((n) => n.type === "ai")
+  const cwd = (buildIn && (buildIn.data.type === "build" || buildIn.data.type === "buildPhoto") ? buildIn.data.folderPath : "") || (aiIn ? aiWorkingFolder(bp, aiIn.id) : undefined)
+  if (!cwd) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: "no folder" })
+    log(set, nodeId, "⚠ wire a Build (or an AI with a build) into this check")
+    return false
+  }
+  const commands = node.data.commands.map((c) => c.trim()).filter(Boolean)
+  const list = commands.length ? commands : ["npm run typecheck", "npm test", "npm run build"]
+  const backend = await getBackend()
+  let cancelled = false
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: () => void (cancelled = true) } }))
+  store.updateNode(bpId, nodeId, { status: "running", note: undefined })
+  log(set, nodeId, `▶ check · ${cwd}`)
+  const lines: string[] = ["# CHECK"]
+  let ok = true
+  let failingTail = ""
+  for (const cmd of list) {
+    if (cancelled) break
+    log(set, nodeId, `$ ${cmd}`)
+    try {
+      const r = await backend.runCheck(cwd, cmd, node.data.timeoutSecs, node.data.maxLines)
+      log(set, nodeId, r.tail || "(no output)", r.ok ? "stdout" : "stderr")
+      log(set, nodeId, `↳ exit ${r.exitCode ?? "?"} · ${Math.round(r.elapsedMs / 1000)} s`)
+      lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})`} · ${Math.round(r.elapsedMs / 1000)} s`)
+      if (!r.ok) {
+        ok = false
+        failingTail = r.tail
+        break
+      }
+    } catch (e) {
+      ok = false
+      failingTail = e instanceof Error ? e.message : String(e)
+      lines.push(`- ${cmd}: could not run (${failingTail})`)
+      break
+    }
+  }
+  const report = ok ? lines.join("\n") : `${lines.join("\n")}\n\nOutput of the failing command (last lines):\n${failingTail}`
+  useBlueprintsStore.setState((s) => {
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : ok ? "done" : "failed", note: cancelled ? "cancelled" : ok ? undefined : "check failed", data: { report, lastOk: ok && !cancelled } })
+  log(set, nodeId, ok ? "✓ all checks green" : "✖ check failed — wired fixer AI gets the report")
+  return ok && !cancelled
+}
+
 async function waitForRun(runId: string): Promise<"completed" | "failed" | "cancelled"> {
   return new Promise((resolve) => {
     const check = () => {
@@ -560,8 +626,11 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   // Eylem: the reports of the Bilinç nodes wired into it are its work order. Every AI: the manifests of the
   // Dönüştürücü nodes wired into it tell it which converted files to use.
   const reports = incoming(bp, aiId).flatMap((n): Array<{ title: string; report: string; kind: BpReportKind }> => {
+    // Denetçi: only a RED check is a work order (a green one has nothing to fix).
+    if (n.data.type === "check") return n.data.report?.trim() && n.data.lastOk === false ? [{ title: n.data.title || "Denetçi", report: n.data.report, kind: "check" }] : []
     if (n.data.type !== "ai" || !n.data.report?.trim()) return []
     if (n.data.role === "bilinc" && role === "eylem") return [{ title: n.data.title || n.id, report: n.data.report, kind: "bilinc" }]
+    if (n.data.role === "kesifci") return [{ title: n.data.title || n.id, report: n.data.report, kind: "kesifci" }]
     if (n.data.role === "donusturucu") return [{ title: n.data.title || n.id, report: n.data.report, kind: "donusturucu" }]
     return []
   })
@@ -596,7 +665,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     // instead of growing a second node for the same folder. A Bilinç never produces a build (it only reads); a Dönüştürücü writes into the wired folder.
     const source = buildFolders[0] ? bp.nodes.find((n) => n.data.type === "build" && n.data.folderPath === buildFolders[0]) : undefined
     if (source) outBuild = source
-    else if (role !== "bilinc" && role !== "donusturucu") {
+    else if (role !== "bilinc" && role !== "donusturucu" && role !== "kesifci") {
       outBuild = store.addNode(bpId, "build", ai.x + 300, ai.y, { title, folderPath: cwd, kind: "code" })
       if (outBuild) store.addEdge(bpId, aiId, outBuild.id)
       createdBuild = true
@@ -645,7 +714,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let used: number
   let executionId: string | undefined
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
-  if (ai.data.mode === "orchestration" && role !== "bilinc" && role !== "donusturucu") {
+  if (ai.data.mode === "orchestration" && role !== "bilinc" && role !== "donusturucu" && role !== "kesifci") {
     const runs = useRunsStore.getState()
     const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true, effort: ai.data.effort })
     if (res.source !== "ai") {
@@ -669,14 +738,14 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } else {
     const handle = runSingle(
       backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" || role === "donusturucu" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc", resumeSessionId: opts?.resume ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
+      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" || role === "donusturucu" || role === "kesifci" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: opts?.resume ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
       (line, stream) => log(set, aiId, line, stream),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
     const res = await handle.done
     ok = res.ok
     used = res.tokens
-    if ((role === "bilinc" || role === "donusturucu" || ai.data.tamirci) && res.text.trim()) {
+    if ((role === "bilinc" || role === "donusturucu" || role === "kesifci" || ai.data.tamirci) && res.text.trim()) {
       // The report (from `# FINDINGS` / `# CONVERTED` on) is what the wired next node reads; the commentary before it is dropped.
       const report = extractReport(res.text)
       store.updateNode(bpId, aiId, { data: { report } })

@@ -5,7 +5,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
 import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix, ProjectFile, ProjectBlob } from "./backend"
+import type { AppInfo, AutostartRequest, Backend, CheckResult, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix, ProjectFile, ProjectBlob } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -116,6 +116,10 @@ export class TauriBackend implements Backend {
 
   changedFiles(root: string, sinceMs: number): Promise<string[]> {
     return invoke<string[]>("repo_changed_files", { root, sinceMs: Math.floor(sinceMs) })
+  }
+
+  runCheck(cwd: string, command: string, timeoutSecs = 900, maxLines = 40): Promise<CheckResult> {
+    return invoke<CheckResult>("project_run_check", { cwd, command, timeoutSecs, maxLines })
   }
 
   repoDigest(root: string, maxBytes = 12 * 1024): Promise<string> {

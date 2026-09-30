@@ -98,7 +98,7 @@ describe("uydurma (placeholder) wiring", () => {
   it("a Paralel button fans out its AIs at once and the chain continues after all of them", () => {
     const g = team()
     const plan = walkPlan(g, "s")
-    expect(plan.map((st) => (st.kind === "ai" ? st.node.id : `par:${st.heads.map((h) => h.id).join("+")}`))).toEqual(["mimar", "par:ses+model+doku", "int"])
+    expect(plan.map((st) => (st.kind === "ai" ? st.node.id : st.kind === "parallel" ? `par:${st.heads.map((h) => h.id).join("+")}` : `check:${st.node.id}`))).toEqual(["mimar", "par:ses+model+doku", "int"])
     expect(aiChainFrom(g, "s").map((n) => n.id)).toEqual(["mimar", "ses", "model", "doku", "int"])
   })
   it("triggering the Paralel button itself fans out first, then runs what is wired after it", () => {
@@ -212,3 +212,34 @@ function team(): Blueprint {
     ],
   }
 }
+
+describe("Denetçi (check) and Keşifçi (recon) wiring (Faz 2)", () => {
+  function withCheck(): Blueprint {
+    const g = bp()
+    g.nodes.push({ id: "chk", type: "check", x: 0, y: 0, data: { type: "check", commands: ["npm run typecheck", "npm test"], maxLines: 40, timeoutSecs: 600 } })
+    g.nodes.push({ id: "fix", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "eylem" } })
+    g.edges.push({ id: "c1", from: "a", to: "chk" }, { id: "c2", from: "chk", to: "fix" })
+    return g
+  }
+  it("accepts ai→check, build→check and check→ai wires and rejects check→build", () => {
+    const g = withCheck()
+    expect(validateEdge(g, { from: "b", to: "chk" })).toBeNull()
+    expect(validateEdge(g, { from: "chk", to: "b" })).toMatch(/no-rule/)
+    expect(validateEdge(g, { from: "p", to: "chk" })).toMatch(/no-rule/)
+  })
+  it("walkPlan runs the check as its own step and never walks into its fixers (they run only when the check is red)", () => {
+    const plan = walkPlan(withCheck(), "s")
+    expect(plan.map((st) => (st.kind === "ai" ? st.node.id : st.kind === "check" ? `check:${st.node.id}` : "par"))).toEqual(["a", "check:chk", "a2"])
+    expect(aiChainFrom(withCheck(), "s").map((n) => n.id)).toEqual(["a", "a2"])
+  })
+  it("lints a check with no source and a recon AI with nothing wired after it", () => {
+    const g = withCheck()
+    g.edges = g.edges.filter((e) => e.id !== "c1")
+    expect(lintBlueprint(g).chk).toEqual(["check.noSource"])
+    const r = bp()
+    const a = r.nodes.find((n) => n.id === "a")!
+    a.data = { ...a.data, role: "kesifci" } as typeof a.data
+    r.edges = r.edges.filter((e) => e.from !== "a")
+    expect(lintBlueprint(r).a).toEqual(["kesifci.noNext"])
+  })
+})

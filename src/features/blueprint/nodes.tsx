@@ -1,7 +1,8 @@
 import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
-import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split } from "lucide-react"
+import { roleHint, roleLabel } from "./roles"
+import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
 import { formatTokens } from "@/lib/format"
@@ -72,7 +73,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
   const roster = React.useMemo(() => (plan && d.mode === "orchestration" ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
   return (
-    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : d.role === "bilinc" ? t("bp.node.bilinc") : d.role === "eylem" ? t("bp.node.eylem") : d.role === "donusturucu" ? t("bp.node.donusturucu") : t("bp.node.ai")} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", d.role === "bilinc" && "border-dotted")}>
+    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : d.role === "kesifci" ? <Compass /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : (roleLabel(d.role, t as never) ?? t("bp.node.ai"))} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", (d.role === "bilinc" || d.role === "kesifci") && "border-dotted")}>
       <div className="flex items-center gap-2">
         {d.modelRef ? <ModelLogo modelRef={d.modelRef} size={14} /> : null}
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
@@ -81,7 +82,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
-      {d.role && <div className="mt-0.5 text-[10px] text-text-3">{d.role === "bilinc" ? t("bp.roleHint.bilinc") : d.role === "donusturucu" ? t("bp.roleHint.donusturucu") : t("bp.roleHint.eylem")}{d.role !== "eylem" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
+      {d.role && <div className="mt-0.5 text-[10px] text-text-3">{roleHint(d.role, t as never)}{d.role !== "eylem" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
       {(d.instructions?.trim() || d.repos?.length || d.effort) ? (
         <div className="mt-0.5 flex gap-2 text-[10px] text-text-3">
           {d.effort ? <span>⚙ {d.effort}</span> : null}
@@ -183,4 +184,17 @@ export function StubNode({ data }: NodeProps<BpFlowNode>) {
   )
 }
 
-export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode }
+export function CheckNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "check" ? n.data : { commands: [], lastOk: undefined, report: undefined, title: "" }
+  const cmds = d.commands.length ? d.commands : ["npm run typecheck", "npm test", "npm run build"]
+  return (
+    <Shell node={n} icon={<ShieldCheck />} title={(n.data.type === "check" && n.data.title) || t("bp.node.check")} warnings={data.warnings} className="w-[200px] border-dashed">
+      <div className="mono truncate text-[10px] text-text-3">{cmds.join(" · ")}</div>
+      <div className={cn("mt-1 text-[10px]", d.lastOk === true ? "text-success" : d.lastOk === false ? "text-danger" : "text-text-3")}>{d.lastOk === true ? `✓ ${t("bp.checkGreen")}` : d.lastOk === false ? `✗ ${t("bp.checkRed")}` : t("bp.checkIdle")}{data.log ? ` · ${data.log}` : ""}</div>
+    </Shell>
+  )
+}
+
+export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode, check: CheckNode }

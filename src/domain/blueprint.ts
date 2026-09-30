@@ -4,7 +4,7 @@
  */
 import type { CostMode, Effort } from "./runs"
 
-export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub"
+export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub" | "check"
 /** Asset kinds a Uydurma (placeholder) node can stand in for. */
 export type BpStubKind = "image" | "sprite" | "tileset" | "sfx" | "music" | "voice" | "text" | "font" | "model3d" | "video"
 export const BP_STUB_KINDS: BpStubKind[] = ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"]
@@ -42,7 +42,8 @@ export interface BpAiData {
   /** Tamirci AI box created from the Dosyalar tab (reused by later repair requests). */
   tamirci?: boolean
 }
-export type BpAiRole = "bilinc" | "eylem" | "donusturucu"
+/** kesifci = cheap read-only scout whose `# RECON` report spares the next (expensive) AI from re-scanning the repo. */
+export type BpAiRole = "bilinc" | "eylem" | "donusturucu" | "kesifci"
 export interface BpAiRepo {
   /** `https://…` or `git@…` */
   url: string
@@ -50,6 +51,18 @@ export interface BpAiRepo {
   name?: string
   /** One line telling the AI what this repo is for. */
   hint?: string
+}
+/** Denetçi: runs the project's own checks (typecheck/test/build) WITHOUT a model; a red result becomes the work order of the AI(s) wired after it. */
+export interface BpCheckData {
+  title?: string
+  /** Shell commands run in order in the wired folder; empty = typecheck, test, build from package.json. */
+  commands: string[]
+  /** Lines of output kept from a failing command for the report. */
+  maxLines: number
+  timeoutSecs: number
+  /** `# CHECK` report of the last run (fed to the wired fixer AI when red). */
+  report?: string
+  lastOk?: boolean
 }
 /** Uydurma: assets are registered as prompt-named placeholders (the name is the prompt); a cheaper AI fills them later. */
 export interface BpStubData {
@@ -91,6 +104,7 @@ export type BpNodeData =
   | ({ type: "variable" } & BpVariableData)
   | ({ type: "wizard" } & BpWizardData)
   | ({ type: "stub" } & BpStubData)
+  | ({ type: "check" } & BpCheckData)
 
 export interface BpNode {
   id: string
@@ -133,14 +147,16 @@ export interface Blueprint {
 /** Which node types may wire into which. */
 export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
   prompt: ["ai", "wizard"],
-  ai: ["build", "buildPhoto", "ai", "stub"],
-  build: ["prompt", "button", "ai", "variable"],
-  buildPhoto: ["prompt", "button", "ai", "variable"],
+  ai: ["build", "buildPhoto", "ai", "stub", "check"],
+  build: ["prompt", "button", "ai", "variable", "check"],
+  buildPhoto: ["prompt", "button", "ai", "variable", "check"],
   button: ["ai", "build", "buildPhoto", "prompt"],
   variable: ["wizard", "ai"],
   wizard: ["ai"],
   // stub → ai: that AI must produce placeholders instead of real assets; ai → stub: that AI fills the placeholders.
   stub: ["ai"],
+  // check → ai: the fixer(s) that run only when the check is red (the report is their work order).
+  check: ["ai"],
 }
 
 export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
@@ -148,4 +164,4 @@ export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
 }
 
 /** Human labels used by the context menu and node headers (translated in the UI). */
-export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub"]
+export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check"]

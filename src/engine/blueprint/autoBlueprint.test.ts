@@ -150,3 +150,16 @@ describe("auto blueprint", () => {
     expect(res.warnings.some((w) => w.startsWith("n_gone"))).toBe(true)
   })
 })
+
+describe("Denetçi in auto blueprints", () => {
+  it("materializes a check node with its commands and keeps its wires", () => {
+    const res = materializeAutoBlueprint(
+      { name: "c", summary: "", nodes: [{ key: "p", type: "prompt", title: "P", text: "x" }, { key: "a", type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }, { key: "k", type: "check", title: "Denetçi", commands: ["npm test"] }, { key: "f", type: "ai", title: "Fix", modelRef: "claude:sonnet", mode: "single", role: "eylem" }], edges: [{ from: "p", to: "a" }, { from: "a", to: "k" }, { from: "k", to: "f" }] },
+      TEST_MODELS,
+    )
+    const chk = res.nodes.find((n) => n.type === "check")!
+    expect(chk.data.type === "check" && chk.data.commands).toEqual(["npm test"])
+    expect(res.edges.filter((e) => e.from === chk.id || e.to === chk.id)).toHaveLength(2)
+    expect(buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })).toMatch(/check .*runs the project's own commands/)
+  })
+})

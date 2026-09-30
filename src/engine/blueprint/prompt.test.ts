@@ -110,3 +110,24 @@ describe("repo digest (Kaşe) in single-session prompts", () => {
     expect(buildAiPrompt({ wired: "x", digest: "   " })).toBe("x")
   })
 })
+
+describe("Denetçi reports and the Keşifçi role", () => {
+  it("a failed check becomes a fix work order for the wired AI", () => {
+    const t = aiTaskText({ wired: "", reports: [{ title: "Denetçi", report: "# CHECK\n- npm run typecheck: FAIL (exit 2)\n\nsrc/a.ts(3,1): error TS2304", kind: "check" }] })
+    expect(t).toMatch(/automated check .*failed/i)
+    expect(t).toContain("error TS2304")
+    expect(t).toMatch(/re-run the same commands until they are green/i)
+    expect(t).not.toContain("EYLEM")
+  })
+  it("Keşifçi is read-only recon that ends in a # RECON report, and the next AI is told not to re-scan", () => {
+    const p = buildAiPrompt({ wired: "Add a boss", role: "kesifci" })
+    expect(p.startsWith("You are the KEŞİFÇİ")).toBe(true)
+    expect(p).toContain("# RECON")
+    expect(p).toMatch(/do not create, modify or delete/i)
+    expect(extractReport("Looking…\n\n# RECON\n- src/a.ts: has X\n# PLAN\n1. edit a.ts")).toMatch(/^# RECON/)
+    const next = aiTaskText({ wired: "Add a boss", reports: [{ title: "Keşifçi", report: "# RECON\n- src/a.ts lines 10-40: boss registry", kind: "kesifci" }] })
+    expect(next).toMatch(/Recon \(already done/)
+    expect(next).toContain("boss registry")
+    expect(next).toMatch(/do not re-scan/i)
+  })
+})

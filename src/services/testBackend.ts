@@ -84,6 +84,12 @@ export class TestBackend implements Backend {
   async confirm(message: string) {
     return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(message) : true
   }
+  checks: Array<{ cwd: string; command: string }> = []
+  checkResult = { ok: true, exitCode: 0, tail: "", elapsedMs: 1 }
+  async runCheck(cwd: string, command: string) {
+    this.checks.push({ cwd, command })
+    return this.checkResult
+  }
   digest = ""
   async repoDigest() {
     return this.digest

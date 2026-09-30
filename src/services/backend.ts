@@ -96,6 +96,8 @@ export interface Backend {
   createProjectDir(name: string, base?: string): Promise<string>
   /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */
   confirm(message: string, title?: string): Promise<boolean>
+  /** Denetçi: run one shell command in a project folder without a model; returns success, exit code and the output tail. */
+  runCheck(cwd: string, command: string, timeoutSecs?: number, maxLines?: number): Promise<CheckResult>
   /** Repo digest (Kaşe): bounded auto-summary of a project folder, cached under `.silent/digest.md` (see digest.rs). */
   repoDigest(root: string, maxBytes?: number): Promise<string>
   /** Text of `root/rel` (capped), or null when missing. */
@@ -116,6 +118,13 @@ export interface Backend {
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+export interface CheckResult {
+  ok: boolean
+  exitCode: number | null
+  tail: string
+  elapsedMs: number
 }
 
 /** One entry of a project listing (slash-separated path relative to the root). */

@@ -35,7 +35,7 @@ export function validateEdge(bp: Blueprint, edge: Omit<BpEdge, "id">): string | 
 }
 
 /** One step of a blueprint run: a single AI, or a Paralel button starting several AIs at once. */
-export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] }
+export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] } | { kind: "check"; node: BpNode }
 
 function isParallel(n: BpNode | undefined): boolean {
   return Boolean(n && n.data.type === "button" && n.data.kind === "parallel")
@@ -77,6 +77,11 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     } else if (node.type === "ai" && !started.has(id)) {
       plan.push({ kind: "ai", node })
       started.add(id)
+    } else if (node.type === "check" && !started.has(id)) {
+      // Denetçi: its own step; the AIs wired after it are fixers that run only when the check is red, so the walk stops here.
+      plan.push({ kind: "check", node })
+      started.add(id)
+      continue
     }
     // Uydurma wires (ai → stub → ai) are policy markers, not flow: never walk through a stub, or a filler would
     // re-trigger the producer AI (2026-09-29: a Paralel fan-out walked filler → stub → Mimar and re-ran the whole orchestration).
@@ -89,7 +94,7 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
 
 /** Every AI node `walkPlan` would run from `startId`, flattened in start order. */
 export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
-  return walkPlan(bp, startId).flatMap((s) => (s.kind === "ai" ? [s.node] : s.heads))
+  return walkPlan(bp, startId).flatMap((s) => (s.kind === "ai" ? [s.node] : s.kind === "parallel" ? s.heads : []))
 }
 
 /** Build the prompt text an AI node receives: its wired prompts (in wire order) + wired build folders as context. */
@@ -130,7 +135,9 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       if (n.data.type === "ai" && n.data.role === "eylem" && !incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")) add(n.id, "eylem.noBilinc")
       if (n.data.type === "ai" && n.data.role === "bilinc" && !outgoing(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "eylem")) add(n.id, "bilinc.noEylem")
       if (n.data.type === "ai" && n.data.role === "donusturucu" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "stub" || x.type === "ai")) add(n.id, "donusturucu.noSource")
+      if (n.data.type === "ai" && n.data.role === "kesifci" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "kesifci.noNext")
     }
+    if (n.type === "check" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai")) add(n.id, "check.noSource")
     if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {
       if (!outgoing(bp, n.id).length) add(n.id, "button.unwired")

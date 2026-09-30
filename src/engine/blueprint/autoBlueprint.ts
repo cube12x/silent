@@ -12,7 +12,7 @@ import type { CliRunRequest, RuntimeEvent } from "@/domain"
 
 export const AUTO_BLUEPRINT_TIMEOUT_SECS = 240
 
-const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub"]
+const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check"]
 
 /** Structured output the CLI must return (Gemini-compatible: string enums only). */
 export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
@@ -37,7 +37,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           text: { type: "string", description: "prompt: the full brief in ENGLISH" },
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
-          role: { type: "string", enum: ["bilinc", "eylem", "donusturucu"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs" },
+          role: { type: "string", enum: ["bilinc", "eylem", "donusturucu", "kesifci"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs; kesifci = cheap read-only scout whose RECON report the next AI works from" },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "ai: reasoning effort the run starts with (omit for Silent's per-task policy)" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
@@ -49,6 +49,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           filter: { type: "string", description: "variable only: glob such as *.png" },
           kinds: { type: "array", items: { type: "string", enum: ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"] }, description: "stub only" },
           folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
+          commands: { type: "array", items: { type: "string" }, description: "check only: shell commands run in the wired folder without a model (empty = typecheck, test, build)" },
         },
       },
     },
@@ -64,7 +65,7 @@ export interface AutoBlueprintNode {
   purpose?: string
   instructions?: string
   repos?: string[]
-  role?: "bilinc" | "eylem" | "donusturucu"
+  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci"
   effort?: "low" | "medium" | "high" | "xhigh"
   modelRef?: string
   pool?: string[]
@@ -75,6 +76,7 @@ export interface AutoBlueprintNode {
   filter?: string
   kinds?: string[]
   folder?: string
+  commands?: string[]
 }
 export interface AutoBlueprintResult {
   name: string
@@ -110,6 +112,7 @@ export function describeExisting(bp: Blueprint): string {
       kind: pick("kind"),
       kinds: pick("kinds"),
       folder: pick("folder"),
+      commands: pick("commands"),
       instructions: typeof d.instructions === "string" ? (d.instructions as string).slice(0, 200) : undefined,
       repos: Array.isArray(d.repos) ? (d.repos as Array<{ url: string }>).map((r) => r.url) : undefined,
     }
@@ -129,8 +132,10 @@ const RULES = `Node types and what they do:
 - button start: runs the chain forward, one AI after another. button parallel ("Paralel"): every prompt/AI wired after it starts AT THE SAME TIME and the chain continues only when all are done — wire Build → parallel → the independent role prompts (audio, models, textures, text) so they do not queue. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
 - variable: watches a build/photo folder (glob filter) and fires the wired wizard/ai when files change.
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
+- check ("Denetçi", zero tokens): runs the project's own commands (typecheck, tests, build; field commands, empty = defaults) in the wired folder WITHOUT a model; when green the chain simply ends there, when red its report becomes the work order of the ai wired after it (a cheap single-mode fixer, role eylem). Wire ai → check → ai after every build stage instead of asking a model to verify.
+- ai role kesifci ("Keşifçi", cost saver): a cheap read-only scout (fast model, single mode) that writes a RECON report of exactly which files/lines the next AI must touch; wire prompt → kesifci ai → expensive ai so the expensive model edits instead of re-scanning the repository.
 - stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
-Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai|stub; build|buildPhoto→prompt|button|ai|variable; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai; stub→ai.
+Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai|stub|check; build|buildPhoto→prompt|button|ai|variable|check; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai; stub→ai; check→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
 Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → a parallel button → follow-up prompts → independent role AIs (visuals, audio, art, text) each wired back into the same Build, and Build → integration prompt → integrator AI (runs after the fan-out); add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
@@ -247,7 +252,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" ? n.role : undefined, effort: n.effort }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" || n.role === "kesifci" ? n.role : undefined, effort: n.effort }
         break
       }
       case "wizard":
@@ -264,6 +269,9 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
         break
       case "variable":
         data = { type: "variable", filter: n.filter || "*.png" }
+        break
+      case "check":
+        data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), maxLines: 40, timeoutSecs: 900 }
         break
       case "stub":
         data = { type: "stub", title: n.title, kinds: (n.kinds ?? []).filter((k): k is BpStubKind => (BP_STUB_KINDS as string[]).includes(k)), folder: n.folder || "assets/uydurma" }

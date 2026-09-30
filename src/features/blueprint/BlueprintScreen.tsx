@@ -11,6 +11,7 @@ import { formatTokens } from "@/lib/format"
 import { ModelSelectorGrid } from "@/design-system/tactical/ModelSelectorGrid"
 import { lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
+import { roleHint, roleLabel } from "./roles"
 import { NeonButton, PageHeader } from "@/design-system"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
@@ -36,6 +37,8 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "ai", data: { mode: "single", role: "bilinc" }, key: "bilinc" },
   { type: "ai", data: { mode: "single", role: "eylem" }, key: "eylem" },
   { type: "ai", data: { mode: "single", role: "donusturucu" }, key: "donusturucu" },
+  { type: "ai", data: { mode: "single", role: "kesifci" }, key: "kesifci" },
+  { type: "check", key: "check" },
   { type: "build", key: "build" },
   { type: "buildPhoto", key: "buildPhoto" },
   { type: "button", data: { kind: "start" }, key: "button.start" },
@@ -273,7 +276,7 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
                 onClick={(e) => {
                   e.stopPropagation()
                   const pos = screenToFlowPosition({ x: menu.x, y: menu.y })
-                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.key === "donusturucu" ? { ...m.data, title: t("bp.node.donusturucu"), purpose: t("bp.donusturucuPurposeDefault") } : m.data)
+                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.key === "donusturucu" ? { ...m.data, title: t("bp.node.donusturucu"), purpose: t("bp.donusturucuPurposeDefault") } : m.key === "kesifci" ? { ...m.data, title: t("bp.node.kesifci") } : m.data)
                   if (node) setSelectedId(node.id)
                   setMenu(null)
                 }}
@@ -319,7 +322,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
       <div className="flex items-center justify-between">
         <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t(`bp.node.${node.type}` as never)}</div>
         <div className="flex gap-1">
-          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
+          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
@@ -381,9 +384,9 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           </label>
           {d.type === "ai" && d.role && (
             <div className="rounded-sm border border-line bg-ink-0 p-2 text-[11px] text-text-2">
-              <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{d.role === "bilinc" ? t("bp.node.bilinc") : d.role === "donusturucu" ? t("bp.node.donusturucu") : t("bp.node.eylem")}</div>
-              {d.role === "bilinc" ? t("bp.roleHint.bilinc") : d.role === "donusturucu" ? t("bp.roleHint.donusturucu") : t("bp.roleHint.eylem")}
-              {(d.role === "bilinc" || d.role === "donusturucu") && (
+              <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{roleLabel(d.role, t as never)}</div>
+              {roleHint(d.role, t as never)}
+              {(d.role === "bilinc" || d.role === "donusturucu" || d.role === "kesifci") && (
                 <pre className="mono mt-2 max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
               )}
             </div>
@@ -456,6 +459,20 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
             ))}
           </div>
           <span className="text-[11px] text-text-3">{t("bp.stubHint")}</span>
+        </>
+      )}
+      {d.type === "check" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.check")} />
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.checkCommands")}
+            <Textarea value={d.commands.join("\n")} onChange={(e) => patch({ commands: e.target.value.split("\n") })} rows={4} placeholder={"npm run typecheck\nnpm test\nnpm run build"} className="mono text-[12px]" />
+            <span className="text-[10px]">{t("bp.checkCommandsHint")}</span>
+          </label>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <label className="flex flex-col gap-1 text-text-3">{t("bp.checkMaxLines")}<input type="number" min={5} max={400} value={d.maxLines} onChange={(e) => patch({ maxLines: Math.max(5, Number(e.target.value) || 40) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" /></label>
+            <label className="flex flex-col gap-1 text-text-3">{t("bp.checkTimeout")}<input type="number" min={1} max={120} value={Math.round(d.timeoutSecs / 60)} onChange={(e) => patch({ timeoutSecs: Math.max(60, (Number(e.target.value) || 15) * 60) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" /></label>
+          </div>
+          <pre className="mono max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
         </>
       )}
       {d.type === "variable" && (
