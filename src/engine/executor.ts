@@ -451,31 +451,45 @@ export class Executor {
     return paths.length ? `npx vitest run ${paths.join(" ")} && npx tsc --noEmit` : "the project's typecheck and the tests under the paths you own"
   }
 
+  /**
+   * Brief layout is prompt-cache friendly (Faz 3, 2026-09-30): first the run-wide prefix that is byte-identical for
+   * every task of the run (spec, kit, context, static rules), then the provider-dependent notes, and only then the
+   * task-specific part after a `# TASK` marker. Providers with prefix caching (Codex, Claude) reuse the long prefix.
+   */
   private brief(subtask: Subtask, modelId: string): string {
     const model = this.models.get(modelId)
     const upstream = subtask.dependsOn.map((d) => this.summaries.get(d)).filter(Boolean)
-    return [
-      `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker in a Silent orchestration run.`,
+    const providerId = (model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId
+    const caps = providerInfo(providerId).capabilities
+    const prefix = [
+      "You are a worker in a Silent orchestration run.",
       this.opts.gatewayBrief ?? "",
       this.opts.spec ? `SPEC (build exactly this; the user judges the result against it):\n${this.opts.spec.slice(0, 6000)}` : "",
       (this.opts.kitBrief ?? "").slice(0, 3500),
       this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 14000)}` : "",
-      `Task: ${subtask.title}`,
-      subtask.description,
-      upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
-      this.planOverview(subtask),
       (this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write") ? "Environment: the shell has outbound network access (package installs, git fetch and HTTP work)." : "Environment: the shell has NO network access. Do not attempt installs or downloads; if the task needs them, ask with SILENT_QUESTION.",
       "Scratch files (bots, probes, screenshots): write them under <repo>/.silent/tmp/ (git-ignored) or the OS temp dir; writes elsewhere are denied.",
       "Editing: prefer your native file-edit tool (Codex: apply_patch; Claude: Edit/Write) over shell heredocs, so every changed file is tracked and reviewable.",
       "Module shadowing: a file `x.ts` beside a folder `x/` wins the import `./x` and silently replaces `x/index.ts`. Never create such a file; when you integrate or review, look for these pairs and for dead scaffold that shadows a real module, and delete them.",
       CONVERTER_TOOLKIT,
       shellNotes(),
-      providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
-      ...(providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.image ? [IMAGE_TOOL_HINT] : []),
-      `Verify with: \`${this.verifyLine(subtask)}\` — run the full suite only if this is the integration task.`,
       "Verification scope: other tasks may be editing their own paths right now, so the GLOBAL typecheck/test/build can be red for reasons outside your paths. Verify YOUR paths (filter tsc output to them, run the tests under your directories). Mention sibling breakage as a note, not as your deviation, and never fix files you do not own. The integration task runs the full suite at the end.",
-      "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing ONLY what you did differently from the request or could not do (or `SILENT_DEVIATIONS: none`), then a section `SILENT_NOTES:` with information for the user and other tasks — sibling modules that were red at the time, follow-ups, design decisions, additive contract extensions (or `SILENT_NOTES: none`). Notes are not deviations. Environment limits stated above (no browser in this sandbox, network or permission limits) are NEVER deviations: mention them under SILENT_NOTES only. (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
+      "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary (at most 15 lines) of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing ONLY what you did differently from the request or could not do (or `SILENT_DEVIATIONS: none`), then a section `SILENT_NOTES:` with information for the user and other tasks — sibling modules that were red at the time, follow-ups, design decisions, additive contract extensions (or `SILENT_NOTES: none`). Notes are not deviations. Environment limits stated above (no browser in this sandbox, network or permission limits) are NEVER deviations: mention them under SILENT_NOTES only. (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
     ]
+    const providerNotes = [
+      caps.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
+      ...(caps.image ? [IMAGE_TOOL_HINT] : []),
+    ]
+    const task = [
+      "# TASK",
+      `You are ${model?.displayName ?? modelId}, working as the ${subtask.kind} worker.`,
+      `Task: ${subtask.title}`,
+      subtask.description,
+      upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
+      this.planOverview(subtask),
+      `Verify with: \`${this.verifyLine(subtask)}\` — run the full suite only if this is the integration task.`,
+    ]
+    return [...prefix, ...providerNotes, ...task]
       .filter(Boolean)
       .join("\n\n")
   }

@@ -352,3 +352,49 @@ describe("repo digest in worker briefs (Faz 2)", () => {
     expect(worker.briefs[0]).toContain(context.slice(0, 11000))
   })
 })
+
+describe("prompt-cache alignment and short reports (Faz 3)", () => {
+  class BriefWorker implements Worker {
+    readonly id = "b"
+    briefs: string[] = []
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.briefs.push(job.brief)
+      sink.state("coding", 50)
+      return { done: Promise.resolve({ ok: true, summary: "ok" }), cancel: async () => {} }
+    }
+  }
+  it("every brief starts with the same run-wide prefix (spec, kit, context, rules) and the task-specific part comes last", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    const worker = new BriefWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, spec: "SPEC TEXT", kitBrief: "KIT TEXT", context: "CONTEXT TEXT" })
+    expect(await exec.start()).toBe("completed")
+    expect(worker.briefs.length).toBeGreaterThan(1)
+    const marker = "\n\n# TASK\n\n"
+    const prefixes = worker.briefs.map((b) => b.split(marker)[0])
+    expect(prefixes.every((p) => p === prefixes[0])).toBe(true)
+    const p = prefixes[0]
+    // fixed prefix carries everything run-wide, in a stable order
+    for (const [a, b] of [["SPEC TEXT", "KIT TEXT"], ["KIT TEXT", "CONTEXT TEXT"], ["CONTEXT TEXT", "Rules: (1)"]]) expect(p.indexOf(a)).toBeLessThan(p.indexOf(b))
+    expect(p.indexOf("SPEC TEXT")).toBeGreaterThanOrEqual(0)
+    // nothing task-specific leaks into the prefix
+    expect(p).not.toMatch(/Task: /)
+    expect(p).not.toMatch(/Verify with:/)
+    expect(p).not.toMatch(/working as the \w+ worker/)
+    const task = worker.briefs[0].split(marker)[1]
+    expect(task).toMatch(/You are .* working as the \w+ worker/)
+    expect(task).toMatch(/Task: /)
+    expect(task).toMatch(/Verify with:/)
+  })
+  it("asks for a short summary (at most 15 lines) instead of an essay", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.slice(0, 1).map((s) => ({ ...s, dependsOn: [] }))
+    const worker = new BriefWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    expect(worker.briefs[0]).toMatch(/summary .*at most 15 lines/i)
+  })
+})
