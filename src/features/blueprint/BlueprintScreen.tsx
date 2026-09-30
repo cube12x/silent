@@ -312,6 +312,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
         <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t(`bp.node.${node.type}` as never)}</div>
         <div className="flex gap-1">
           {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
+          {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
       </div>
