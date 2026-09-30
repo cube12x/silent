@@ -6,7 +6,7 @@ const MAX_TREE = 200
 export function classifyPrompt(index: FilesIndex, tree: string[]): string {
   const shown = tree.slice(0, MAX_TREE)
   const more = tree.length > shown.length ? `\n(+${tree.length - shown.length} more)` : ""
-  const slim = { ...index, items: index.items.map(({ previews: _p, ...rest }) => rest) }
+  const slim = { ...index, items: index.items.map((item) => ({ id: item.id, title: item.title, category: item.category, files: item.files, notes: item.notes, ai: item.ai })) }
   return [
     "You are classifying what a game project contains for a visual file browser. READ-ONLY: do not create, modify or delete any file; do not run build or install commands. You may read files to decide.",
     `Categories (use only these ids): ${CATEGORIES.join(", ")} — karakterler = playable characters, dusmanlar = enemies/bosses, nesneler = items/pickups/props/UI icons, arkaplanlar = tiles/backgrounds/levels, sesler = audio, sistemler = code systems, diger = unsure.`,
