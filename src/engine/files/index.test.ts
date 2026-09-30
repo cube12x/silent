@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildHeuristicIndex, groupAtlasFrames, guessCategory, mergeIndex, parseIndex, type FilesIndex } from "./index"
+import { HEURISTIC_VERSION, buildHeuristicIndex, groupAtlasFrames, guessCategory, mergeIndex, parseIndex, type FilesIndex } from "./index"
 
 describe("files index heuristics", () => {
   it("guesses categories from names", () => {
@@ -80,6 +80,10 @@ describe("files index heuristics", () => {
     expect(m.ai).toBe(true)
     expect(merged.items.length).toBe(1)
     expect(merged.builtAt).toBe(2)
+  })
+  it("stamps the heuristic version so older indexes can be recognised", () => {
+    expect(buildHeuristicIndex("/p", [], {}, 1).heuristic).toBe(HEURISTIC_VERSION)
+    expect(parseIndex(JSON.stringify({ version: 1, builtAt: 1, root: "/p", items: [] }))?.heuristic).toBeUndefined()
   })
   it("parseIndex validates shape and categories", () => {
     expect(parseIndex("nope")).toBeNull()

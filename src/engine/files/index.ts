@@ -32,10 +32,15 @@ export interface FileItem {
 
 export interface FilesIndex {
   version: 1
+  /** Which heuristic pass built it; a newer app rebuilds an index made by an older one (new file kinds appear without Yenile). */
+  heuristic?: number
   builtAt: number
   root: string
   items: FileItem[]
 }
+
+/** Bump when the heuristic learns new file kinds or categories (2 = 3D models). */
+export const HEURISTIC_VERSION = 2
 
 export interface AtlasJson {
   frames: Array<{ name: string }>
@@ -132,7 +137,7 @@ export function buildHeuristicIndex(root: string, files: Array<{ rel: string }>,
   for (const item of items) {
     if ((seen.get(item.title) ?? 0) > 1 && item.id.startsWith("atlas:")) item.title = `${item.title} (${item.id.split(":")[1]})`
   }
-  return { version: 1, builtAt: now, root, items }
+  return { version: 1, heuristic: HEURISTIC_VERSION, builtAt: now, root, items }
 }
 
 /** Heuristic rebuilds keep what the AI pass decided (title, category, extra files) for items that still exist. */
@@ -176,5 +181,5 @@ export function parseIndex(text: string): FilesIndex | null {
       ai: i.ai === true ? true : undefined,
     })
   }
-  return { version: 1, builtAt: typeof r.builtAt === "number" ? r.builtAt : 0, root: r.root, items }
+  return { version: 1, heuristic: typeof r.heuristic === "number" ? r.heuristic : undefined, builtAt: typeof r.builtAt === "number" ? r.builtAt : 0, root: r.root, items }
 }

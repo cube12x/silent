@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { getBackend } from "@/services"
-import { buildHeuristicIndex, mergeIndex, parseIndex, type AtlasJson, type FilesIndex } from "@/engine/files/index"
+import { HEURISTIC_VERSION, buildHeuristicIndex, mergeIndex, parseIndex, type AtlasJson, type FilesIndex } from "@/engine/files/index"
 import { classifyPrompt, extractIndexJson } from "@/engine/files/classify"
 import { runSingle } from "@/engine/blueprint/single"
 import { reportError } from "./notify"
@@ -68,8 +68,10 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       const backend = await getBackend()
       const cached = await backend.kv.get<string>(key(root))
       const prev = cached ? parseIndex(cached) : null
-      const index = prev ?? mergeIndex(null, await heuristic(root))
-      if (!prev) await backend.kv.set(key(root), JSON.stringify(index))
+      // An index built by an older heuristic (no 3D models yet, say) is rebuilt here; AI-assigned links survive the merge.
+      const fresh = !prev || prev.heuristic !== HEURISTIC_VERSION
+      const index = fresh ? mergeIndex(prev, await heuristic(root)) : prev
+      if (fresh) await backend.kv.set(key(root), JSON.stringify(index))
       set((s) => ({ byRoot: { ...s.byRoot, [root]: { ...s.byRoot[root], index, loading: false } } }))
       await get().checkStale(root)
     } catch (e) {
