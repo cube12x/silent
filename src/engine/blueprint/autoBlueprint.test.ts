@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { TEST_MODELS } from "@/engine/testModels"
-import { layoutAutoBlueprint, materializeAutoBlueprint, parseAutoBlueprint, pickAutoBlueprintModel } from "./autoBlueprint"
+import { layoutAutoBlueprint, materializeAutoBlueprint, parseAutoBlueprint, pickAutoBlueprintModel, buildAutoBlueprintPrompt } from "./autoBlueprint"
 
 const RAW = JSON.stringify({
   name: "Örnek",
@@ -82,6 +82,11 @@ describe("auto blueprint", () => {
     const ai = res.nodes.find((n) => n.type === "ai")!
     expect(ai.data.type === "ai" && ai.data.instructions).toBe("You are the modder.")
     expect(ai.data.type === "ai" && ai.data.repos).toEqual([{ url: "https://github.com/acme/game" }])
+  })
+  it("tells the designer that asset branches must end in a converter + integration step", () => {
+    const p = buildAutoBlueprintPrompt({ request: "a batman platformer with art and audio branches", models: TEST_MODELS, language: "tr", kits: [] })
+    expect(p).toMatch(/Asset branches never dead-end/)
+    expect(p).toMatch(/Entegrasyon AI/)
   })
   it("keeps the Dönüştürücü role and its wiring", () => {
     const res = materializeAutoBlueprint(
