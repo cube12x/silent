@@ -77,6 +77,8 @@ interface RunsState {
   start(run: SilentCodeRun): Promise<void>
   /** Answer a blocked subtask's question; its CLI session resumes. */
   answer(runId: string, subtaskId: string, text: string): boolean
+  /** Görevi böl: stop the running attempt and let the worker hand the rest back as parallel sub-tasks. */
+  split(runId: string, subtaskId: string): boolean
   cancel(runId: string): void
   /** Bind a working folder to an existing run (older runs may have none); persisted. */
   attachRepo(runId: string, repoPath: string): Promise<void>
@@ -410,6 +412,9 @@ export const useRunsStore = create<RunsState>((set, get) => ({
 
   answer(runId, subtaskId, text) {
     return get().executors[runId]?.answer(subtaskId, text) ?? false
+  },
+  split(runId, subtaskId) {
+    return get().executors[runId]?.requestSplit(subtaskId) ?? false
   },
   cancel(runId) {
     get().executors[runId]?.cancel()

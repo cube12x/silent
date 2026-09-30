@@ -469,6 +469,7 @@ function RunView({ runId }: { runId: string }) {
   const run = useRunsStore((s) => s.byId(runId))
   const usage = useRunsStore((s) => s.usage[runId])
   const cancel = useRunsStore((s) => s.cancel)
+  const split = useRunsStore((s) => s.split)
   const answer = useRunsStore((s) => s.answer)
   const openDrawer = useUiStore((s) => s.openDrawer)
   const drawer = useUiStore((s) => s.drawer)
@@ -566,7 +567,7 @@ function RunView({ runId }: { runId: string }) {
         <div className="flex flex-col gap-5">
           <section>
             <SectionHeader eyebrow={t("code.workers")} title={t("code.workersHint")} className="mb-3" />
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{run.plan.map((s) => <AgentWorkerCard key={s.id} subtask={s} now={now} selected={drawer?.subtaskId === s.id} kindLabel={labels.kinds[s.kind]} stateLabel={labels.states[s.state]} onOpen={() => openDrawer(run.id, s.id)} />)}</div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{run.plan.map((s) => <AgentWorkerCard key={s.id} subtask={s} now={now} selected={drawer?.subtaskId === s.id} kindLabel={labels.kinds[s.kind]} stateLabel={labels.states[s.state]} onOpen={() => openDrawer(run.id, s.id)} onSplit={run.status === "running" ? () => split(run.id, s.id) : undefined} splitLabel={t("code.split")} />)}</div>
           </section>
           <GlowCard><RouteGraph plan={run.plan} routing={run.routing} labels={modelLabels} kindLabels={labels.kinds} onSelectSubtask={(id) => openDrawer(run.id, id)} selectedSubtaskId={drawer?.subtaskId} /></GlowCard>
         </div>

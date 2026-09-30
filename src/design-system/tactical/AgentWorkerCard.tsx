@@ -1,5 +1,5 @@
 import { cn } from "cn"
-import { FileCode2, TerminalSquare, RotateCcw } from "lucide-react"
+import { FileCode2, TerminalSquare, RotateCcw, Scissors } from "lucide-react"
 import type { Subtask } from "@/domain"
 import { GlowCard } from "./GlowCard"
 import { ModelLogo } from "./ModelLogo"
@@ -11,7 +11,7 @@ import type { ProviderId } from "@/domain"
 import { formatRelative } from "@/lib/format"
 
 /** One card per subtask/worker in the Live Monitor. Click opens the terminal drawer. */
-export function AgentWorkerCard({ subtask, onOpen, className, selected, now, kindLabel, stateLabel }: { subtask: Subtask; onOpen?: () => void; className?: string; selected?: boolean; now?: number; kindLabel?: string; stateLabel?: string }) {
+export function AgentWorkerCard({ subtask, onOpen, onSplit, splitLabel, className, selected, now, kindLabel, stateLabel }: { subtask: Subtask; onOpen?: () => void; /** Görevi böl (Faz 3): shown while the worker is active and has a session to resume. */ onSplit?: () => void; splitLabel?: string; className?: string; selected?: boolean; now?: number; kindLabel?: string; stateLabel?: string }) {
   const meta = WORKER_STATE_META[subtask.state]
   const [providerId, ...rest] = (subtask.assignedModelId ?? "").split(":")
   const model = subtask.assignedModelId ? { displayName: rest.join(":") || PROVIDERS[providerId as ProviderId]?.name || subtask.assignedModelId, cli: PROVIDERS[providerId as ProviderId]?.name ?? providerId } : undefined
@@ -39,6 +39,9 @@ export function AgentWorkerCard({ subtask, onOpen, className, selected, now, kin
         {retries > 0 && <span className="flex items-center gap-1 text-warn"><RotateCcw className="size-3" />{retries}</span>}
         {subtask.tokens ? <span className="mono" title="tokens">{subtask.tokens >= 1000 ? `${Math.round(subtask.tokens / 1000)}k` : subtask.tokens} tok</span> : null}
         <span className="ml-auto">{formatRelative(subtask.lastUpdate, now)}</span>
+        {onSplit && meta.active && subtask.attempts.at(-1)?.sessionId && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onSplit() }} title={splitLabel} className="rounded-sm border border-line px-1.5 py-0.5 text-[10px] text-text-2 hover:border-text-2 hover:text-text-1"><Scissors className="mr-1 inline size-3" />{splitLabel ?? "split"}</button>
+        )}
       </div>
     </GlowCard>
   )

@@ -11,6 +11,11 @@ import { ModelIndex } from "./capabilities"
 import { clampEffort, effortFor, timeoutFor } from "./effort"
 import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./workers/Worker"
 
+/** Continuation hint (Faz 3): a long task hands its remaining work back as parallel sub-briefs instead of running alone for another hour. */
+export const SPLIT_HINT = "If more than ~20 min of work remain, do NOT continue alone: reply with `SILENT_SPLIT:` followed by 2–3 independent sub-briefs (one per line, each with its own `Owns:` paths, disjoint from each other), then stop; they will run in parallel as separate tasks."
+/** Brief for a user-requested split: stop now and hand the rest back. */
+export const SPLIT_BRIEF = "STOP: the user wants the remaining work of this task split. Finish only the edit you are in the middle of (leave the checks green for your paths), then reply with a short summary of what is done so far, followed by `SILENT_SPLIT:` and 2–3 independent sub-briefs for the remaining work (one per line, each with its own `Owns:` paths, disjoint from each other), then `SILENT_DEVIATIONS: none`."
+
 export interface ExecutorOptions {
   /** Retries of the same model before falling back. Default 1. */
   maxRetriesPerModel?: number
@@ -65,6 +70,10 @@ export class Executor {
   private warm = new Map<string, { sessionId: string; tokens: number }>()
   /** Tokens consumed per session id (uncached input + output), for the warm-session ceiling. */
   private sessionTokens = new Map<string, number>()
+  /** Subtasks the user asked to split (Faz 3): the running attempt is stopped and its session resumed with SPLIT_BRIEF. */
+  private splitRequested = new Set<string>()
+  /** Tasks created by a split: they may not split again (depth 1), so a run cannot fan out forever. */
+  private splitChildren = new Set<string>()
   private waiters = new Map<string, (answer: string | null) => void>()
   /** Files the run touched so far (worker file events + host scan); the polish reviewer reads their diff instead of replaying everything. */
   private changedFiles: string[] = []
@@ -115,6 +124,20 @@ export class Executor {
   }
 
   /** Deliver the user's answer to a blocked subtask; its session resumes with the answer. */
+  /**
+   * Görevi böl (Faz 3): stop the running attempt of `subtaskId` and resume its session asking the worker to hand the
+   * remaining work back as 2–3 independent sub-briefs, which then run in parallel as sibling tasks.
+   */
+  requestSplit(subtaskId: string): boolean {
+    const subtask = this.subtasks.get(subtaskId)
+    const handle = this.handles.get(subtaskId)
+    if (!subtask || !handle || !subtask.attempts.at(-1)?.sessionId) return false
+    this.splitRequested.add(subtaskId)
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: "✂ split requested — stopping this attempt and asking the worker to hand back the remaining work as parallel sub-tasks" } })
+    handle.cancel()
+    return true
+  }
+
   answer(subtaskId: string, text: string): boolean {
     const w = this.waiters.get(subtaskId)
     if (!w) return false
@@ -246,6 +269,15 @@ export class Executor {
         attemptNo += 1
         result = await this.attempt(subtask, modelId, attemptNo, "answer", sessionId, answer)
       }
+      // Görevi böl: the user stopped this attempt; resume its session with the split request.
+      if (this.splitRequested.has(subtaskId) && !this.cancelled) {
+        this.splitRequested.delete(subtaskId)
+        const sessionId = subtask.attempts.at(-1)?.sessionId
+        if (sessionId) {
+          attemptNo += 1
+          result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId, undefined, SPLIT_BRIEF)
+        }
+      }
       // A timeout is not a failure of the model: resume the same session and let it finish.
       while (!result.ok && result.timedOut && continuations < maxContinuations && !this.cancelled) {
         const sessionId = subtask.attempts.at(-1)?.sessionId
@@ -272,6 +304,10 @@ export class Executor {
       if (result.ok) {
         const sessionId = subtask.attempts.at(-1)?.sessionId
         if (sessionId && this.opts.warmSessions) this.warm.set(modelId, { sessionId, tokens: this.sessionTokens.get(sessionId) ?? 0 })
+        if (result.split?.length) {
+          if (this.splitChildren.has(subtaskId)) this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: "✂ split ignored: this task is already a split part (depth 1)" } })
+          else this.splitInto(subtask, modelId, result.split)
+        }
         subtask.summary = result.summary
         this.summaries.set(subtaskId, result.summary)
         this.bus.emit({ type: "subtask.summary", runId: this.run.id, subtaskId, summary: result.summary, at: this.now() })
@@ -296,7 +332,23 @@ export class Executor {
     }
   }
 
-  private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2, timeoutSecs?: number): Subtask {
+  /** Materialize a worker's SILENT_SPLIT: sibling tasks on the same model; whoever depended on the parent now also waits for them. */
+  private splitInto(parent: Subtask, modelId: string, briefs: string[]): void {
+    const items = briefs.slice(0, 3)
+    const children = items.map((text) => {
+      const title = text.split(/\.\s|\n/)[0].replace(/\s*Owns:.*$/i, "").trim().slice(0, 80) || "Split task"
+      const description = `${text}\n\nThis is part of "${parent.title}", which the previous worker started and split; the repository already contains its earlier work. Do only this part and keep the checks green for your paths.`
+      const child = this.addSubtask(parent.kind, title, description, modelId, 1, parent.timeoutSecs, false)
+      this.splitChildren.add(child.id)
+      return child
+    })
+    for (const s of this.subtasks.values()) {
+      if (s.id !== parent.id && s.dependsOn.includes(parent.id)) for (const c of children) if (!s.dependsOn.includes(c.id)) s.dependsOn.push(c.id)
+    }
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: parent.id, line: { ts: this.now(), stream: "system", text: `✂ split into ${children.length} parallel tasks: ${children.map((c) => c.title).join(" · ")}` } })
+  }
+
+  private addSubtask(kind: Subtask["kind"], title: string, description: string, modelId: string, weight: 1 | 2 | 3 = 2, timeoutSecs?: number, polish = true): Subtask {
     const s: Subtask = {
       timeoutSecs,
       effort: this.run.effort,
@@ -318,8 +370,8 @@ export class Executor {
     }
     this.subtasks.set(s.id, s)
     this.order.push(s.id)
-    this.polishIds.add(s.id)
-    this.routing.set(s.id, { subtaskId: s.id, kind, primaryModelId: modelId, fallbackModelIds: [], reason: "polish", score: 1 })
+    if (polish) this.polishIds.add(s.id)
+    this.routing.set(s.id, { subtaskId: s.id, kind, primaryModelId: modelId, fallbackModelIds: [], reason: polish ? "polish" : "split", score: 1 })
     this.bus.emit({ type: "subtask.added", runId: this.run.id, subtask: structuredClone(s), at: this.now() })
     return s
   }
@@ -398,7 +450,7 @@ export class Executor {
     return w.sessionId
   }
 
-  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string) {
+  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string, briefOverride?: string) {
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
     subtask.assignedModelId = modelId
@@ -432,12 +484,14 @@ export class Executor {
       subtask: structuredClone(subtask),
       modelId,
       attempt: n,
-      brief: answer !== undefined
+      brief: briefOverride !== undefined
+        ? briefOverride
+        : answer !== undefined
         ? `The user answered your question: ${answer}\n\nContinue the task with this answer. When done, reply with a concise summary, then a "SILENT_DEVIATIONS:" list (or "SILENT_DEVIATIONS: none").`
         : cause === "warm"
           ? `NEW TASK (unrelated to the previous one in this session — forget its instructions, keep what you learned about the repository):\n\n${this.brief(subtask, modelId)}`
           : resumeSessionId
-          ? "You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it, followed by a \"SILENT_DEVIATIONS:\" list (or \"SILENT_DEVIATIONS: none\")."
+          ? `You were interrupted by a time limit. Continue exactly where you left off, finish the remaining work, then reply with a concise summary of what you changed and how you verified it, followed by a "SILENT_DEVIATIONS:" list (or "SILENT_DEVIATIONS: none"). ${SPLIT_HINT}`
           : this.brief(subtask, modelId),
       repoPath: this.run.repoPath,
       sandbox: this.opts.sandbox ?? "workspace-write",

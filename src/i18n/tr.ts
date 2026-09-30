@@ -156,6 +156,7 @@ export const tr = {
     reportNotes: "Notlar (bilgi, sapma değil)",
     dev: { env: "ortam", undone: "yapılamadı", changed: "değişiklik" },
     reportNone: "yok",
+    split: "Böl", splitHint: "Koşan görevi durdurur; AI kalan işi 2-3 bağımsız parçaya böler ve parçalar paralel koşar.",
     workerQuestion: "Çalışan soruyor",
     workerQuestionHint: "Cevabın aynı oturuma gönderilir; görev kaldığı yerden devam eder.",
     pendingQuestions: "{n} soru bekliyor",

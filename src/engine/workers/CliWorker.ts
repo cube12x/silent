@@ -61,6 +61,7 @@ export class CliWorker implements Worker {
     let question: string | undefined
     const deviations: string[] = []
     const notes: string[] = []
+    const split: string[] = []
     let failure: { message: string; retryable: boolean; timedOut: boolean } | undefined
     let resolveDone!: (r: WorkerResult) => void
     const done = new Promise<WorkerResult>((r) => (resolveDone = r))
@@ -129,7 +130,13 @@ export class CliWorker implements Worker {
             const item = line.replace(/^\s*[-*•]+\s*/, "").replace(/\*+$/, "").trim()
             if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) (isEnvironmentLimit(item) ? notes : deviations).push(item)
           }
-          messages.push(text.replace(/\**SILENT_(DEVIATIONS|NOTES):[\s\S]*$/, "").replace(/\**SILENT_QUESTION:.*$/m, "").trim())
+          const sp = text.match(/SILENT_SPLIT:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_(?:DEVIATIONS|NOTES|QUESTION):|$)/)
+          if (sp) for (const line of sp[1].split("\n")) {
+            let item = line.replace(/^\s*(?:[-•]+|\*(?!\*)|\d+[.)])\s*/, "").trim()
+            if (item.startsWith("**")) item = item.replace(/^\*+|\*+$/g, "").trim() // markdown bold, not a glob
+            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri)\.?$/i.test(item)) split.push(item)
+          }
+          messages.push(text.replace(/\**SILENT_(DEVIATIONS|NOTES|SPLIT):[\s\S]*$/, "").replace(/\**SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)
           sink.log(text)
           break
@@ -161,7 +168,7 @@ export class CliWorker implements Worker {
           if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes })
           if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
-          resolveDone({ ok: true, summary, deviations, notes })
+          resolveDone({ ok: true, summary, deviations, notes, split: split.length ? split : undefined })
         }
       }
     }

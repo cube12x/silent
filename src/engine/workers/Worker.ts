@@ -42,6 +42,8 @@ export interface WorkerResult {
   deviations?: string[]
   /** `SILENT_NOTES:` items: information, not deviations. */
   notes?: string[]
+  /** `SILENT_SPLIT:` sub-briefs: the worker stopped and asks the executor to run these as sibling tasks (Faz 3). */
+  split?: string[]
 }
 
 export interface WorkerHandle {

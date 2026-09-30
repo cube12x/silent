@@ -478,3 +478,93 @@ describe("warm sessions (Faz 3)", () => {
     expect(heavy.jobs.every((j) => !j.resumeSessionId)).toBe(true)
   })
 })
+
+describe("task split (Faz 3)", () => {
+  it("a worker's SILENT_SPLIT becomes sibling tasks on the same model; dependents wait for all of them", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "parallel")
+    // backend first, frontend depends on it
+    const backend = run.plan.find((s) => s.kind === "backend")!
+    run.plan = run.plan.filter((s) => s.kind === "backend" || s.kind === "frontend").map((s) => ({ ...s, dependsOn: s.kind === "frontend" ? [backend.id] : [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId))
+    const started: string[] = []
+    class SplitWorker implements Worker {
+      readonly id = "sp"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        started.push(job.subtask.title)
+        sink.state("coding", 50)
+        const first = job.subtask.id === backend.id
+        return { done: Promise.resolve(first ? { ok: true, summary: "did the schema", split: ["Users endpoint. Owns: src/api/users/**", "Orders endpoint. Owns: src/api/orders/**"] } : { ok: true, summary: `ok ${job.subtask.title}` }), cancel: async () => {} }
+      }
+    }
+    const exec = new Executor(run, () => new SplitWorker(), new EventBus(), { models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    const all = exec.snapshot
+    expect(all).toHaveLength(4)
+    const children = all.filter((s) => s.title.startsWith("Users endpoint") || s.title.startsWith("Orders endpoint"))
+    expect(children).toHaveLength(2)
+    expect(children.every((s) => s.kind === "backend" && s.state === "completed")).toBe(true)
+    const frontend = all.find((s) => s.kind === "frontend")!
+    expect(children.every((c) => frontend.dependsOn.includes(c.id))).toBe(true)
+    // the frontend started only after both children finished
+    expect(started.indexOf(frontend.title)).toBeGreaterThan(Math.max(...children.map((c) => started.indexOf(c.title))))
+    expect(all.find((s) => s.id === backend.id)?.summary).toMatch(/did the schema/)
+  })
+  it("the timeout continuation brief invites the worker to split what remains", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.slice(0, 1).map((s) => ({ ...s, dependsOn: [] }))
+    const briefs: string[] = []
+    let n = 0
+    class TimeoutOnce implements Worker {
+      readonly id = "to"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        briefs.push(job.brief)
+        sink.session("sess-1")
+        n += 1
+        return { done: Promise.resolve(n === 1 ? { ok: false, summary: "timeout", error: "timeout", retryable: true, timedOut: true } : { ok: true, summary: "ok" }), cancel: async () => {} }
+      }
+    }
+    const exec = new Executor(run, () => new TimeoutOnce(), new EventBus(), { models: TEST_MODELS, maxContinuations: 2 })
+    expect(await exec.start()).toBe("completed")
+    expect(briefs[1]).toMatch(/SILENT_SPLIT:/)
+    expect(briefs[1]).toMatch(/20 min/)
+  })
+  it("requestSplit stops the running attempt and resumes its session with a split request", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.slice(0, 1).map((s) => ({ ...s, dependsOn: [] }))
+    const briefs: string[] = []
+    const jobs: WorkerJob[] = []
+    let n = 0
+    class CancellableWorker implements Worker {
+      readonly id = "cw"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        briefs.push(job.brief)
+        jobs.push(job)
+        sink.session("sess-9")
+        n += 1
+        if (n === 1) {
+          let resolve!: (r: { ok: false; summary: string; error: string; retryable: false }) => void
+          const done = new Promise<{ ok: false; summary: string; error: string; retryable: false }>((r) => (resolve = r))
+          return { done, cancel: async () => resolve({ ok: false, summary: "cancelled", error: "cancelled", retryable: false }) }
+        }
+        return { done: Promise.resolve(n === 2 ? { ok: true, summary: "did half", split: ["Rest A. Owns: a/**", "Rest B. Owns: b/**"] } : { ok: true, summary: `ok ${job.subtask.title}` }), cancel: async () => {} }
+      }
+    }
+    const exec = new Executor(run, () => new CancellableWorker(), new EventBus(), { models: TEST_MODELS })
+    const finished = exec.start()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(exec.requestSplit(run.plan[0].id)).toBe(true)
+    expect(await finished).toBe("completed")
+    expect(jobs[1].resumeSessionId).toBe("sess-9")
+    expect(briefs[1]).toMatch(/SILENT_SPLIT:/)
+    expect(exec.snapshot).toHaveLength(3)
+  })
+})

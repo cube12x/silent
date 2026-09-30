@@ -158,6 +158,7 @@ export const en: Dictionary = {
     reportNotes: "Notes (information, not deviations)",
     dev: { env: "environment", undone: "not done", changed: "changed" },
     reportNone: "none",
+    split: "Split", splitHint: "Stops the running task; the AI hands the remaining work back as 2-3 independent parts that run in parallel.",
     workerQuestion: "Worker is asking",
     workerQuestionHint: "Your answer goes to the same session; the task continues where it stopped.",
     pendingQuestions: "{n} question(s) waiting",

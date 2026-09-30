@@ -115,3 +115,37 @@ describe("CliWorker request shape", () => {
     expect(isModelRejected("tests failed: 3 of 40")).toBe(false)
   })
 })
+
+describe("SILENT_SPLIT (Faz 3)", () => {
+  it("returns the sub-briefs as a split and keeps the summary of what was done so far", async () => {
+    class SplittingRunner implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "Implemented the player module.\n\nSILENT_SPLIT:\n- Enemy AI: patrol + chase. Owns: src/game/enemies/**\n- Boss fight: phases + HUD. Owns: src/game/boss/**, src/ui/boss.ts\n\nSILENT_DEVIATIONS: none" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const res = await new CliWorker(new SplittingRunner()).start(job(), sink).done
+    expect(res.ok).toBe(true)
+    expect(res.split).toEqual(["Enemy AI: patrol + chase. Owns: src/game/enemies/**", "Boss fight: phases + HUD. Owns: src/game/boss/**, src/ui/boss.ts"])
+    expect(res.summary).toBe("Implemented the player module.")
+    expect(res.deviations).toEqual([])
+  })
+  it("`SILENT_SPLIT: none` is not a split", async () => {
+    class Runner implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "done\n\nSILENT_SPLIT: none\nSILENT_DEVIATIONS: none" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const res = await new CliWorker(new Runner()).start(job(), sink).done
+    expect(res.ok).toBe(true)
+    expect(res.split).toBeUndefined()
+    expect(res.summary).toBe("done")
+  })
+})
