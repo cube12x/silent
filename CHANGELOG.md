@@ -3,6 +3,7 @@
 ## [0.3.0] — 2026-09-29
 
 ### Added
+- Blueprint: **3D model preview** in the Dosyalar tab (three.js; glb/gltf/fbx/obj/stl/ply/dae/3ds, animation clips) and converter `model inspect/convert/normalize` (trimesh).
 - Blueprint: **Dosyalar** tab (category cards, atlas animation previews, AI classify) + **Tamirci AI** (repair one reported problem with a chosen model, repos and attached files; `silent bp fix`).
 - Blueprint: **Dönüştürücü** role + bundled `donusturucu.py` (inspect/convert/resize/trim/crop/removebg/split/pack/palette/wav); every AI and orchestration worker gets the converter toolkit; lint `donusturucu.noSource`.
 - Blueprint: **Bilinç → Eylem** roles (read-only investigator on an expensive model writes a report; a cheap model applies it).

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Silent "Dönüştürücü" (asset converter) — Pillow + numpy, nothing else.
 
-Brings produced assets (sprite sheets, photos, WAVs) into the format the next step needs. The source folder is
+Brings produced assets (sprite sheets, photos, WAVs, 3D models) into the format the next step needs. The source folder is
 never modified: every command writes under --out (default assets/converted) and ends with a `# CONVERTED`
 manifest that the next AI reads.
 
@@ -16,6 +16,9 @@ manifest that the next AI reads.
   python3 .silent/tools/donusturucu.py pack f0.png f1.png --name hero [--frame 32x32] [--columns 8]
   python3 .silent/tools/donusturucu.py palette a.png --colors 16
   python3 .silent/tools/donusturucu.py wav a.wav [--rate 44100] [--bits 16] [--mono] [--normalize] [--trim-silence]
+  python3 .silent/tools/donusturucu.py model inspect models/            # 3D: format, bounds, meshes, vertices, faces (needs trimesh)
+  python3 .silent/tools/donusturucu.py model convert a.obj b.stl --to glb  # obj/stl/ply/gltf/glb/off/dae → glb (or obj/stl/ply/gltf)
+  python3 .silent/tools/donusturucu.py model normalize a.glb --height 1.8   # centre on the origin, feet at y=0, scale to a height, +Y up
 
 Existing output files are never overwritten unless --force is given (one step must not clobber another's work).
 Exit codes: 0 ok · 1 failure (missing library, unreadable file, output exists) · 2 usage error.
@@ -379,6 +382,83 @@ def cmd_wav(args):
         note(f, dst, "wav", ", ".join(steps))
 
 
+MODEL_EXT = {".glb", ".gltf", ".obj", ".stl", ".ply", ".off", ".dae", ".fbx", ".3ds"}
+
+
+def _trimesh():
+    try:
+        import trimesh  # type: ignore
+        return trimesh
+    except ImportError:
+        raise SystemExit("donusturucu: 3D commands need trimesh — run: python3 -m pip install --user trimesh  (on Homebrew Python add --break-system-packages)")
+
+
+def expand_models(paths):
+    files = []
+    for p in paths:
+        if os.path.isdir(p):
+            for name in sorted(os.listdir(p)):
+                if os.path.splitext(name)[1].lower() in MODEL_EXT:
+                    files.append(os.path.join(p, name))
+        else:
+            files.append(p)
+    return files
+
+
+def _load_scene(trimesh, path):
+    scene = trimesh.load(path, force="scene")
+    meshes = [g for g in scene.geometry.values() if hasattr(g, "vertices")]
+    return scene, meshes
+
+
+def cmd_model(args):
+    trimesh = _trimesh()
+    if args.op == "inspect":
+        rows = []
+        for f in expand_models(args.paths):
+            try:
+                scene, meshes = _load_scene(trimesh, f)
+            except Exception as e:  # unreadable/unsupported → report, keep going
+                rows.append({"name": os.path.basename(f), "path": rel(f), "error": str(e)[:100]})
+                continue
+            ext = scene.extents.tolist() if len(meshes) else [0, 0, 0]
+            rows.append({"name": os.path.basename(f), "path": rel(f), "format": os.path.splitext(f)[1].lstrip(".").lower(), "meshes": len(meshes), "vertices": int(sum(len(m.vertices) for m in meshes)), "faces": int(sum(len(m.faces) for m in meshes)), "extents": [round(float(v), 4) for v in ext], "bounds": [[round(float(v), 4) for v in b] for b in scene.bounds.tolist()] if len(meshes) else None})
+        if args.json:
+            print(json.dumps(rows, indent=1))
+        else:
+            for r in rows:
+                if "error" in r:
+                    print(f"{r['name']} unreadable: {r['error']}")
+                else:
+                    e = r["extents"]
+                    print(f"{r['name']} {r['format']} meshes={r['meshes']} vertices={r['vertices']} faces={r['faces']} size={e[0]}x{e[1]}x{e[2]}")
+        return
+    to = "." + args.to.lower().lstrip(".") if args.to else ".glb"
+    for f in expand_models(args.paths):
+        scene, meshes = _load_scene(trimesh, f)
+        if not meshes:
+            print(f"skip {rel(f)}: no geometry")
+            continue
+        steps = []
+        if args.op == "normalize":
+            mesh = scene.to_geometry() if hasattr(scene, "to_geometry") else scene.dump(concatenate=True)
+            lo, hi = mesh.bounds
+            centre = (lo + hi) / 2.0
+            mesh.apply_translation([-centre[0], -lo[1], -centre[2]])  # centre x/z, feet on y=0
+            height = float(hi[1] - lo[1]) or 1.0
+            if args.height:
+                mesh.apply_scale(args.height / height)
+                steps.append(f"height {height:.3f} → {args.height}")
+            steps.append("centred, feet at y=0")
+            out_obj = mesh
+        else:
+            out_obj = scene
+            steps.append(f"{os.path.splitext(f)[1].lstrip('.')} → {to.lstrip('.')}")
+        dst = out_path(args, f, ext=to)
+        out_obj.export(dst)
+        note(f, dst, args.op if args.op != "convert" else "model-convert", ", ".join(steps))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", default="assets/converted", help="output folder (default assets/converted); never the source folder")
@@ -395,6 +475,7 @@ def main(argv=None):
     s = sub.add_parser("grid"); s.add_argument("paths", nargs="+"); s.add_argument("--cols", type=int, required=True); s.add_argument("--rows", type=int, required=True); s.add_argument("--cell", type=parse_size, required=True); s.add_argument("--origin", type=lambda t: tuple(int(v) for v in t.split(",")), default=(0, 0)); s.add_argument("--gap", type=int, default=0); s.add_argument("--label", type=int, default=0, help="caption strip height to drop from the bottom of each cell"); s.add_argument("--names"); s.set_defaults(fn=cmd_grid)
     s = sub.add_parser("pack"); s.add_argument("paths", nargs="+"); s.add_argument("--name", required=True); s.add_argument("--frame", type=parse_size); s.add_argument("--columns", type=int); s.set_defaults(fn=cmd_pack)
     s = sub.add_parser("palette"); s.add_argument("paths", nargs="+"); s.add_argument("--colors", type=int, default=16); s.set_defaults(fn=cmd_palette)
+    s = sub.add_parser("model"); s.add_argument("op", choices=["inspect", "convert", "normalize"]); s.add_argument("paths", nargs="+"); s.add_argument("--to", help="output format for convert/normalize (default glb)"); s.add_argument("--height", type=float, help="normalize: target height in metres"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_model)
     s = sub.add_parser("wav"); s.add_argument("paths", nargs="+"); s.add_argument("--rate", type=int); s.add_argument("--bits", type=int, default=16, choices=[8, 16]); s.add_argument("--mono", action="store_true"); s.add_argument("--normalize", action="store_true"); s.add_argument("--trim-silence", action="store_true"); s.set_defaults(fn=cmd_wav)
     args = p.parse_args(argv)
     if args.cmd == "trim" and args.bg not in ("auto", "transparent"):

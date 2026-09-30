@@ -148,6 +148,31 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(code, 0, se)
         self.assertEqual(img(self.out("photo.png")).size, (80, 80))
 
+    def test_model_inspect_convert_normalize(self):
+        try:
+            import trimesh
+        except ImportError:
+            self.skipTest("trimesh not installed")
+        mesh = trimesh.creation.box(extents=(2.0, 4.0, 1.0))
+        mesh.apply_translation((5.0, 10.0, 0.0))
+        mesh.export(os.path.join(self.src, "crate.obj"))
+        self.before = sorted((f, os.path.getmtime(os.path.join(self.src, f))) for f in os.listdir(self.src))
+        code, so, se = run("model", "inspect", "art", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        self.assertIn("crate.obj obj meshes=1 vertices=", so)
+        self.assertIn("size=2.0x4.0x1.0", so)
+        code, so, se = run("model", "convert", "art/crate.obj", "--to", "glb", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        self.assertTrue(os.path.exists(self.out("crate.glb")))
+        self.assertIn("art/crate.obj → assets/converted/crate.glb · model-convert", so)
+        code, so, se = run("--out", "assets/converted/norm", "model", "normalize", "art/crate.obj", "--height", "1.8", cwd=self.root)
+        self.assertEqual(code, 0, se)
+        out = trimesh.load(os.path.join(self.root, "assets", "converted", "norm", "crate.glb"), force="mesh")
+        lo, hi = out.bounds
+        self.assertAlmostEqual(float(hi[1] - lo[1]), 1.8, places=3)
+        self.assertAlmostEqual(float(lo[1]), 0.0, places=3)
+        self.assertAlmostEqual(float((lo[0] + hi[0]) / 2), 0.0, places=3)
+
     def test_usage_error_exit_code(self):
         code, _, _ = run("resize", "art/hero.png", cwd=self.root)  # neither --scale nor --size
         self.assertEqual(code, 2)
