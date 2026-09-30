@@ -483,6 +483,7 @@ export function BlueprintScreen() {
   const [full, setFull] = React.useState(false)
   const [terminalNode, setTerminalNode] = React.useState<string | undefined>(undefined)
   const [view, setView] = React.useState<"canvas" | "files">("canvas")
+  const [pendingFix, setPendingFix] = React.useState<{ problem: string; files: string[] } | null>(null)
   const terminalOpen = React.useRef(false)
   React.useEffect(() => {
     terminalOpen.current = Boolean(terminalNode)
@@ -539,6 +540,18 @@ export function BlueprintScreen() {
         .autoCreate(autorun.auto)
         .then((created) => navigate(`/blueprint/${created.id}`))
         .catch((err: unknown) => console.warn("[autostart] auto blueprint failed", err instanceof Error ? err.message : String(err)))
+      return
+    }
+    if (autorun.fix) {
+      void (async () => {
+        await useBlueprintsStore.getState().load()
+        const all = useBlueprintsStore.getState().blueprints
+        const target = all.find((b) => b.id === autorun.ref) ?? all.find((b) => b.name.toLowerCase() === autorun.ref.toLowerCase())
+        if (!target) return console.warn("[autostart] blueprint not found for fix", autorun.ref)
+        navigate(`/blueprint/${target.id}`)
+        setView("files")
+        setPendingFix(autorun.fix!)
+      })().catch((err: unknown) => console.warn("[autostart] blueprint fix failed", err instanceof Error ? err.message : String(err)))
       return
     }
     if (autorun.edit) {
@@ -615,7 +628,7 @@ export function BlueprintScreen() {
       )}
       {autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
       {bp && view === "files" ? (
-        <FilesTab bp={bp} />
+        <FilesTab bp={bp} initialFix={pendingFix} onFixConsumed={() => setPendingFix(null)} />
       ) : bp ? (
         <ReactFlowProvider>
           <Canvas key={bp.id} bpId={bp.id} onNodeQuadClick={(id) => setTerminalNode((cur) => (cur === id ? undefined : id))} />

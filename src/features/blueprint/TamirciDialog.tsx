@@ -17,6 +17,8 @@ export interface TamirciTarget {
   files: string[]
   /** Human label of what was clicked (item title, category, file). */
   label: string
+  /** Prefilled problem text (`silent bp fix …`). */
+  problem?: string
 }
 
 /** "Tamirci AI çağır": model + repos + problem + files → the repair box runs; the tab shows the report afterwards. */
@@ -32,7 +34,7 @@ export function TamirciDialog({ bp, buildNodeId, root, target, onClose }: { bp: 
   const [ref, setRef] = React.useState(defaultRef || "")
   const [instructions, setInstructions] = React.useState(preset?.instructions ?? "")
   const [repos, setRepos] = React.useState((preset?.repos ?? []).map((r) => r.url).join("\n"))
-  const [problem, setProblem] = React.useState("")
+  const [problem, setProblem] = React.useState(target?.problem ?? "")
   const [files, setFiles] = React.useState<string[]>(target?.files ?? [])
   const [extra, setExtra] = React.useState("")
   const [bilinc, setBilinc] = React.useState(false)

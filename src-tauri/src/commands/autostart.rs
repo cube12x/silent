@@ -55,6 +55,29 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "edit": desc } }));
         }
+        Some("fix") => {
+            // silent bp fix <blueprint> "<problem…>" [--file rel]…  → the Dosyalar tab's Tamirci dialog, prefilled.
+            let bpref = rest.get(i + 1).cloned().unwrap_or_default();
+            let mut problem: Vec<String> = Vec::new();
+            let mut files: Vec<String> = Vec::new();
+            let mut j = i + 2;
+            while j < rest.len() {
+                if rest[j] == "--file" {
+                    if let Some(f) = rest.get(j + 1) {
+                        files.push(f.clone());
+                    }
+                    j += 2;
+                } else {
+                    problem.push(rest[j].clone());
+                    j += 1;
+                }
+            }
+            let problem = problem.join(" ");
+            if bpref.is_empty() || problem.trim().is_empty() {
+                return Err("usage: silent bp fix <blueprint name|id> <problem…> [--file path]…".into());
+            }
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "fix": { "problem": problem, "files": files } } }));
+        }
         Some("answer") => {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let node = rest.get(i + 2).cloned().unwrap_or_default();
@@ -66,7 +89,7 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…>".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]…".into())
         }
     };
     Ok(json!({
@@ -190,6 +213,11 @@ mod tests {
         let v = parse_argv(&argv("bp edit Alien add an effort setting to the main AI"), None).unwrap().unwrap();
         assert_eq!(v["blueprint"]["edit"], "add an effort setting to the main AI");
         assert_eq!(v["blueprint"]["ref"], "Alien");
+        let v = parse_argv(&argv("bp fix Alien flowers clip into the wall --file src/game/world/index.ts --file src/content.ts"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["ref"], "Alien");
+        assert_eq!(v["blueprint"]["fix"]["problem"], "flowers clip into the wall");
+        assert_eq!(v["blueprint"]["fix"]["files"][1], "src/content.ts");
+        assert!(parse_argv(&argv("bp fix Alien"), None).is_err());
         let v = parse_argv(&argv("reload"), None).unwrap().unwrap();
         assert_eq!(v["reload"], true);
         assert_eq!(v["folder"], "");

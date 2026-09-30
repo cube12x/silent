@@ -16,7 +16,7 @@ import { TamirciDialog, type TamirciTarget } from "./TamirciDialog"
 interface Menu { x: number; y: number; target: TamirciTarget }
 
 /** Dosyalar: what the wired Build contains, by category, with previews; right-click → Tamirci AI. */
-export function FilesTab({ bp }: { bp: Blueprint }) {
+export function FilesTab({ bp, initialFix, onFixConsumed }: { bp: Blueprint; initialFix?: { problem: string; files: string[] } | null; onFixConsumed?: () => void }) {
   const t = useT()
   const builds = bp.nodes.filter((n) => n.data.type === "build" && n.data.folderPath)
   const [buildId, setBuildId] = React.useState(builds[0]?.id ?? "")
@@ -34,6 +34,18 @@ export function FilesTab({ bp }: { bp: Blueprint }) {
   const [selected, setSelected] = React.useState<string | null>(null)
   const [menu, setMenu] = React.useState<Menu | null>(null)
   const [target, setTarget] = React.useState<TamirciTarget | null>(null)
+  // `silent bp fix …`: open the dialog prefilled once the tab is up (consumed so a re-render does not reopen it).
+  const initialRef = React.useRef(initialFix)
+  React.useEffect(() => {
+    const fix = initialRef.current
+    if (!fix) return
+    initialRef.current = null
+    const timer = setTimeout(() => {
+      setTarget({ files: fix.files, label: "CLI", problem: fix.problem })
+      onFixConsumed?.()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [onFixConsumed])
   React.useEffect(() => {
     if (root) void load(root)
   }, [root, load])
