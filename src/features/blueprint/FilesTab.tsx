@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Image as ImageIcon, Music, RefreshCw, Sparkles, Wrench } from "lucide-react"
+import { Box, Image as ImageIcon, Music, RefreshCw, Sparkles, Wrench } from "lucide-react"
 import { NeonButton } from "@/design-system"
 import { cn } from "@/lib/utils"
 import type { Blueprint } from "@/domain"
@@ -12,6 +12,9 @@ import { getBackend } from "@/services"
 import { useT } from "@/i18n"
 import { AtlasAnimPreview } from "./AtlasAnimPreview"
 import { TamirciDialog, type TamirciTarget } from "./TamirciDialog"
+
+// three.js and its loaders load only when a model is opened.
+const ModelPreview = React.lazy(() => import("./ModelPreview"))
 
 interface Menu { x: number; y: number; target: TamirciTarget }
 
@@ -26,6 +29,7 @@ export function FilesTab({ bp, initialFix, onFixConsumed }: { bp: Blueprint; ini
   const load = useFilesStore((s) => s.load)
   const rebuild = useFilesStore((s) => s.rebuild)
   const classify = useFilesStore((s) => s.classify)
+  const setPreviewAnims = useFilesStore((s) => s.setPreviewAnims)
   const running = useBlueprintsStore((s) => s.running)
   const providers = useProvidersStore((s) => s.providers)
   const unavailable = useProvidersStore((s) => s.unavailable)
@@ -55,6 +59,8 @@ export function FilesTab({ bp, initialFix, onFixConsumed }: { bp: Blueprint; ini
     return () => window.removeEventListener("click", close)
   }, [])
   const tamirciRunning = bp.nodes.some((n) => n.data.type === "ai" && n.data.tamirci && running[n.id])
+  const indexItems = folder?.index?.items
+  const allFiles = React.useMemo(() => Array.from(new Set((indexItems ?? []).flatMap((i) => i.files))), [indexItems])
   if (!build || !root) return <div className="flex flex-1 items-center justify-center text-sm text-text-3">{t("files.noBuild")}</div>
   const index = folder?.index
   const items = index?.items ?? []
@@ -108,6 +114,11 @@ export function FilesTab({ bp, initialFix, onFixConsumed }: { bp: Blueprint; ini
                 {p.kind === "atlas" && <AtlasAnimPreview key={`${p.file}|${p.json ?? ""}`} root={root} preview={p} />}
                 {p.kind === "image" && <BlobImage root={root} rel={p.file} />}
                 {p.kind === "audio" && <BlobAudio root={root} rel={p.file} />}
+                {p.kind === "model" && (
+                  <React.Suspense fallback={<div className="text-[11px] text-text-3">{t("files.model.loading")}</div>}>
+                    <ModelPreview key={p.file} root={root} file={p.file} siblings={allFiles} onClips={(names) => setPreviewAnims(root, current.id, p.file, names)} />
+                  </React.Suspense>
+                )}
               </div>
             ))}
             {!current.previews.length && <div className="text-[11px] text-text-3">{t("files.noPreview")}</div>}
@@ -166,7 +177,7 @@ function CategoryCard({ cat, items, selected, onSelect, onMenu }: { cat: FileCat
             className={cn("flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px]", selected === item.id ? "border-text-2 bg-ink-3 text-text-1" : "border-line text-text-2 hover:text-text-1")}
             title={item.files.join("\n")}
           >
-            {item.previews[0]?.kind === "audio" ? <Music className="size-3 text-text-3" /> : item.previews[0] ? <ImageIcon className="size-3 text-text-3" /> : null}
+            {item.previews[0]?.kind === "audio" ? <Music className="size-3 text-text-3" /> : item.previews[0]?.kind === "model" ? <Box className="size-3 text-text-3" /> : item.previews[0] ? <ImageIcon className="size-3 text-text-3" /> : null}
             {item.title}
           </button>
         ))}

@@ -53,7 +53,8 @@ describe("files index heuristics", () => {
     const idx = buildHeuristicIndex("/p", [{ rel: "assets/models/alien_brute.glb" }, { rel: "assets/models/rifle.gltf" }], {}, 1)
     const alien = idx.items.find((i) => i.id === "model:assets/models/alien_brute.glb")!
     expect(alien.category).toBe("dusmanlar")
-    expect(alien.previews).toEqual([])
+    expect(alien.previews).toEqual([{ kind: "model", file: "assets/models/alien_brute.glb" }])
+    expect(buildHeuristicIndex("/p", [{ rel: "m/a.stl" }, { rel: "m/b.dae" }], {}, 1).items.map((i) => i.previews[0]?.kind)).toEqual(["model", "model"])
     expect(idx.items.find((i) => i.id === "model:assets/models/rifle.gltf")?.category).toBe("nesneler")
   })
   it("suffixes items that share a title across atlases", () => {

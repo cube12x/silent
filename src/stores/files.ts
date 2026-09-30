@@ -26,6 +26,8 @@ interface FilesState {
   /** Files changed after the index was built → stale badge. */
   checkStale(root: string): Promise<void>
   setLastFix(root: string, fix: FolderFiles["lastFix"]): void
+  /** A model preview learned its animation clips: remember them on the item (shown as anims, persisted). */
+  setPreviewAnims(root: string, itemId: string, file: string, names: string[]): void
 }
 
 const key = (root: string) => `files-index:${root}`
@@ -118,6 +120,14 @@ export const useFilesStore = create<FilesState>((set, get) => ({
     } catch {
       /* stale is a hint only */
     }
+  },
+  setPreviewAnims(root, itemId, file, names) {
+    const cur = get().byRoot[root]
+    if (!cur?.index) return
+    const anims = Object.fromEntries(names.map((n) => [n, [n]]))
+    const index: FilesIndex = { ...cur.index, items: cur.index.items.map((i) => (i.id === itemId ? { ...i, previews: i.previews.map((p) => (p.file === file ? { ...p, anims } : p)) } : i)) }
+    set((s) => ({ byRoot: { ...s.byRoot, [root]: { ...s.byRoot[root], index } } }))
+    void getBackend().then((b) => b.kv.set(key(root), JSON.stringify(index))).catch(() => undefined)
   },
   setLastFix(root, fix) {
     set((s) => ({ byRoot: { ...s.byRoot, [root]: { ...(s.byRoot[root] ?? { index: null, loading: false, classifying: false, stale: false }), lastFix: fix } } }))

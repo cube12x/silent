@@ -10,7 +10,7 @@ export type FileCategoryId = "karakterler" | "dusmanlar" | "nesneler" | "arkapla
 export const CATEGORIES: FileCategoryId[] = ["karakterler", "dusmanlar", "nesneler", "arkaplanlar", "sesler", "sistemler", "diger"]
 
 export interface FilePreview {
-  kind: "atlas" | "image" | "audio"
+  kind: "atlas" | "image" | "audio" | "model"
   /** Image/audio file (relative to the root). */
   file: string
   /** Atlas JSON next to the sheet. */
@@ -43,7 +43,7 @@ export interface AtlasJson {
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
 const AUDIO_EXT = /\.(wav|mp3|ogg)$/i
-const MODEL_EXT = /\.(glb|gltf|fbx|obj)$/i
+const MODEL_EXT = /\.(glb|gltf|fbx|obj|stl|ply|dae|3ds)$/i
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|py|rs|go|java|kt|swift|c|cc|cpp|h|hpp|cs|lua|gd)$/i
 
 const CATEGORY_HINTS: Array<[FileCategoryId, RegExp]> = [
@@ -113,7 +113,7 @@ export function buildHeuristicIndex(root: string, files: Array<{ rel: string }>,
     if (claimed.has(rel)) continue
     if (IMAGE_EXT.test(rel)) items.push({ id: `image:${rel}`, title: stem(rel), category: guessCategory(stem(rel)), files: [rel], previews: [{ kind: "image", file: rel }] })
     else if (AUDIO_EXT.test(rel)) items.push({ id: `audio:${rel}`, title: stem(rel), category: "sesler", files: [rel], previews: [{ kind: "audio", file: rel }] })
-    else if (MODEL_EXT.test(rel)) items.push({ id: `model:${rel}`, title: stem(rel), category: guessCategory(stem(rel)), files: [rel], previews: [], notes: "3D model" })
+    else if (MODEL_EXT.test(rel)) items.push({ id: `model:${rel}`, title: stem(rel), category: guessCategory(stem(rel)), files: [rel], previews: [{ kind: "model", file: rel }], notes: "3D model" })
   }
 
   const codeGroups = new Map<string, string[]>()
@@ -171,7 +171,7 @@ export function parseIndex(text: string): FilesIndex | null {
       title: i.title,
       category: i.category as FileCategoryId,
       files: (i.files as unknown[]).filter((f): f is string => typeof f === "string"),
-      previews: Array.isArray(i.previews) ? (i.previews as FilePreview[]).filter((p) => p && typeof p === "object" && typeof p.file === "string" && ["atlas", "image", "audio"].includes(p.kind)) : [],
+      previews: Array.isArray(i.previews) ? (i.previews as FilePreview[]).filter((p) => p && typeof p === "object" && typeof p.file === "string" && ["atlas", "image", "audio", "model"].includes(p.kind)) : [],
       notes: typeof i.notes === "string" ? i.notes : undefined,
       ai: i.ai === true ? true : undefined,
     })
