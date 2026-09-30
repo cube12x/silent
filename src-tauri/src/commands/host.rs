@@ -11,7 +11,8 @@ pub struct HostLoad {
 
 /// `{ 1.23 4.56 7.89 }` (macOS sysctl vm.loadavg) or `1.23 4.56 7.89 1/234 5678` (/proc/loadavg).
 pub fn parse_load1(text: &str) -> Option<f64> {
-    text.split(|c: char| c.is_whitespace() || c == '{' || c == '}').find(|t| !t.is_empty())?.parse().ok()
+    // Locales with a decimal comma (tr_TR) print `{ 59,25 94,45 … }` — seen in the installed app on 2026-09-30.
+    text.split(|c: char| c.is_whitespace() || c == '{' || c == '}').find(|t| !t.is_empty())?.replace(',', ".").parse().ok()
 }
 
 /// macOS `sysctl -n vm.swapusage`: `total = 2048.00M  used = 1024.00M  free = 1024.00M  (encrypted)`.
@@ -19,7 +20,7 @@ pub fn parse_swap_pct_macos(text: &str) -> Option<f64> {
     fn val(text: &str, key: &str) -> Option<f64> {
         let i = text.find(key)? + key.len();
         let rest = text[i..].trim_start_matches([' ', '=']).trim_start();
-        let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+        let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect::<String>().replace(',', ".");
         let unit = rest[num.len()..].chars().next().unwrap_or('M');
         let n: f64 = num.parse().ok()?;
         Some(match unit {
@@ -83,6 +84,7 @@ mod tests {
         assert_eq!(parse_load1("{ 3.52 4.10 4.35 }"), Some(3.52));
         assert_eq!(parse_load1("0.61 0.70 0.75 2/1234 5678\n"), Some(0.61));
         assert_eq!(parse_load1(""), None);
+        assert_eq!(parse_load1("{ 59,25 94,45 138,88 }"), Some(59.25));
     }
 
     #[test]
