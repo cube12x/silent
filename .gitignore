@@ -16,3 +16,4 @@ playwright-report
 .env*
 scratch-*.png
 __pycache__/
+smoke-*.png
