@@ -123,6 +123,13 @@ export function buildHeuristicIndex(root: string, files: Array<{ rel: string }>,
   }
   for (const [key, group] of codeGroups) items.push({ id: `code:${key}`, title: key.replace(/^src\//, ""), category: "sistemler", files: group.sort(), previews: [] })
 
+  // Two atlases with the same character prefix (hero.json and hero_alt.json both drawing "murkcap") would show twice
+  // under one name: suffix duplicates with their atlas so the user can tell them apart.
+  const seen = new Map<string, number>()
+  for (const item of items) seen.set(item.title, (seen.get(item.title) ?? 0) + 1)
+  for (const item of items) {
+    if ((seen.get(item.title) ?? 0) > 1 && item.id.startsWith("atlas:")) item.title = `${item.title} (${item.id.split(":")[1]})`
+  }
   return { version: 1, builtAt: now, root, items }
 }
 

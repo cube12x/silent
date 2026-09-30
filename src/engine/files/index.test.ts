@@ -49,6 +49,12 @@ describe("files index heuristics", () => {
     expect(player.files).toEqual(["src/game/player/index.ts", "src/game/player/physics.ts"])
     expect(idx.items.some((i) => i.files.includes("README.md"))).toBe(false)
   })
+  it("suffixes items that share a title across atlases", () => {
+    const files = ["a/hero.png", "a/hero.json", "b/hero2.png", "b/hero2.json"].map((rel) => ({ rel }))
+    const frames = { frames: [{ name: "murkcap_idle_00" }, { name: "murkcap_idle_01" }] }
+    const idx = buildHeuristicIndex("/p", files, { "a/hero.json": frames, "b/hero2.json": frames }, 1)
+    expect(idx.items.map((i) => i.title).sort()).toEqual(["murkcap (hero)", "murkcap (hero2)"])
+  })
   it("merge keeps AI-assigned category, title and extra files of items that still exist", () => {
     const prev: FilesIndex = { version: 1, builtAt: 1, root: "/p", items: [
       { id: "atlas:hero:murkcap", title: "Mario", category: "karakterler", files: ["assets/converted/hero.png", "src/game/player/index.ts"], previews: [], ai: true },

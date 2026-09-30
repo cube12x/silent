@@ -2,6 +2,10 @@ import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryE
 import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
+const PREVIEW_TILES = { frameW: 16, frameH: 16, columns: 2, frames: [{ name: "grass", x: 0, y: 0, w: 16, h: 16 }, { name: "dirt", x: 16, y: 0, w: 16, h: 16 }] }
+/** Frames of the preview's canned atlases (hero.json / tiles.json): enough for an animated preview. */
+const PREVIEW_ATLAS = { frameW: 32, frameH: 32, columns: 2, frames: [{ name: "murkcap_idle_00", x: 0, y: 0, w: 32, h: 32 }, { name: "murkcap_idle_01", x: 32, y: 0, w: 32, h: 32 }, { name: "murkcap_run_00", x: 0, y: 32, w: 32, h: 32 }, { name: "murkcap_run_01", x: 32, y: 32, w: 32, h: 32 }] }
+
 export class TestBackend implements Backend {
   readonly kind = "test" as const
   detected: DetectedProvider[] = []
@@ -46,7 +50,8 @@ export class TestBackend implements Backend {
     return { path, exists: true, isGitRepo: true, name: path.split("/").pop() ?? path, branch: "main", fileCount: 1, languages: [] }
   }
   async pickDirectory() {
-    return null
+    // Dev preview: a canned folder so Build boxes (and the Dosyalar tab) can be exercised without a dialog.
+    return this.preview ? "/Users/demo/CubeCode/demo-game" : null
   }
   projectFiles: Record<string, string> = {}
   blueprintsMem: Blueprint[] = []
@@ -78,7 +83,10 @@ export class TestBackend implements Backend {
     return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(message) : true
   }
   async readProjectFile(_root: string, rel: string) {
-    return this.projectFiles[rel] ?? null
+    if (this.projectFiles[rel] !== undefined) return this.projectFiles[rel]
+    // Dev preview: the atlas JSON of the canned pixel-art project (see listProjectFiles).
+    if (this.preview && rel.endsWith(".json")) return JSON.stringify(rel.includes("tiles") ? PREVIEW_TILES : PREVIEW_ATLAS)
+    return null
   }
   async listProjectFiles() {
     // A tiny pixel-art project so the Dosyalar tab has something to show in the preview.
@@ -86,7 +94,7 @@ export class TestBackend implements Backend {
     return rels.map((rel, i) => ({ rel, size: 100 + i, mtimeMs: 1_700_000_000_000 + i }))
   }
   async readProjectBlob(_root: string, rel: string) {
-    if (rel.endsWith(".json")) return { mime: "application/json", base64: btoa(JSON.stringify({ frameW: 32, frameH: 32, columns: 2, frames: [{ name: "murkcap_idle_00", x: 0, y: 0, w: 32, h: 32 }, { name: "murkcap_idle_01", x: 32, y: 0, w: 32, h: 32 }, { name: "murkcap_run_00", x: 0, y: 32, w: 32, h: 32 }] })) }
+    if (rel.endsWith(".json")) return { mime: "application/json", base64: btoa(JSON.stringify(rel.includes("tiles") ? PREVIEW_TILES : PREVIEW_ATLAS)) }
     if (rel.endsWith(".png") || rel.endsWith(".jpg")) return { mime: rel.endsWith(".png") ? "image/png" : "image/jpeg", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }
     return null
   }
