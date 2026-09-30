@@ -87,6 +87,12 @@ describe("Dönüştürücü prompt", () => {
     expect(effectivePurpose("bilinc", "look", undefined)).toBeUndefined()
     expect(effectivePurpose("donusturucu", "   ", undefined)).toBeUndefined()
   })
+  it("image-capable providers are told to use their image tool for drawn art (single sessions too)", () => {
+    expect(buildAiPrompt({ wired: "Draw sprites", imageTool: true })).toMatch(/IMAGE GENERATION tool/)
+    expect(buildAiPrompt({ wired: "Draw sprites", imageTool: true })).toMatch(/Never substitute script-drawn placeholder boxes/)
+    expect(buildAiPrompt({ wired: "Draw sprites" })).not.toMatch(/IMAGE GENERATION/)
+    expect(buildAiPrompt({ wired: "Audit", imageTool: true, role: "bilinc" })).not.toMatch(/IMAGE GENERATION/)
+  })
   it("extractReport keeps a # CONVERTED manifest", () => {
     expect(extractReport("chatter\n# CONVERTED\n- x → y · convert\n# UNRESOLVED\n- none")).toMatch(/^# CONVERTED/)
     expect(extractReport("# FINDINGS\n- a\n\nlater # CONVERTED\n- b")).toMatch(/^# CONVERTED/)

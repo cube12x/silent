@@ -46,6 +46,9 @@ Rules: the source folder is read-only; write only under assets/converted/ (or th
 /** One paragraph for every AI working inside a project: convert on demand instead of reporting an asset unusable. */
 export const CONVERTER_TOOLKIT = "Converter toolkit: `python3 .silent/tools/donusturucu.py --help` (inspect/convert/resize/trim/crop/removebg/split/grid/pack/palette/wav, and model inspect/convert/normalize for 3D; Pillow + numpy, trimesh for 3D). When an asset is in the wrong format or size, or has a background, convert it into assets/converted/<your-step>/ with this tool (it refuses to overwrite another step's files) and use the result — do not report it unusable."
 
+/** Providers with a built-in raster image tool (Antigravity): drawn art must come from it, not from a script that paints labelled boxes. */
+export const IMAGE_TOOL_HINT = "You have a built-in raster IMAGE GENERATION tool (generate_image / image_gen, plus image_edit where available). For artwork (sprites, sprite sheets, backgrounds, portraits, key art, UI cards) use it and save the PNG files under the project's assets folder, then wire them into the code; prefer generated images over hand-coding pixel data when the task asks for drawn art. Never substitute script-drawn placeholder boxes for requested art. Keep a consistent style across the images you generate (same palette, outline weight and era)."
+
 /** Converted-asset manifests of the Dönüştürücü nodes wired into an AI. */
 export function convertedBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
   const reports = all.filter((r) => r.kind === "donusturucu")
@@ -83,6 +86,8 @@ export interface AiPromptInput {
   reports?: Array<{ title: string; report: string; kind?: BpReportKind }>
   /** The converter tool is shipped into the working folder: tell the AI it may convert assets on demand. */
   converterTool?: boolean
+  /** The model's CLI has a raster image tool (Antigravity): drawn art must come from it. */
+  imageTool?: boolean
 }
 
 /**
@@ -119,6 +124,7 @@ export function buildAiPrompt(i: AiPromptInput): string {
   if (i.role === "bilinc") blocks.push(BILINC_POLICY)
   if (i.role === "donusturucu") blocks.push(DONUSTURUCU_POLICY)
   else if (i.converterTool && i.role !== "bilinc") blocks.push(CONVERTER_TOOLKIT)
+  if (i.imageTool && i.role !== "bilinc") blocks.push(IMAGE_TOOL_HINT)
   const instructions = i.instructions?.trim()
   if (instructions) blocks.push(`# Base instructions\n${instructions}`)
   const task = aiTaskText(i)

@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { parseModelRef, type ProviderId } from "@/domain"
+import { providerInfo } from "@/providers/registry"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
 import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraPrompt, type TamirciRequest } from "@/engine/blueprint/tamirci"
 import { newId } from "@/lib/ids"
@@ -630,7 +631,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } catch (e) {
     log(set, aiId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`)
   }
-  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", role, reports })
+  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", imageTool: Boolean(providerInfo(parseModelRef(mainRef).providerId as ProviderId).capabilities.image), role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a
