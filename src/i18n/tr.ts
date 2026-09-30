@@ -243,6 +243,12 @@ export const tr = {
     createAgent: "Ajanı oluştur",
     startChat: "Sohbeti başlat",
   },
+  files: {
+    tab: "Dosyalar", canvasTab: "Blueprint", noBuild: "Bu blueprint'te klasörü olan bir Build kutusu yok; önce bir Build bağla ve çalıştır.", build: "Klasör", refresh: "Yenile", classify: "Sınıflandır (AI)", classifying: "Sınıflandırılıyor…", stale: "indeks eski", loading: "Taranıyor…", empty: "Bu klasörde gösterilecek dosya yok.",
+    categories: { karakterler: "Karakterler", dusmanlar: "Düşmanlar", nesneler: "Nesneler", arkaplanlar: "Arka planlar", sesler: "Sesler", sistemler: "Sistemler", diger: "Diğer" },
+    itemsCount: "{n} öğe", speed: "Hız", files: "Dosyalar", noPreview: "Önizleme yok.", selectHint: "Bir öğeye tıkla: önizleme ve dosyaları burada görürsün. Öğe, kutu ya da dosyaya sağ tık: Tamirci AI.",
+    tamirci: { call: "Tamirci AI çağır", title: "Tamirci AI", subtitle: "Sorunu yaz, dosyaları eşleştir, Enter.", model: "Model", problem: "Sorun", problemPlaceholder: "ör. 1. bölümde zemindeki çiçekler duvara girmiş", files: "Eşleşen dosyalar", bilinc: "Önce Bilinç ile incele (salt-okunur bulur, Eylem uygular)", instructions: "Temel talimat (kalıcı)", instructionsPlaceholder: "ör. Bu bir piksel-art platform oyunu; önce testleri çalıştır, küçük değişiklik yap.", repos: "Referans repolar (her satıra bir adres, kalıcı)", run: "Düzelt (Enter)", started: "{node} başladı; kutunun terminalinde izleyebilirsin.", report: "Onarım raporu", changed: "Değişen dosyalar", noReport: "Henüz onarım yok.", running: "Tamirci çalışıyor…" },
+  },
   setup: {
     title: "İlk kurulum",
     subtitle: "Silent, makinende kurulu AI CLI'larını çalıştırır. Önce gereksinimleri, sonra en az bir planlayıcı CLI (Codex veya Claude Code) kur.",

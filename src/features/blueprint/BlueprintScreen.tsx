@@ -22,6 +22,7 @@ import { isRepoUrl } from "@/engine/blueprint/prompt"
 import { PROVIDERS } from "@/providers/registry"
 import { modKey } from "@/lib/platform"
 import { NodeTerminal } from "./NodeTerminal"
+import { FilesTab } from "./FilesTab"
 import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
@@ -481,6 +482,7 @@ export function BlueprintScreen() {
   const autoSummary = useBlueprintsStore((s) => s.autoSummary)
   const [full, setFull] = React.useState(false)
   const [terminalNode, setTerminalNode] = React.useState<string | undefined>(undefined)
+  const [view, setView] = React.useState<"canvas" | "files">("canvas")
   const terminalOpen = React.useRef(false)
   React.useEffect(() => {
     terminalOpen.current = Boolean(terminalNode)
@@ -581,6 +583,12 @@ export function BlueprintScreen() {
     <div className={cn("flex h-full min-h-0 flex-col", full && "fixed inset-0 z-50 bg-ink-0")}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-2">
         <PageHeader eyebrow={t("bp.title")} title="" description="" className="mb-0" />
+        {bp && (
+          <div className="flex rounded-sm border border-line text-[11px]">
+            <button type="button" onClick={() => setView("canvas")} className={cn("px-2 py-1", view === "canvas" ? "bg-ink-3 text-text-1" : "text-text-3 hover:text-text-1")}>{t("files.canvasTab")}</button>
+            <button type="button" onClick={() => setView("files")} className={cn("px-2 py-1", view === "files" ? "bg-ink-3 text-text-1" : "text-text-3 hover:text-text-1")}>{t("files.tab")}</button>
+          </div>
+        )}
         <select value={id ?? ""} onChange={(e) => navigate(`/blueprint/${e.target.value}`)} className="rounded-sm border border-line bg-ink-2 px-2 py-1 text-xs text-text-1">
           {!id && <option value="">—</option>}
           {blueprints.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -606,7 +614,9 @@ export function BlueprintScreen() {
         </div>
       )}
       {autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
-      {bp ? (
+      {bp && view === "files" ? (
+        <FilesTab bp={bp} />
+      ) : bp ? (
         <ReactFlowProvider>
           <Canvas key={bp.id} bpId={bp.id} onNodeQuadClick={(id) => setTerminalNode((cur) => (cur === id ? undefined : id))} />
           <NodeTerminal bpId={bp.id} nodeId={terminalNode} onClose={() => setTerminalNode(undefined)} />
