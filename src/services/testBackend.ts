@@ -2,6 +2,8 @@ import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryE
 import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
+/** A 1×2×1 box as GLB (trimesh export) so the 3D viewer can be exercised in the preview. */
+const PREVIEW_GLB = "Z2xURgIAAACgAwAAlAIAAEpTT057InNjZW5lIjowLCJzY2VuZXMiOlt7Im5vZGVzIjpbMF19XSwiYXNzZXQiOnsidmVyc2lvbiI6IjIuMCIsImdlbmVyYXRvciI6Imh0dHBzOi8vZ2l0aHViLmNvbS9taWtlZGgvdHJpbWVzaCJ9LCJhY2Nlc3NvcnMiOlt7ImNvbXBvbmVudFR5cGUiOjUxMjUsInR5cGUiOiJTQ0FMQVIiLCJidWZmZXJWaWV3IjowLCJjb3VudCI6MzYsIm1heCI6WzddLCJtaW4iOlswXX0seyJjb21wb25lbnRUeXBlIjo1MTI2LCJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjEsImNvdW50Ijo4LCJtYXgiOlswLjUsMS4wLDAuNV0sIm1pbiI6Wy0wLjUsLTEuMCwtMC41XX1dLCJtZXNoZXMiOlt7Im5hbWUiOiJnZW9tZXRyeV8wIiwiZXh0cmFzIjp7InNoYXBlIjoiYm94IiwiZXh0ZW50cyI6WzEuMCwyLjAsMS4wXX0sInByaW1pdGl2ZXMiOlt7ImF0dHJpYnV0ZXMiOnsiUE9TSVRJT04iOjF9LCJpbmRpY2VzIjowLCJtb2RlIjo0fV19XSwibm9kZXMiOlt7Im5hbWUiOiJnZW9tZXRyeV8wIiwibWVzaCI6MH1dLCJidWZmZXJzIjpbeyJieXRlTGVuZ3RoIjoyNDB9XSwiYnVmZmVyVmlld3MiOlt7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MCwiYnl0ZUxlbmd0aCI6MTQ0fSx7ImJ1ZmZlciI6MCwiYnl0ZU9mZnNldCI6MTQ0LCJieXRlTGVuZ3RoIjo5Nn1dfSAgICDwAAAAQklOAAEAAAADAAAAAAAAAAQAAAABAAAAAAAAAAAAAAADAAAAAgAAAAIAAAAEAAAAAAAAAAEAAAAHAAAAAwAAAAUAAAABAAAABAAAAAUAAAAHAAAAAQAAAAMAAAAHAAAAAgAAAAYAAAAEAAAAAgAAAAIAAAAHAAAABgAAAAYAAAAFAAAABAAAAAcAAAAFAAAABgAAAAAAAL8AAIC/AAAAvwAAAL8AAIC/AAAAPwAAAL8AAIA/AAAAvwAAAL8AAIA/AAAAPwAAAD8AAIC/AAAAvwAAAD8AAIC/AAAAPwAAAD8AAIA/AAAAvwAAAD8AAIA/AAAAPw=="
 const PREVIEW_TILES = { frameW: 16, frameH: 16, columns: 2, frames: [{ name: "grass", x: 0, y: 0, w: 16, h: 16 }, { name: "dirt", x: 16, y: 0, w: 16, h: 16 }] }
 /** Frames of the preview's canned atlases (hero.json / tiles.json): enough for an animated preview. */
 const PREVIEW_ATLAS = { frameW: 32, frameH: 32, columns: 2, frames: [{ name: "murkcap_idle_00", x: 0, y: 0, w: 32, h: 32 }, { name: "murkcap_idle_01", x: 32, y: 0, w: 32, h: 32 }, { name: "murkcap_run_00", x: 0, y: 32, w: 32, h: 32 }, { name: "murkcap_run_01", x: 32, y: 32, w: 32, h: 32 }] }
@@ -90,11 +92,12 @@ export class TestBackend implements Backend {
   }
   async listProjectFiles() {
     // A tiny pixel-art project so the Dosyalar tab has something to show in the preview.
-    const rels = ["assets/converted/hero.png", "assets/converted/hero.json", "assets/converted/tiles.png", "assets/converted/tiles.json", "assets/sprites/photo.jpg", "assets/uydurma/sfx__jump.wav", "src/game/player/index.ts", "src/game/world/index.ts", "src/render/index.ts", "README.md"]
+    const rels = ["assets/converted/hero.png", "assets/converted/hero.json", "assets/converted/tiles.png", "assets/converted/tiles.json", "assets/sprites/photo.jpg", "assets/uydurma/sfx__jump.wav", "assets/models/crate.glb", "src/game/player/index.ts", "src/game/world/index.ts", "src/render/index.ts", "README.md"]
     return rels.map((rel, i) => ({ rel, size: 100 + i, mtimeMs: 1_700_000_000_000 + i }))
   }
   async readProjectBlob(_root: string, rel: string) {
     if (rel.endsWith(".json")) return { mime: "application/json", base64: btoa(JSON.stringify(rel.includes("tiles") ? PREVIEW_TILES : PREVIEW_ATLAS)) }
+    if (rel.endsWith(".glb")) return { mime: "model/gltf-binary", base64: PREVIEW_GLB }
     if (rel.endsWith(".png") || rel.endsWith(".jpg")) return { mime: rel.endsWith(".png") ? "image/png" : "image/jpeg", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }
     return null
   }
