@@ -13,6 +13,7 @@ pub mod providers;
 pub mod refs;
 pub mod repo;
 pub mod shell;
+pub mod snapshot;
 pub mod terminal;
 
 #[derive(serde::Serialize)]

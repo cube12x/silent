@@ -35,7 +35,7 @@ export function validateEdge(bp: Blueprint, edge: Omit<BpEdge, "id">): string | 
 }
 
 /** One step of a blueprint run: a single AI, or a Paralel button starting several AIs at once. */
-export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] } | { kind: "check"; node: BpNode }
+export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] } | { kind: "check"; node: BpNode } | { kind: "queue"; node: BpNode } | { kind: "snapshot"; node: BpNode } | { kind: "verify"; node: BpNode }
 
 function isParallel(n: BpNode | undefined): boolean {
   return Boolean(n && n.data.type === "button" && n.data.kind === "parallel")
@@ -82,6 +82,16 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
       plan.push({ kind: "check", node })
       started.add(id)
       continue
+    } else if (node.type === "verify" && !started.has(id)) {
+      // Çoklu Tarayıcı: same shape as Denetçi — the AIs after it fix only what the lanes found.
+      plan.push({ kind: "verify", node })
+      started.add(id)
+      continue
+    } else if ((node.type === "queue" || node.type === "snapshot") && !started.has(id)) {
+      plan.push({ kind: node.type, node })
+      started.add(id)
+    } else if (node.type === "budget") {
+      // Bütçe is a guard on the AI wired after it, not a step.
     }
     // Uydurma wires (ai → stub → ai) are policy markers, not flow: never walk through a stub, or a filler would
     // re-trigger the producer AI (2026-09-29: a Paralel fan-out walked filler → stub → Mimar and re-ran the whole orchestration).
@@ -129,7 +139,9 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
     if (n.type === "ai") {
       // An Eylem's task is the wired Bilinç report; it needs no prompt of its own.
       const fedByBilinc = n.data.type === "ai" && n.data.role === "eylem" && incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")
-      if (!fedByBilinc && !incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
+      // A Dikiş's task is fixed by its policy (stitch + full suite); a fixer after a Denetçi/Çoklu Tarayıcı works from the report.
+      const fedByReport = n.data.type === "ai" && (n.data.role === "dikis" || incoming(bp, n.id).some((x) => x.type === "check" || x.type === "verify"))
+      if (!fedByBilinc && !fedByReport && !incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
       if (n.data.type === "ai" && (n.data.repos ?? []).some((r) => r.url.trim() && !isRepoUrl(r.url))) add(n.id, "ai.badRepo")
       if (n.data.type === "ai" && n.data.role === "eylem" && !incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")) add(n.id, "eylem.noBilinc")
@@ -138,6 +150,18 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       if (n.data.type === "ai" && n.data.role === "kesifci" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "kesifci.noNext")
     }
     if (n.type === "check" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai")) add(n.id, "check.noSource")
+    if (n.type === "ai" && n.data.type === "ai" && n.data.role === "dikis" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai" || x.type === "verify")) add(n.id, "dikis.noSource")
+    if (n.type === "queue") {
+      if (!incoming(bp, n.id).some((x) => x.type === "prompt")) add(n.id, "queue.noPrompt")
+      if (n.data.type === "queue" && !n.data.modelRef) add(n.id, "queue.noModel")
+    }
+    if (n.type === "snapshot" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai" || x.type === "button")) add(n.id, "snapshot.noSource")
+    if (n.type === "verify") {
+      if (!incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai")) add(n.id, "verify.noSource")
+      else if (n.data.type === "verify" && !n.data.lanes.some((l) => l.trim())) add(n.id, "verify.noLanes")
+      else if (n.data.type === "verify" && !n.data.modelRef) add(n.id, "verify.noModel")
+    }
+    if (n.type === "budget" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "budget.noAi")
     if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {
       if (!outgoing(bp, n.id).length) add(n.id, "button.unwired")

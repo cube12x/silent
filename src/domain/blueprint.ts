@@ -4,12 +4,17 @@
  */
 import type { CostMode, Effort } from "./runs"
 
-export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub" | "check"
+export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub" | "check" | "queue" | "snapshot" | "verify" | "budget"
 /** Asset kinds a Uydurma (placeholder) node can stand in for. */
 export type BpStubKind = "image" | "sprite" | "tileset" | "sfx" | "music" | "voice" | "text" | "font" | "model3d" | "video"
 export const BP_STUB_KINDS: BpStubKind[] = ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"]
 export type BpButtonKind = "start" | "send" | "reload" | "parallel"
-export type BpAiMode = "orchestration" | "single"
+/** lite = Bölücü (Faz 4): an orchestration that plans only disjoint build tasks (Turbo, no review/tests/integration); a Dikiş AI stitches afterwards. */
+export type BpAiMode = "orchestration" | "single" | "lite"
+/** Orchestration-like modes (a planner + workers) versus one CLI session. */
+export function isOrchestration(mode: BpAiMode | undefined): boolean {
+  return mode === "orchestration" || mode === "lite"
+}
 export type BpNodeStatus = "idle" | "running" | "done" | "failed" | "listening"
 
 export interface BpPromptData {
@@ -45,9 +50,12 @@ export interface BpAiData {
   report?: string
   /** Tamirci AI box created from the Dosyalar tab (reused by later repair requests). */
   tamirci?: boolean
+  /** Sıcak Oturum (Faz 4, single mode): every run resumes this box's last CLI session (files already read stay in context). */
+  keepSession?: boolean
 }
 /** kesifci = cheap read-only scout whose `# RECON` report spares the next (expensive) AI from re-scanning the repo. */
-export type BpAiRole = "bilinc" | "eylem" | "donusturucu" | "kesifci"
+/** dikis = stitch step (Faz 4): full suite + cross-area seams after a Bölücü, never a new feature. */
+export type BpAiRole = "bilinc" | "eylem" | "donusturucu" | "kesifci" | "dikis"
 export interface BpAiRepo {
   /** `https://…` or `git@…` */
   url: string
@@ -67,6 +75,38 @@ export interface BpCheckData {
   /** `# CHECK` report of the last run (fed to the wired fixer AI when red). */
   report?: string
   lastOk?: boolean
+}
+/** Sıra (Faz 4): the wired prompts run one after another in ONE CLI session of `modelRef` (each step resumes the previous). */
+export interface BpQueueData {
+  title?: string
+  modelRef: string
+  /** Summary lines of the last run, one per step. */
+  report?: string
+}
+/** Anlık Görüntü (Faz 4): a git snapshot of the wired folder; "Geri al" restores it. */
+export interface BpSnapshotData {
+  title?: string
+  /** Git ref of the last snapshot (refs/silent/snapshots/…). */
+  ref?: string
+  takenAt?: number
+  folder?: string
+}
+/** Çoklu Tarayıcı (Faz 4): N browser lanes verified in parallel by `modelRef`; findings feed the wired fixer AI. */
+export interface BpVerifyData {
+  title?: string
+  modelRef: string
+  /** One lane per line: a screen/flow to play through. */
+  lanes: string[]
+  /** `# VERIFY` report of the last run (fed to the wired fixer when findings exist). */
+  report?: string
+  lastOk?: boolean
+}
+/** Bütçe (Faz 4): the wired AI's run is cancelled once its tokens pass `maxTokens`. */
+export interface BpBudgetData {
+  title?: string
+  maxTokens: number
+  /** Tokens the guarded run had spent when it last stopped (for the badge). */
+  spent?: number
 }
 /** Uydurma: assets are registered as prompt-named placeholders (the name is the prompt); a cheaper AI fills them later. */
 export interface BpStubData {
@@ -109,6 +149,10 @@ export type BpNodeData =
   | ({ type: "wizard" } & BpWizardData)
   | ({ type: "stub" } & BpStubData)
   | ({ type: "check" } & BpCheckData)
+  | ({ type: "queue" } & BpQueueData)
+  | ({ type: "snapshot" } & BpSnapshotData)
+  | ({ type: "verify" } & BpVerifyData)
+  | ({ type: "budget" } & BpBudgetData)
 
 export interface BpNode {
   id: string
@@ -150,17 +194,25 @@ export interface Blueprint {
 
 /** Which node types may wire into which. */
 export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
-  prompt: ["ai", "wizard"],
-  ai: ["build", "buildPhoto", "ai", "stub", "check"],
-  build: ["prompt", "button", "ai", "variable", "check"],
-  buildPhoto: ["prompt", "button", "ai", "variable", "check"],
-  button: ["ai", "build", "buildPhoto", "prompt"],
+  prompt: ["ai", "wizard", "queue"],
+  ai: ["build", "buildPhoto", "ai", "stub", "check", "snapshot", "verify"],
+  build: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify"],
+  buildPhoto: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify"],
+  button: ["ai", "build", "buildPhoto", "prompt", "queue", "snapshot"],
   variable: ["wizard", "ai"],
   wizard: ["ai"],
   // stub → ai: that AI must produce placeholders instead of real assets; ai → stub: that AI fills the placeholders.
   stub: ["ai"],
   // check → ai: the fixer(s) that run only when the check is red (the report is their work order).
   check: ["ai"],
+  // queue → build/ai: what the queued session produced, and what runs after it.
+  queue: ["build", "ai"],
+  // snapshot → ai/prompt/queue: the chain continues after the snapshot is taken.
+  snapshot: ["ai", "prompt", "queue"],
+  // verify → ai: the fixer(s) that run only when the lanes found problems.
+  verify: ["ai"],
+  // budget → ai: the guarded box.
+  budget: ["ai"],
 }
 
 export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
@@ -168,4 +220,4 @@ export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
 }
 
 /** Human labels used by the context menu and node headers (translated in the UI). */
-export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check"]
+export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget"]

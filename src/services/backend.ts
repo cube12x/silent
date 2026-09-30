@@ -104,6 +104,10 @@ export interface Backend {
   confirm(message: string, title?: string): Promise<boolean>
   /** Denetçi: run one shell command in a project folder without a model; returns success, exit code and the output tail. */
   runCheck(cwd: string, command: string, timeoutSecs?: number, maxLines?: number): Promise<CheckResult>
+  /** Anlık Görüntü (Faz 4): git snapshot of the folder (hidden ref, working tree untouched); returns the ref. */
+  gitSnapshot(cwd: string): Promise<string>
+  /** Restore the working tree to a snapshot ref taken by gitSnapshot. */
+  gitRestore(cwd: string, ref: string): Promise<void>
   /** Repo digest (Kaşe): bounded auto-summary of a project folder, cached under `.silent/digest.md` (see digest.rs). */
   repoDigest(root: string, maxBytes?: number): Promise<string>
   /** Text of `root/rel` (capped), or null when missing. */

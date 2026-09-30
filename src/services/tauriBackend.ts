@@ -124,6 +124,12 @@ export class TauriBackend implements Backend {
   runCheck(cwd: string, command: string, timeoutSecs = 900, maxLines = 40): Promise<CheckResult> {
     return invoke<CheckResult>("project_run_check", { cwd, command, timeoutSecs, maxLines })
   }
+  gitSnapshot(cwd: string): Promise<string> {
+    return invoke<string>("git_snapshot", { cwd })
+  }
+  gitRestore(cwd: string, ref: string): Promise<void> {
+    return invoke<void>("git_restore", { cwd, git_ref: ref })
+  }
 
   repoDigest(root: string, maxBytes = 12 * 1024): Promise<string> {
     return invoke<string>("repo_digest", { root, maxBytes })

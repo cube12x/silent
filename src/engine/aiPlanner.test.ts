@@ -135,3 +135,14 @@ describe("Turbo and mechanical presets (Faz 3)", () => {
     expect(p).toMatch(/cheapest/i)
   })
 })
+
+describe("Lite (Bölücü) planning (Faz 4)", () => {
+  it("plans only disjoint build tasks and leaves stitching to the Dikiş step", () => {
+    const ctx = { prompt: "Add three systems", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof buildPlannerPrompt>[0]
+    expect(buildPlannerPrompt(ctx)).not.toMatch(/LITE MODE/)
+    const p = buildPlannerPrompt({ ...ctx, lite: true })
+    expect(p).toMatch(/LITE MODE/)
+    expect(p).toMatch(/one per (independent )?area/i)
+    expect(p).toMatch(/no review, tests, docs or integration task/i)
+  })
+})

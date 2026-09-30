@@ -30,7 +30,7 @@ Investigate the task thoroughly, then reply with a report and nothing else:
 1. numbered, concrete, minimal edits another AI will apply verbatim: file, what to change, expected result, how to verify
 Keep the report self-contained; the next AI has not seen this conversation.`
 
-export type BpReportKind = "bilinc" | "donusturucu" | "check" | "kesifci"
+export type BpReportKind = "bilinc" | "donusturucu" | "check" | "kesifci" | "verify"
 
 /** Keşifçi: a cheap read-only scout. Its report is the map the next (expensive) AI works from instead of re-scanning. */
 export const KESIFCI_POLICY = `You are the KEŞİFÇİ (scout) step: READ-ONLY reconnaissance for the task below on a cheap model — do not create, modify or delete any file, do not run installers or formatters (reading files, grep, running tests to observe is fine).
@@ -43,6 +43,8 @@ Find exactly what the next AI must touch and reply with a report and nothing els
 Keep it under 120 lines; the next AI has not seen this conversation.`
 
 /** Dönüştürücü: converts the wired assets into the format the next step needs, with the bundled tool, and reports a manifest. */
+export const DIKIS_POLICY = `You are the DİKİŞ (stitch) step after a split build: several workers built disjoint areas in this repository at the same time. Your job is ONLY to make the whole fit together: run the full test suite, typecheck and build; fix cross-area seams (imports, registrations, shared contracts, duplicated scaffolding, module shadowing, dead placeholder files); wire every area into the app where a worker forgot. Do not add features, do not redesign what works, do not rewrite an area's internals — the smallest change that makes the whole green and coherent. Finish with a short summary and a \`# FIXED\` list of the seams you closed.`
+
 export const DONUSTURUCU_POLICY = `You are the DÖNÜŞTÜRÜCÜ (converter) step. Your job: bring the assets wired into you (folders, sheets, photos, WAVs) into the exact format the next step needs — the Purpose and the wired prompts say what that is. Use the bundled tool for every conversion; never hand-write image or audio bytes:
   python3 .silent/tools/donusturucu.py inspect <folder> [--json]      # what is there: size, mode, alpha, frame guess, colours
   python3 .silent/tools/donusturucu.py --help                        # convert · resize · trim · crop · removebg · split · grid · pack · palette · wav · model (3D: inspect/convert/normalize via trimesh)
@@ -73,6 +75,25 @@ export function checkBrief(all: Array<{ title: string; report: string; kind?: Bp
   if (!reports.length) return ""
   const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
   return `The automated check (Denetçi) below FAILED. Fix the cause with the smallest safe change (do not disable or weaken the checks), then re-run the same commands until they are green; finish with a short summary of what was wrong and what you changed.\n\n${body}`
+}
+
+/** Çoklu Tarayıcı: the lanes' findings are the fixer's work order. */
+export function verifyBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind === "verify")
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `Browser verification (parallel lanes, already played through — do not replay everything) found the problems below. Fix each one with the smallest safe change, verify the exact lane it came from, and finish with a short summary and a \`# FIXED\` list:\n${body}`
+}
+
+/** One lane of a Çoklu Tarayıcı run: play exactly this flow in a real browser and report. */
+export function verifyLanePrompt(lane: string, cwd: string): string {
+  const slug = lane.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "lane"
+  return [
+    `You are ONE lane of a parallel browser verification of the project at ${cwd}. Other lanes cover the other screens at the same time, so play ONLY this lane, end to end, in a real browser (Playwright/Chromium; start the dev server if none is running):`,
+    `LANE: ${lane}`,
+    `Do not modify any source file and do not run formatters or installers; you only observe. Save screenshots of what you saw under .silent/tmp/shots/${slug}/ (git-ignored).`,
+    "Report under `# VERIFY`: one bullet per problem with [severity] where, what happened, what was expected and how to reproduce (clicks/keys). If the lane works, reply exactly `# VERIFY\n- OK`.",
+  ].join("\n\n")
 }
 
 /** Keşifçi: the scout's findings, so the expensive AI starts editing instead of re-scanning. */
@@ -109,7 +130,7 @@ export interface AiPromptInput {
   stubs?: BpStubData[]
   fills?: BpStubData[]
   /** Bilinç / Eylem / Dönüştürücü / Keşifçi role of this node. */
-  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci"
+  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci" | "dikis"
   /** Reports of the Bilinç (work order) and Dönüştürücü (converted assets) nodes wired into it. */
   reports?: Array<{ title: string; report: string; kind?: BpReportKind }>
   /** The converter tool is shipped into the working folder: tell the AI it may convert assets on demand. */
@@ -123,7 +144,7 @@ export interface AiPromptInput {
  * purpose field as the task (it usually has no wired prompt — the wired nodes are asset folders). Other roles keep the
  * purpose for Reload only.
  */
-export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kesifci" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
+export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kesifci" | "dikis" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
   if (override) return override
   const own = nodePurpose?.trim()
   return role === "donusturucu" && own ? own : undefined
@@ -131,7 +152,7 @@ export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kes
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
-  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
+  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), verifyBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
 
 /**
@@ -153,6 +174,7 @@ export function buildAiPrompt(i: AiPromptInput): string {
   const readOnly = i.role === "bilinc" || i.role === "kesifci"
   if (i.role === "bilinc") blocks.push(BILINC_POLICY)
   if (i.role === "kesifci") blocks.push(KESIFCI_POLICY)
+  if (i.role === "dikis") blocks.push(DIKIS_POLICY)
   if (i.role === "donusturucu") blocks.push(DONUSTURUCU_POLICY)
   else if (i.converterTool && !readOnly) blocks.push(CONVERTER_TOOLKIT)
   if (i.imageTool && !readOnly) blocks.push(IMAGE_TOOL_HINT)
@@ -167,6 +189,6 @@ export function buildAiPrompt(i: AiPromptInput): string {
 export function extractReport(text: string): string {
   const t = text.trim()
   const upper = t.toUpperCase()
-  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"))
+  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"), upper.lastIndexOf("# VERIFY"))
   return idx >= 0 ? t.slice(idx).trim() : t
 }

@@ -148,6 +148,8 @@ export interface SilentCodeRun {
   turbo?: boolean
   /** Mechanical: the planner sends tests/docs/translation to the cheapest pool model (Faz 3). */
   mechanical?: boolean
+  /** Lite / Bölücü (Faz 4): only disjoint build tasks; a Dikiş step stitches afterwards. */
+  lite?: boolean
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { mapWithLimit } from "@/engine/loadGuard"
 import { useHostStore } from "@/stores/host"
-import { parseModelRef, type ProviderId } from "@/domain"
+import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
 import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraPrompt, type TamirciRequest } from "@/engine/blueprint/tamirci"
@@ -18,7 +18,7 @@ import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, re
 import { BUILTIN_KITS } from "@/domain/kits"
 import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
 import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
-import { effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, type RefPath } from "@/engine/blueprint/prompt"
+import { effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, verifyLanePrompt, type RefPath } from "@/engine/blueprint/prompt"
 import { clampEffort } from "@/engine/effort"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
@@ -58,6 +58,8 @@ interface BlueprintsState {
   trigger(id: string, nodeId: string, opts?: { reloadDefaultPurpose?: string; only?: boolean }): Promise<void>
   /** Answer every blocked worker question of the node's orchestration run (SILENT_QUESTION); sessions resume. Returns how many were answered. */
   answer(id: string, nodeId: string, text: string): number
+  /** Anlık Görüntü "Geri al": restore the wired folder to the node's last snapshot. */
+  restoreSnapshot(id: string, nodeId: string): Promise<boolean>
   /** "AI ile oluştur": a planner-capable CLI (Claude first) designs a whole blueprint from a description. */
   autoCreate(description: string): Promise<Blueprint>
   /** "AI ile düzenle": the designer modifies the active blueprint in place (kept nodes keep ids and history). */
@@ -299,6 +301,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       wizard: { type: "wizard", modelRef: "", purpose: "" },
       stub: { type: "stub", kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" },
       check: { type: "check", commands: [], maxLines: 40, timeoutSecs: 900 },
+      queue: { type: "queue", modelRef: useProvidersStore.getState().availableModels()[0] ? `${useProvidersStore.getState().availableModels()[0].providerId}:${useProvidersStore.getState().availableModels()[0].id}` : "" },
+      snapshot: { type: "snapshot" },
+      verify: { type: "verify", modelRef: (() => { const m = useProvidersStore.getState().availableModels().find((x) => providerInfo(x.providerId).capabilities.browser) ?? useProvidersStore.getState().availableModels()[0]; return m ? `${m.providerId}:${m.id}` : "" })(), lanes: [] },
+      budget: { type: "budget", maxTokens: 200000 },
     }
     const node: BpNode = { id: newId("n"), type, x: Math.round(x), y: Math.round(y), data: { ...defaults[type], ...(data ?? {}) } as BpNodeData, status: "idle" }
     get().update(id, (b) => ({ ...b, nodes: [...b.nodes, node] }))
@@ -361,6 +367,18 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
           for (const f of fixers) await execAi(id, f.id, { ...opts, parallel: false })
           break
         }
+      } else if (step.kind === "verify") {
+        // Çoklu Tarayıcı: lanes in parallel; findings → the wired fixer AIs, then the chain stops here.
+        const ok = await execVerify(id, step.node.id)
+        if (!ok) {
+          const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
+          for (const f of fixers) await execAi(id, f.id, { ...opts, parallel: false })
+          break
+        }
+      } else if (step.kind === "snapshot") {
+        if (!(await execSnapshot(id, step.node.id))) break
+      } else if (step.kind === "queue") {
+        if (!(await execQueue(id, step.node.id))) break
       } else {
         // Paralel button: every head starts now; the chain continues only when all of them are done.
         const names = step.heads.map((h) => (h.data.type === "ai" && h.data.title ? h.data.title : h.id))
@@ -379,6 +397,22 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const stop = get().running[nodeId]
     if (stop) await stop()
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
+  },
+  async restoreSnapshot(id, nodeId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!node || node.data.type !== "snapshot" || !node.data.ref || !node.data.folder) return false
+    try {
+      await (await getBackend()).gitRestore(node.data.folder, node.data.ref)
+      log(set, nodeId, `↶ restored ${node.data.ref.split("/").pop()} in ${node.data.folder}`)
+      get().updateNode(id, nodeId, { status: "done", note: "restored" })
+      for (const b of bp.nodes) if ((b.data.type === "build" || b.data.type === "buildPhoto") && b.data.folderPath === node.data.folder) void get().refreshBuild(id, b.id)
+      return true
+    } catch (e) {
+      log(set, nodeId, `✖ restore failed: ${e instanceof Error ? e.message : String(e)}`)
+      get().updateNode(id, nodeId, { status: "failed", note: "restore failed" })
+      return false
+    }
   },
   answer(id, nodeId, text) {
     const bp = get().byId(id)
@@ -585,6 +619,159 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean> {
   return ok && !cancelled
 }
 
+/** Bütçe: cancel `runId` once its live tokens pass `maxTokens`; returns the unsubscribe. */
+function watchBudget(bpId: string, budgetId: string, runId: string, maxTokens: number, onCut: (spent: number) => void): () => void {
+  const store = useBlueprintsStore.getState()
+  store.updateNode(bpId, budgetId, { status: "running", note: undefined })
+  let cut = false
+  const check = () => {
+    const spent = useRunsStore.getState().usage[runId]?.tokens ?? 0
+    if (spent > maxTokens && !cut) {
+      cut = true
+      useRunsStore.getState().cancel(runId)
+      onCut(spent)
+      store.updateNode(bpId, budgetId, { status: "failed", note: `cut at ${formatTokens(spent)}`, data: { spent } })
+      reportError(`Bütçe: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run ${runId} cancelled`)
+    }
+  }
+  const unsub = useRunsStore.subscribe(check)
+  return () => {
+    unsub()
+    if (!cut) store.updateNode(bpId, budgetId, { status: "done", note: undefined, data: { spent: useRunsStore.getState().usage[runId]?.tokens ?? 0 } })
+  }
+}
+
+/** Folder a non-AI box works on: the wired build, else the wired AI's working folder. */
+function sourceFolder(bp: Blueprint, nodeId: string): string | undefined {
+  const source = incoming(bp, nodeId)
+  const buildIn = source.find((n) => n.data.type === "build" || n.data.type === "buildPhoto")
+  const aiIn = source.find((n) => n.type === "ai")
+  const viaButton = source.filter((n) => n.type === "button").flatMap((b) => incoming(bp, b.id)).find((n) => n.data.type === "build" || n.data.type === "buildPhoto")
+  const pick = buildIn ?? viaButton
+  return (pick && (pick.data.type === "build" || pick.data.type === "buildPhoto") ? pick.data.folderPath : "") || (aiIn ? aiWorkingFolder(bp, aiIn.id) : undefined)
+}
+
+/** Anlık Görüntü: git snapshot of the wired folder; zero tokens. */
+async function execSnapshot(bpId: string, nodeId: string): Promise<boolean> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "snapshot") return false
+  const cwd = sourceFolder(bp, nodeId)
+  if (!cwd) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: "no folder" })
+    log(set, nodeId, "⚠ wire a Build (or an AI with a build) into this snapshot")
+    return false
+  }
+  store.updateNode(bpId, nodeId, { status: "running", note: undefined })
+  try {
+    const ref = await (await getBackend()).gitSnapshot(cwd)
+    store.updateNode(bpId, nodeId, { status: "done", note: undefined, data: { ref, takenAt: Date.now(), folder: cwd } })
+    log(set, nodeId, `📸 ${ref.split("/").pop()} · ${cwd}`)
+    return true
+  } catch (e) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: "snapshot failed" })
+    log(set, nodeId, `✖ ${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+}
+
+/** Sıra: the wired prompts, one after another, in ONE CLI session (each step resumes the previous). */
+async function execQueue(bpId: string, nodeId: string): Promise<boolean> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "queue") return false
+  const data = node.data
+  const steps = incoming(bp, nodeId).filter((n) => n.data.type === "prompt")
+  const cwd = sourceFolder(bp, nodeId) ?? (() => { const b = firstOutgoing(bp, nodeId, "build"); return b && b.data.type === "build" ? b.data.folderPath : undefined })()
+  if (!steps.length || !data.modelRef) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: steps.length ? "no model" : "no prompts" })
+    return false
+  }
+  const backend = await getBackend()
+  const digest = cwd ? await backend.repoDigest(cwd, 10 * 1024).catch(() => "") : ""
+  let sessionId: string | undefined
+  let cancelled = false
+  let tokens = 0
+  const lines: string[] = []
+  store.updateNode(bpId, nodeId, { status: "running", note: undefined })
+  log(set, nodeId, `▶ ${data.modelRef} · ${steps.length} steps in one session${cwd ? ` · ${cwd}` : ""}`)
+  let ok = true
+  for (const [i, step] of steps.entries()) {
+    if (cancelled || step.data.type !== "prompt") break
+    const title = step.data.title || `step ${i + 1}`
+    log(set, nodeId, `── ${i + 1}/${steps.length} ${title}`)
+    const body = `${step.data.title ? `# ${step.data.title}\n` : ""}${step.data.text}`
+    const prompt = sessionId
+      ? `NEXT STEP (${i + 1}/${steps.length}) in the same project — the previous steps of this session are done; keep what you learned, do only this:\n\n${body}\n\nWhen done, reply with a concise summary (at most 10 lines).`
+      : buildAiPrompt({ wired: body, existingProjectAt: cwd, digest }) + "\n\nWhen done, reply with a concise summary (at most 10 lines)."
+    const handle = runSingle(backend, { runId: `bp:queue:${nodeId}:${Date.now()}`, modelRef: data.modelRef, prompt, cwd, resumeSessionId: sessionId }, (line, stream) => log(set, nodeId, line, stream))
+    useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await handle.cancel() } } }))
+    const res = await handle.done
+    tokens += res.tokens
+    sessionId = res.sessionId ?? sessionId
+    lines.push(`- ${title}: ${res.ok ? "ok" : `FAILED (${res.error ?? "?"})`}${res.text.trim() ? ` — ${res.text.trim().split("\n").at(-1)?.slice(0, 160)}` : ""}`)
+    if (!res.ok) {
+      ok = false
+      break
+    }
+  }
+  useBlueprintsStore.setState((s) => {
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : ok ? "done" : "failed", note: cancelled ? "cancelled" : ok ? undefined : "a step failed", executionId: sessionId ? `session:${sessionId}` : undefined, data: { report: lines.join("\n") } })
+  log(set, nodeId, `${ok && !cancelled ? "✓" : "✖"} ${formatTokens(tokens)} tokens`)
+  const outBuild = firstOutgoing(bp, nodeId, "build")
+  if (outBuild) await store.refreshBuild(bpId, outBuild.id)
+  return ok && !cancelled
+}
+
+/** Çoklu Tarayıcı: every lane in parallel (host load cap), findings merged into one `# VERIFY` report. */
+async function execVerify(bpId: string, nodeId: string): Promise<boolean> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "verify") return false
+  const data = node.data
+  const cwd = sourceFolder(bp, nodeId)
+  const lanes = data.lanes.map((l) => l.trim()).filter(Boolean)
+  if (!cwd || !lanes.length || !data.modelRef) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: !cwd ? "no folder" : !lanes.length ? "no lanes" : "no model" })
+    return false
+  }
+  const backend = await getBackend()
+  const cancels: Array<() => Promise<void>> = []
+  let cancelled = false
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await Promise.all(cancels.map((c) => c())) } } }))
+  store.updateNode(bpId, nodeId, { status: "running", note: undefined })
+  log(set, nodeId, `▶ ${lanes.length} lanes · ${data.modelRef} · ${cwd}`)
+  const results = await mapWithLimit(lanes, () => Math.min(4, useHostStore.getState().cap()), async (lane) => {
+    if (cancelled) return { lane, ok: false, text: "", tokens: 0 }
+    const handle = runSingle(backend, { runId: `bp:verify:${nodeId}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`, modelRef: data.modelRef, prompt: verifyLanePrompt(lane, cwd), cwd, timeoutSecs: 25 * 60 }, (line, stream) => log(set, nodeId, `[${lane.slice(0, 24)}] ${line}`, stream))
+    cancels.push(handle.cancel)
+    const res = await handle.done
+    return { lane, ok: res.ok, text: extractReport(res.text), tokens: res.tokens }
+  })
+  const tokens = results.reduce((n, r) => n + r.tokens, 0)
+  const findings = results.filter((r) => !r.ok || !/^# VERIFY\s*\n?-\s*OK\s*$/i.test(r.text.trim()))
+  const report = ["# VERIFY", ...results.map((r) => `## ${r.lane}\n${r.ok ? r.text.replace(/^# VERIFY\s*/i, "").trim() || "- OK" : `- [high] lane could not be verified (${r.text.slice(0, 200) || "no output"})`}`)].join("\n\n")
+  const allOk = findings.length === 0 && !cancelled
+  useBlueprintsStore.setState((s) => {
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : allOk ? "done" : "failed", note: cancelled ? "cancelled" : allOk ? undefined : `${findings.length}/${lanes.length} lanes with findings`, data: { report, lastOk: allOk } })
+  log(set, nodeId, `${allOk ? "✓ all lanes OK" : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report`} · ${formatTokens(tokens)} tokens`)
+  return allOk
+}
+
 async function waitForRun(runId: string): Promise<"completed" | "failed" | "cancelled"> {
   return new Promise((resolve) => {
     const check = () => {
@@ -630,6 +817,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   const reports = incoming(bp, aiId).flatMap((n): Array<{ title: string; report: string; kind: BpReportKind }> => {
     // Denetçi: only a RED check is a work order (a green one has nothing to fix).
     if (n.data.type === "check") return n.data.report?.trim() && n.data.lastOk === false ? [{ title: n.data.title || "Denetçi", report: n.data.report, kind: "check" }] : []
+    // Çoklu Tarayıcı: only lanes with findings are a work order.
+    if (n.data.type === "verify") return n.data.report?.trim() && n.data.lastOk === false ? [{ title: n.data.title || "Çoklu Tarayıcı", report: n.data.report, kind: "verify" }] : []
     if (n.data.type !== "ai" || !n.data.report?.trim()) return []
     if (n.data.role === "bilinc" && role === "eylem") return [{ title: n.data.title || n.id, report: n.data.report, kind: "bilinc" }]
     if (n.data.role === "kesifci") return [{ title: n.data.title || n.id, report: n.data.report, kind: "kesifci" }]
@@ -645,7 +834,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   }
   // Working folder: wired build (develop) or a new build folder named after the prompt.
   let outBuild = firstOutgoing(bp, aiId, "build")
-  if (ai.data.mode === "orchestration" && !opts?.parallel) {
+  if (isOrchestration(ai.data.mode) && !opts?.parallel) {
     // One orchestration per folder: parallel workers of two runs would overwrite each other's files.
     // A Paralel button is a deliberate fan-out, so it bypasses this guard.
     const wired = buildFolders[0] || (outBuild && outBuild.data.type === "build" ? outBuild.data.folderPath : "")
@@ -703,10 +892,10 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     log(set, aiId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`)
   }
   // Kaşe: an existing project's digest so a single session edits instead of re-discovering (orchestrations get it through the executor context).
-  const digest = buildFolders[0] && ai.data.mode !== "orchestration" ? await backend.repoDigest(cwd, 10 * 1024).catch(() => "") : ""
+  const digest = buildFolders[0] && !isOrchestration(ai.data.mode) ? await backend.repoDigest(cwd, 10 * 1024).catch(() => "") : ""
   const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, digest, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", imageTool: Boolean(providerInfo(parseModelRef(mainRef).providerId as ProviderId).capabilities.image), role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
-  store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
+  store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: isOrchestration(ai.data.mode) ? undefined : ai.executionId })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a
   // second orchestration on the same folder (2026-09-29, two runs 12 s apart). The real cancel handle replaces this.
   useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: s.running[aiId] ?? (() => undefined) } }))
@@ -716,9 +905,12 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let used: number
   let executionId: string | undefined
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
-  if (ai.data.mode === "orchestration" && role !== "bilinc" && role !== "donusturucu" && role !== "kesifci") {
+  // Bütçe: the guard wired into this box; an orchestration is cancelled live once its tokens pass the limit.
+  const budget = incoming(bp, aiId).find((n) => n.data.type === "budget")
+  const maxTokens = budget?.data.type === "budget" ? budget.data.maxTokens : undefined
+  if (isOrchestration(ai.data.mode) && role !== "bilinc" && role !== "donusturucu" && role !== "kesifci") {
     const runs = useRunsStore.getState()
-    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: !ai.data.turbo, effort: ai.data.turbo && ai.data.effort && (ai.data.effort === "high" || ai.data.effort === "xhigh") ? "medium" : ai.data.effort, turbo: ai.data.turbo, mechanical: ai.data.mechanical })
+    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: !ai.data.turbo && ai.data.mode !== "lite", effort: (ai.data.turbo || ai.data.mode === "lite") && ai.data.effort && (ai.data.effort === "high" || ai.data.effort === "xhigh") ? "medium" : ai.data.effort, turbo: ai.data.turbo || ai.data.mode === "lite", mechanical: ai.data.mechanical, lite: ai.data.mode === "lite" })
     if (res.source !== "ai") {
       log(set, aiId, `⚠ planner failed: ${res.error ?? "unknown"}`)
       store.updateNode(bpId, aiId, { status: "failed", note: res.error ?? "planner failed" })
@@ -731,8 +923,10 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     store.updateNode(bpId, aiId, { executionId })
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: () => runs.cancel(res.run.id) } }))
     await runs.start({ ...res.run, prompt: withAnswers, questions, manual: false })
-    log(set, aiId, `run ${res.run.id}: ${res.run.plan.length} tasks`)
+    log(set, aiId, `run ${res.run.id}: ${res.run.plan.length} tasks${maxTokens ? ` · budget ${formatTokens(maxTokens)}` : ""}`)
+    const stopBudget = maxTokens && budget ? watchBudget(bpId, budget.id, res.run.id, maxTokens, (spent) => log(set, aiId, `⛔ budget: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run cancelled`)) : undefined
     const status = await waitForRun(res.run.id)
+    stopBudget?.()
     ok = status === "completed"
     const final = useRunsStore.getState().byId(res.run.id)
     used = (final?.plan ?? []).reduce((n, st) => n + (st.tokens ?? 0), 0)
@@ -740,13 +934,18 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } else {
     const handle = runSingle(
       backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" || role === "donusturucu" || role === "kesifci" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: opts?.resume ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
+      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" || role === "donusturucu" || role === "kesifci" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: opts?.resume || ai.data.keepSession ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
       (line, stream) => log(set, aiId, line, stream),
     )
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
     const res = await handle.done
     ok = res.ok
     used = res.tokens
+    if (maxTokens && budget && used > maxTokens) {
+      // A single session reports tokens only at the end: note the overrun on the budget box (an orchestration is cut live).
+      store.updateNode(bpId, budget.id, { status: "failed", note: `over by ${formatTokens(used - maxTokens)}`, data: { spent: used } })
+      log(set, aiId, `⛔ budget: ${formatTokens(used)} > ${formatTokens(maxTokens)}`)
+    } else if (budget) store.updateNode(bpId, budget.id, { status: "done", note: undefined, data: { spent: used } })
     if ((role === "bilinc" || role === "donusturucu" || role === "kesifci" || ai.data.tamirci) && res.text.trim()) {
       // The report (from `# FINDINGS` / `# CONVERTED` on) is what the wired next node reads; the commentary before it is dropped.
       const report = extractReport(res.text)

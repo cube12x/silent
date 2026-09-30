@@ -163,3 +163,39 @@ describe("Denetçi in auto blueprints", () => {
     expect(buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })).toMatch(/check .*runs the project's own commands/)
   })
 })
+
+describe("Faz 4 boxes in auto blueprints", () => {
+  it("materializes queue, snapshot, verify and budget nodes, the lite mode and the dikis role", () => {
+    const res = materializeAutoBlueprint(
+      {
+        name: "f4",
+        summary: "",
+        nodes: [
+          { key: "p", type: "prompt", title: "P", text: "x" },
+          { key: "bud", type: "budget", title: "Bütçe", maxTokens: 150000 },
+          { key: "a", type: "ai", title: "Bölücü", modelRef: "codex:gpt-6-astra", mode: "lite" },
+          { key: "b", type: "build", title: "B" },
+          { key: "snap", type: "snapshot", title: "Kayıt" },
+          { key: "q", type: "queue", title: "Sıra", modelRef: "codex:gpt-6-astra" },
+          { key: "ver", type: "verify", title: "Tarayıcı", modelRef: "claude:sonnet", lanes: ["title", "level 1"] },
+          { key: "st", type: "ai", title: "Dikiş", modelRef: "claude:sonnet", mode: "single", role: "dikis" },
+        ],
+        edges: [{ from: "p", to: "a" }, { from: "bud", to: "a" }, { from: "a", to: "b" }, { from: "b", to: "snap" }, { from: "snap", to: "q" }, { from: "p", to: "q" }, { from: "b", to: "ver" }, { from: "ver", to: "st" }],
+      },
+      TEST_MODELS,
+    )
+    const by = (t: string) => res.nodes.find((n) => n.type === t)!
+    const bud = by("budget").data
+    expect(bud.type === "budget" ? bud.maxTokens : undefined).toBe(150000)
+    const ver = by("verify").data
+    expect(ver.type === "verify" ? ver.lanes : undefined).toEqual(["title", "level 1"])
+    const que = by("queue").data
+    expect(que.type === "queue" ? que.modelRef : undefined).toBe("codex:gpt-6-astra")
+    expect(by("snapshot").data.type).toBe("snapshot")
+    expect(res.nodes.find((n) => n.data.type === "ai" && n.data.mode === "lite")).toBeTruthy()
+    expect(res.nodes.find((n) => n.data.type === "ai" && n.data.role === "dikis")).toBeTruthy()
+    expect(res.edges).toHaveLength(9) // + the Start button the materializer adds
+    const p = buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })
+    for (const word of ["queue", "snapshot", "verify", "budget", "dikis", "lite"]) expect(p).toContain(word)
+  })
+})

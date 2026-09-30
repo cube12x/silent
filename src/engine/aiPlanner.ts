@@ -25,6 +25,8 @@ export interface AiPlanContext {
   turbo?: boolean
   /** Mechanical preset: cheapest pool model for tests/docs/translation (Faz 3). */
   mechanical?: boolean
+  /** Lite / Bölücü (Faz 4): only disjoint build tasks; a separate Dikiş step stitches afterwards. */
+  lite?: boolean
 }
 
 export interface PlannerRunner {
@@ -90,6 +92,7 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "- docs/ARCHITECTURE-BRIEF.md must stay under 12 KB with the normative sections (module map, contracts, conventions, ownership) first; every worker reads it, so long prose costs tokens on every task.",
     "- If an architecture task exists, its description must say to write docs/ARCHITECTURE-BRIEF.md (module map, contracts, conventions): every later worker receives that file and skips repository discovery.",
     ...(ctx.turbo ? ["- TURBO MODE: the user wants the fastest possible run. Plan NO review or docs task and no separate tests task (each build task verifies its own paths); plan at most one `needsBrowser: true` task and limit it to the areas this request changes; keep every task at weight ≤ 2 and `effort` ≤ medium; skip anything that is not needed to finish the request."] : []),
+    ...(ctx.lite ? ["- LITE MODE (Bölücü): plan ONLY disjoint build tasks, one per independent area of the request (each wires its own area into the app and keeps its own paths green); NO review, tests, docs or integration task unless the request explicitly asks for one — a separate Dikiş (stitch) step runs the full suite and closes the seams afterwards. Weight ≤ 2, effort ≤ medium, no architecture task unless the areas share a new contract."] : []),
     ...(ctx.mechanical ? ["- MECHANICAL MODE: route tests, docs, translation/localization, asset conversion and other mechanical work to the CHEAPEST/fastest model in the pool (its exact ref in `model`); keep architecture, cross-module contracts and integration on the deepest reasoning model."] : []),
     "- Kinds: architecture (only for larger multi-part work), backend, frontend, algorithm, tests, review, integration, docs.",
     "- Each subtask: a concrete title, a precise description another engineer could execute, dependencies by key, weight 1-3, the model tier it deserves (fast for light/mechanical work, strong for normal implementation, frontier only for hard design/algorithms/critical review), and effort.",

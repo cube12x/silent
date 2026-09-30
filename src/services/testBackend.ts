@@ -94,6 +94,16 @@ export class TestBackend implements Backend {
     this.checks.push({ cwd, command })
     return this.checkResult
   }
+  snapshots: Array<{ cwd: string; ref: string }> = []
+  restored: Array<{ cwd: string; ref: string }> = []
+  async gitSnapshot(cwd: string) {
+    const ref = `refs/silent/snapshots/${this.snapshots.length + 1}`
+    this.snapshots.push({ cwd, ref })
+    return ref
+  }
+  async gitRestore(cwd: string, ref: string) {
+    this.restored.push({ cwd, ref })
+  }
   digest = ""
   async repoDigest() {
     return this.digest

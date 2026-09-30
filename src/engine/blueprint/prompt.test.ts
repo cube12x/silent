@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aiTaskText, buildAiPrompt, effectivePurpose, extractReport, isRepoUrl, repoName } from "./prompt"
+import { aiTaskText, buildAiPrompt, effectivePurpose, extractReport, isRepoUrl, repoName, verifyLanePrompt } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -129,5 +129,29 @@ describe("Denetçi reports and the Keşifçi role", () => {
     expect(next).toMatch(/Recon \(already done/)
     expect(next).toContain("boss registry")
     expect(next).toMatch(/do not re-scan/i)
+  })
+})
+
+describe("Faz 4: Dikiş role and Çoklu Tarayıcı reports", () => {
+  it("Dikiş stitches areas and runs the full suite, adds no feature", () => {
+    const p = buildAiPrompt({ wired: "Stitch the areas", role: "dikis" })
+    expect(p.startsWith("You are the DİKİŞ")).toBe(true)
+    expect(p).toMatch(/full (test )?suite/i)
+    expect(p).toMatch(/do not add features/i)
+    expect(p).not.toMatch(/READ-ONLY/)
+  })
+  it("a verify lane prompt plays only its lane, never edits source, and reports under # VERIFY", () => {
+    const p = verifyLanePrompt("title screen → new game → first dialogue", "/tmp/game")
+    expect(p).toContain("title screen → new game → first dialogue")
+    expect(p).toMatch(/do not (edit|modify) (any )?source/i)
+    expect(p).toContain("# VERIFY")
+    expect(p).toContain(".silent/tmp/shots")
+  })
+  it("verify findings become the fixer's work order; an all-OK report is not", () => {
+    const t = aiTaskText({ wired: "", reports: [{ title: "Çoklu Tarayıcı", report: "# VERIFY\n## title screen\n- [high] Start button does nothing (click at 400,300)", kind: "verify" }] })
+    expect(t).toMatch(/browser verification/i)
+    expect(t).toContain("Start button does nothing")
+    expect(t).not.toContain("EYLEM")
+    expect(extractReport("played…\n\n# VERIFY\n- OK")).toMatch(/^# VERIFY/)
   })
 })

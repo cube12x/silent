@@ -2,7 +2,7 @@ import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
 import { roleHint, roleLabel } from "./roles"
-import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass } from "lucide-react"
+import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass, ListOrdered, Camera, Globe, Wallet, Link2 } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
 import { formatTokens } from "@/lib/format"
@@ -71,9 +71,9 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   const extra = (d.pool ?? []).filter((p) => p !== d.modelRef)
   const poolRefs = React.useMemo(() => Array.from(new Set([d.modelRef, ...(d.pool ?? [])].filter(Boolean))), [d.modelRef, d.pool])
   // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
-  const roster = React.useMemo(() => (plan && d.mode === "orchestration" ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
+  const roster = React.useMemo(() => (plan && (d.mode === "orchestration" || d.mode === "lite") ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
   return (
-    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : d.role === "kesifci" ? <Compass /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : (roleLabel(d.role, t as never) ?? t("bp.node.ai"))} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", (d.role === "bilinc" || d.role === "kesifci") && "border-dotted")}>
+    <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : d.role === "kesifci" ? <Compass /> : d.role === "dikis" ? <Link2 /> : d.mode === "lite" ? <Split /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : (roleLabel(d.role, t as never) ?? (d.mode === "lite" ? t("bp.node.bolucu") : t("bp.node.ai")))} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", (d.role === "bilinc" || d.role === "kesifci") && "border-dotted")}>
       <div className="flex items-center gap-2">
         {d.modelRef ? <ModelLogo modelRef={d.modelRef} size={14} /> : null}
         <span className="mono truncate text-[11px]">{d.modelRef ? d.modelRef.split(":")[1] : t("bp.noModel")}</span>
@@ -197,4 +197,51 @@ export function CheckNode({ data }: NodeProps<BpFlowNode>) {
   )
 }
 
-export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode, check: CheckNode }
+export function QueueNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "queue" ? n.data : { modelRef: "", title: "", report: undefined }
+  return (
+    <Shell node={n} icon={<ListOrdered />} title={(n.data.type === "queue" && n.data.title) || t("bp.node.queue")} warnings={data.warnings} accent={providerColor(d.modelRef)} className="w-[200px]">
+      <div className="mono truncate text-[10px] text-text-3">{d.modelRef || t("bp.warn.queue.noModel")}</div>
+      <div className="mt-1 text-[10px] text-text-3">{t("bp.queueHint")}{data.log ? ` · ${data.log}` : ""}</div>
+    </Shell>
+  )
+}
+
+export function SnapshotNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "snapshot" ? n.data : { ref: undefined, takenAt: undefined, title: "" }
+  return (
+    <Shell node={n} icon={<Camera />} title={(n.data.type === "snapshot" && n.data.title) || t("bp.node.snapshot")} warnings={data.warnings} className="w-[190px] border-dashed">
+      <div className="mono truncate text-[10px] text-text-3">{d.ref ? `${d.ref.split("/").pop()} · ${d.takenAt ? new Date(d.takenAt).toLocaleTimeString() : ""}` : t("bp.snapshotNone")}</div>
+    </Shell>
+  )
+}
+
+export function VerifyNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "verify" ? n.data : { modelRef: "", lanes: [] as string[], lastOk: undefined, title: "" }
+  const lanes = d.lanes.filter((l) => l.trim())
+  return (
+    <Shell node={n} icon={<Globe />} title={(n.data.type === "verify" && n.data.title) || t("bp.node.verify")} warnings={data.warnings} accent={providerColor(d.modelRef)} className="w-[210px]">
+      <div className="mono truncate text-[10px] text-text-3">{lanes.length} {t("bp.verifyLanesShort")} · {d.modelRef.split(":").pop()}</div>
+      <div className={cn("mt-1 text-[10px]", d.lastOk === true ? "text-success" : d.lastOk === false ? "text-danger" : "text-text-3")}>{d.lastOk === true ? `✓ ${t("bp.checkGreen")}` : d.lastOk === false ? `✗ ${t("bp.verifyFindings")}` : t("bp.checkIdle")}{data.log ? ` · ${data.log}` : ""}</div>
+    </Shell>
+  )
+}
+
+export function BudgetNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "budget" ? n.data : { maxTokens: 0, spent: undefined, title: "" }
+  return (
+    <Shell node={n} icon={<Wallet />} title={(n.data.type === "budget" && n.data.title) || t("bp.node.budget")} warnings={data.warnings} className="w-[180px] border-dashed">
+      <div className="mono text-[10px] text-text-3">≤ {formatTokens(d.maxTokens)}{d.spent !== undefined ? ` · ${formatTokens(d.spent)} ${t("bp.budgetSpent")}` : ""}</div>
+    </Shell>
+  )
+}
+
+export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode, check: CheckNode, queue: QueueNode, snapshot: SnapshotNode, verify: VerifyNode, budget: BudgetNode }

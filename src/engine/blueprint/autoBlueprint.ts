@@ -1,6 +1,6 @@
 import { isRepoUrl } from "./prompt"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, ProviderModel } from "@/domain"
-import { BP_STUB_KINDS, canConnect, modelRef } from "@/domain"
+import { BP_STUB_KINDS, canConnect, isOrchestration, modelRef } from "@/domain"
 import type { BpStubKind } from "@/domain"
 import type { ExpertKit } from "@/domain/kits"
 import { newId } from "@/lib/ids"
@@ -12,7 +12,7 @@ import type { CliRunRequest, RuntimeEvent } from "@/domain"
 
 export const AUTO_BLUEPRINT_TIMEOUT_SECS = 240
 
-const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check"]
+const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget"]
 
 /** Structured output the CLI must return (Gemini-compatible: string enums only). */
 export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
@@ -37,12 +37,12 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           text: { type: "string", description: "prompt: the full brief in ENGLISH" },
           purpose: { type: "string", description: "ai/wizard: purpose used by Reload and wizards" },
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
-          role: { type: "string", enum: ["bilinc", "eylem", "donusturucu", "kesifci"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs; kesifci = cheap read-only scout whose RECON report the next AI works from" },
+          role: { type: "string", enum: ["bilinc", "eylem", "donusturucu", "kesifci", "dikis"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs; kesifci = cheap read-only scout whose RECON report the next AI works from; dikis = stitch step after a lite/Bölücü build: full suite + cross-area seams, no features" },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "ai: reasoning effort the run starts with (omit for Silent's per-task policy)" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
-          mode: { type: "string", enum: ["orchestration", "single"] },
+          mode: { type: "string", enum: ["orchestration", "single", "lite"], description: "ai: lite = Bölücü, an orchestration that plans only disjoint build tasks (Turbo, no review/tests/integration); wire a dikis ai after its Build" },
           costMode: { type: "string", enum: ["economy", "balanced", "max-quality"] },
           kitId: { type: "string" },
           kind: { type: "string", enum: ["start", "send", "reload", "parallel"], description: "button only" },
@@ -50,6 +50,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           kinds: { type: "array", items: { type: "string", enum: ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"] }, description: "stub only" },
           folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
           commands: { type: "array", items: { type: "string" }, description: "check only: shell commands run in the wired folder without a model (empty = typecheck, test, build)" },
+          lanes: { type: "array", items: { type: "string" }, description: "verify only: one browser lane (screen/flow to play through) per item; lanes run in parallel" },
+          maxTokens: { type: "number", description: "budget only: the wired AI's run is cancelled past this many tokens" },
         },
       },
     },
@@ -65,11 +67,11 @@ export interface AutoBlueprintNode {
   purpose?: string
   instructions?: string
   repos?: string[]
-  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci"
+  role?: "bilinc" | "eylem" | "donusturucu" | "kesifci" | "dikis"
   effort?: "low" | "medium" | "high" | "xhigh"
   modelRef?: string
   pool?: string[]
-  mode?: "orchestration" | "single"
+  mode?: "orchestration" | "single" | "lite"
   costMode?: CostMode
   kitId?: string
   kind?: "start" | "send" | "reload" | "parallel"
@@ -77,6 +79,8 @@ export interface AutoBlueprintNode {
   kinds?: string[]
   folder?: string
   commands?: string[]
+  lanes?: string[]
+  maxTokens?: number
 }
 export interface AutoBlueprintResult {
   name: string
@@ -134,8 +138,13 @@ const RULES = `Node types and what they do:
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
 - check ("Denetçi", zero tokens): runs the project's own commands (typecheck, tests, build; field commands, empty = defaults) in the wired folder WITHOUT a model; when green the chain simply ends there, when red its report becomes the work order of the ai wired after it (a cheap single-mode fixer, role eylem). Wire ai → check → ai after every build stage instead of asking a model to verify.
 - ai role kesifci ("Keşifçi", cost saver): a cheap read-only scout (fast model, single mode) that writes a RECON report of exactly which files/lines the next AI must touch; wire prompt → kesifci ai → expensive ai so the expensive model edits instead of re-scanning the repository.
+- ai mode lite ("Bölücü", speed): an orchestration that plans ONLY disjoint build tasks (one per area, Turbo, no review/tests/integration) — the fastest way to build several independent systems; ALWAYS wire its Build into a single-mode ai with role dikis ("Dikiş": full suite + cross-area seams, no features).
+- queue ("Sıra", cost saver): several prompts wired into one queue run one after another in ONE CLI session of modelRef (each step resumes the previous, so files read once stay in context); wire prompt(s) → queue → build/ai. Use it for sequential follow-up steps on the same project instead of separate AIs.
+- snapshot ("Anlık Görüntü", safety, zero tokens): a git snapshot of the wired folder; the chain continues after it and the user can restore it from the box. Wire build → snapshot → prompt/ai/queue before risky stages.
+- verify ("Çoklu Tarayıcı", speed): N browser lanes (field lanes: one screen/flow each) verified IN PARALLEL by modelRef (a browser-capable model); when the lanes find problems, the ai wired after it (role eylem) gets the findings as its work order; when all lanes are OK the chain ends there. Wire build → verify → eylem ai.
+- budget ("Bütçe", cost guard, zero tokens): wire budget → ai; the AI's run is cancelled once it passes maxTokens.
 - stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
-Wiring rules (from → to): prompt→ai|wizard; ai→build|buildPhoto|ai|stub|check; build|buildPhoto→prompt|button|ai|variable|check; button→ai|build|buildPhoto|prompt; variable→wizard|ai; wizard→ai; stub→ai; check→ai.
+Wiring rules (from → to): prompt→ai|wizard|queue; ai→build|buildPhoto|ai|stub|check|snapshot|verify; build|buildPhoto→prompt|button|ai|variable|check|queue|snapshot|verify; button→ai|build|buildPhoto|prompt|queue|snapshot; variable→wizard|ai; wizard→ai; stub→ai; check→ai; queue→build|ai; snapshot→ai|prompt|queue; verify→ai; budget→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
 Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → a parallel button → follow-up prompts → independent role AIs (visuals, audio, art, text) each wired back into the same Build, and Build → integration prompt → integrator AI (runs after the fan-out); add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
@@ -246,13 +255,13 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
       case "ai": {
         const main = fixRef(n.modelRef, n.key)
         const pool = Array.from(new Set([main, ...(n.pool ?? []).filter((p) => known.has(p))]))
-        const mode = n.mode === "single" ? "single" : "orchestration"
-        if (mode === "orchestration" && !pool.some((p) => providerInfo(p.split(":")[0] as ProviderModel["providerId"]).capabilities.planner) && fallbackRef) {
+        const mode = n.mode === "single" ? "single" : n.mode === "lite" ? "lite" : "orchestration"
+        if (mode !== "single" && !pool.some((p) => providerInfo(p.split(":")[0] as ProviderModel["providerId"]).capabilities.planner) && fallbackRef) {
           pool.push(fallbackRef)
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" || n.role === "kesifci" ? n.role : undefined, effort: n.effort }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" || n.role === "kesifci" || n.role === "dikis" ? n.role : undefined, effort: n.effort }
         break
       }
       case "wizard":
@@ -272,6 +281,18 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
         break
       case "check":
         data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), maxLines: 40, timeoutSecs: 900 }
+        break
+      case "queue":
+        data = { type: "queue", title: n.title, modelRef: fixRef(n.modelRef, n.key) }
+        break
+      case "snapshot":
+        data = { type: "snapshot", title: n.title }
+        break
+      case "verify":
+        data = { type: "verify", title: n.title, modelRef: fixRef(n.modelRef, n.key), lanes: (n.lanes ?? []).filter((l): l is string => typeof l === "string" && l.trim().length > 0) }
+        break
+      case "budget":
+        data = { type: "budget", title: n.title, maxTokens: typeof n.maxTokens === "number" && n.maxTokens > 0 ? Math.round(n.maxTokens) : 200000 }
         break
       case "stub":
         data = { type: "stub", title: n.title, kinds: (n.kinds ?? []).filter((k): k is BpStubKind => (BP_STUB_KINDS as string[]).includes(k)), folder: n.folder || "assets/uydurma" }
@@ -308,7 +329,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     if (edges.some((e) => e.to === photo.id && nodes.find((n) => n.id === e.from)?.type === "ai")) continue
     const ais = nodes.filter((n) => n.data.type === "ai")
     const painter = ais.find((n) => n.data.type === "ai" && [n.data.modelRef, ...(n.data.pool ?? [])].some((ref) => providerInfo(ref.split(":")[0] as ProviderModel["providerId"]).capabilities.image))
-    const source = painter ?? ais.find((n) => n.data.type === "ai" && n.data.mode === "orchestration") ?? ais[0]
+    const source = painter ?? ais.find((n) => n.data.type === "ai" && isOrchestration(n.data.mode)) ?? ais[0]
     if (source) {
       edges.push({ id: newId("e"), from: source.id, to: photo.id })
       warnings.push(`wired ${source.data.type === "ai" ? source.data.title : source.id} → ${photo.data.type === "buildPhoto" ? photo.data.title : photo.id} (photo build had no producing AI)`)

@@ -243,3 +243,69 @@ describe("Denetçi (check) and Keşifçi (recon) wiring (Faz 2)", () => {
     expect(lintBlueprint(r).a).toEqual(["kesifci.noNext"])
   })
 })
+
+describe("Faz 4 boxes: Sıra (queue), Anlık Görüntü (snapshot), Çoklu Tarayıcı (verify), Bütçe (budget), Dikiş role", () => {
+  function withBoxes(): Blueprint {
+    const g = bp()
+    g.nodes.push(
+      { id: "q", type: "queue", x: 0, y: 0, data: { type: "queue", modelRef: "codex:gpt-6-astra" } },
+      { id: "q1", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "step 1", text: "one" } },
+      { id: "q2", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "step 2", text: "two" } },
+      { id: "snap", type: "snapshot", x: 0, y: 0, data: { type: "snapshot" } },
+      { id: "ver", type: "verify", x: 0, y: 0, data: { type: "verify", modelRef: "claude:sonnet", lanes: ["title screen", "level 1"] } },
+      { id: "fix", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "eylem" } },
+      { id: "bud", type: "budget", x: 0, y: 0, data: { type: "budget", maxTokens: 200000 } },
+      { id: "stitch", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "dikis" } },
+    )
+    // s → p → a → b (existing). b → snap → q (with q1, q2 wired in) → a2; a → ver → fix; bud → a; b → stitch
+    g.edges.push(
+      { id: "e_b_snap", from: "b", to: "snap" },
+      { id: "e_snap_q", from: "snap", to: "q" },
+      { id: "e_q1", from: "q1", to: "q" },
+      { id: "e_q2", from: "q2", to: "q" },
+      { id: "e_q_a2", from: "q", to: "a2" },
+      { id: "e_a_ver", from: "a", to: "ver" },
+      { id: "e_ver_fix", from: "ver", to: "fix" },
+      { id: "e_bud_a", from: "bud", to: "a" },
+      { id: "e_b_stitch", from: "b", to: "stitch" },
+    )
+    return g
+  }
+  it("accepts the new wires and rejects nonsense", () => {
+    const g = withBoxes()
+    expect(validateEdge(g, { from: "p", to: "q" })).toBeNull()
+    expect(validateEdge(g, { from: "b", to: "ver" })).toBeNull()
+    expect(validateEdge(g, { from: "q", to: "b" })).toBeNull()
+    expect(validateEdge(g, { from: "bud", to: "b" })).toMatch(/no-rule/)
+    expect(validateEdge(g, { from: "ver", to: "b" })).toMatch(/no-rule/)
+    expect(validateEdge(g, { from: "p", to: "snap" })).toMatch(/no-rule/)
+  })
+  it("walkPlan: snapshot and queue are their own steps and the walk continues; verify stops before its fixers", () => {
+    const g = withBoxes()
+    const label = (st: ReturnType<typeof walkPlan>[number]) => (st.kind === "parallel" ? "par" : `${st.kind}:${st.node.id}`)
+    const plan = walkPlan(g, "snap").map(label)
+    expect(plan).toEqual(["snapshot:snap", "queue:q", "ai:a2"])
+    const fromA = walkPlan(g, "a").map(label)
+    expect(fromA).toContain("verify:ver")
+    expect(fromA).not.toContain("ai:fix")
+    // a → b → snap … and b → stitch: the stitch AI runs after the build like any AI
+    expect(fromA).toContain("ai:stitch")
+    const fromBudget = walkPlan(g, "bud").map(label)
+    expect(fromBudget).toHaveLength(6)
+    expect(fromBudget).toEqual(expect.arrayContaining(["ai:a", "verify:ver", "snapshot:snap", "ai:stitch", "queue:q", "ai:a2"]))
+    expect(fromBudget).not.toContain("ai:fix")
+  })
+  it("lints the new boxes", () => {
+    const g = withBoxes()
+    g.edges = g.edges.filter((e) => !["e_q1", "e_q2", "e_a_ver", "e_bud_a", "e_b_snap", "e_b_stitch"].includes(e.id))
+    const lint = lintBlueprint(g)
+    expect(lint.q).toEqual(["queue.noPrompt"])
+    expect(lint.ver).toEqual(["verify.noSource"])
+    expect(lint.bud).toEqual(["budget.noAi"])
+    expect(lint.snap).toEqual(["snapshot.noSource"])
+    expect(lint.stitch).toEqual(["dikis.noSource"])
+    const g2 = withBoxes()
+    g2.nodes = g2.nodes.map((n) => (n.id === "ver" && n.data.type === "verify" ? { ...n, data: { ...n.data, lanes: [] } } : n))
+    expect(lintBlueprint(g2).ver).toEqual(["verify.noLanes"])
+  })
+})

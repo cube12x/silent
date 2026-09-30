@@ -38,7 +38,13 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "ai", data: { mode: "single", role: "eylem" }, key: "eylem" },
   { type: "ai", data: { mode: "single", role: "donusturucu" }, key: "donusturucu" },
   { type: "ai", data: { mode: "single", role: "kesifci" }, key: "kesifci" },
+  { type: "ai", data: { mode: "lite" }, key: "bolucu" },
+  { type: "ai", data: { mode: "single", role: "dikis" }, key: "dikis" },
   { type: "check", key: "check" },
+  { type: "queue", key: "queue" },
+  { type: "snapshot", key: "snapshot" },
+  { type: "verify", key: "verify" },
+  { type: "budget", key: "budget" },
   { type: "build", key: "build" },
   { type: "buildPhoto", key: "buildPhoto" },
   { type: "button", data: { kind: "start" }, key: "button.start" },
@@ -276,7 +282,7 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
                 onClick={(e) => {
                   e.stopPropagation()
                   const pos = screenToFlowPosition({ x: menu.x, y: menu.y })
-                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.key === "donusturucu" ? { ...m.data, title: t("bp.node.donusturucu"), purpose: t("bp.donusturucuPurposeDefault") } : m.key === "kesifci" ? { ...m.data, title: t("bp.node.kesifci") } : m.data)
+                  const node = addNode(bpId, m.type, pos.x, pos.y, m.key === "aiCustom" ? { ...m.data, title: t("bp.node.aiCustom") } : m.key === "bilinc" ? { ...m.data, title: t("bp.node.bilinc") } : m.key === "eylem" ? { ...m.data, title: t("bp.node.eylem") } : m.key === "donusturucu" ? { ...m.data, title: t("bp.node.donusturucu"), purpose: t("bp.donusturucuPurposeDefault") } : m.key === "kesifci" ? { ...m.data, title: t("bp.node.kesifci") } : m.key === "dikis" ? { ...m.data, title: t("bp.node.dikis") } : m.key === "bolucu" ? { ...m.data, title: t("bp.node.bolucu") } : m.data)
                   if (node) setSelectedId(node.id)
                   setMenu(null)
                 }}
@@ -322,7 +328,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
       <div className="flex items-center justify-between">
         <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t(`bp.node.${node.type}` as never)}</div>
         <div className="flex gap-1">
-          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
+          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
@@ -343,6 +349,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                 <select value={d.mode} onChange={(e) => patch({ mode: e.target.value })} className="rounded-sm border border-line bg-ink-2 px-1.5 py-1 text-text-1">
                   <option value="orchestration">{t("bp.mode.orchestration")}</option>
                   <option value="single">{t("bp.mode.single")}</option>
+                  <option value="lite">{t("bp.mode.lite")}</option>
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-text-3">{t("code.cost")}
@@ -359,7 +366,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
               <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.effort")}
                 <div className="flex flex-wrap gap-1">
                   {(["auto", "low", "medium", "high", "xhigh"] as const).map((lvl) => {
-                    const providers = Array.from(new Set([d.modelRef, ...(d.mode === "orchestration" ? d.pool ?? [] : [])].filter(Boolean).map((r) => parseModelRef(r).providerId as ProviderId)))
+                    const providers = Array.from(new Set([d.modelRef, ...(d.mode !== "single" ? d.pool ?? [] : [])].filter(Boolean).map((r) => parseModelRef(r).providerId as ProviderId)))
                     const supported = lvl === "auto" || providers.some((p) => (PROVIDERS[p]?.efforts ?? []).includes(lvl))
                     const on = (d.effort ?? "auto") === lvl
                     return (
@@ -375,13 +382,19 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                 <input type="checkbox" checked={Boolean(d.turbo)} onChange={(e) => patch({ turbo: e.target.checked || undefined })} className="mt-0.5" />
                 <span><span className="block font-medium">{t("code.turbo")}</span><span className="block text-[10px] text-text-3">{t("code.turboHint")}</span></span>
               </label>
-              {d.mode === "orchestration" && (
+              {d.mode !== "single" && (
                 <label className="col-span-2 flex items-start gap-2 text-text-1">
                   <input type="checkbox" checked={Boolean(d.mechanical)} onChange={(e) => patch({ mechanical: e.target.checked || undefined })} className="mt-0.5" />
                   <span><span className="block font-medium">{t("code.mechanical")}</span><span className="block text-[10px] text-text-3">{t("code.mechanicalHint")}</span></span>
                 </label>
               )}
-              {d.mode === "orchestration" && (
+              {d.mode === "single" && (
+                <label className="col-span-2 flex items-start gap-2 text-text-1">
+                  <input type="checkbox" checked={Boolean(d.keepSession)} onChange={(e) => patch({ keepSession: e.target.checked || undefined })} className="mt-0.5" />
+                  <span><span className="block font-medium">{t("bp.keepSession")}</span><span className="block text-[10px] text-text-3">{t("bp.keepSessionHint")}</span></span>
+                </label>
+              )}
+              {d.mode !== "single" && (
                 <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.pool")}
                   <ModelSelectorGrid compact models={models} selected={d.pool ?? []} onToggle={(ref) => patch({ pool: (d.pool ?? []).includes(ref) ? (d.pool ?? []).filter((x) => x !== ref) : [...(d.pool ?? []), ref] })} />
                   <span className="text-[10px]">{t("bp.poolHint")}</span>
@@ -483,6 +496,42 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
             <label className="flex flex-col gap-1 text-text-3">{t("bp.checkTimeout")}<input type="number" min={1} max={120} value={Math.round(d.timeoutSecs / 60)} onChange={(e) => patch({ timeoutSecs: Math.max(60, (Number(e.target.value) || 15) * 60) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" /></label>
           </div>
           <pre className="mono max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
+        </>
+      )}
+      {d.type === "queue" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.queue")} />
+          <ModelPicker providerId={(parseModelRef(d.modelRef || `${models[0]?.providerId ?? "codex"}:${models[0]?.id ?? ""}`).providerId || "codex") as ProviderId} modelId={parseModelRef(d.modelRef || "").modelId} onChange={(p, m) => patch({ modelRef: modelRef(p, m) })} />
+          <div className="text-[10px] text-text-3">{t("bp.queueHint")}</div>
+          <pre className="mono max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
+        </>
+      )}
+      {d.type === "snapshot" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.snapshot")} />
+          <div className="text-[10px] text-text-3">{t("bp.snapshotHint")}</div>
+          <div className="mono text-[11px] text-text-2">{d.ref ? `${d.ref} · ${d.takenAt ? new Date(d.takenAt).toLocaleString() : ""} · ${d.folder ?? ""}` : t("bp.snapshotNone")}</div>
+          {d.ref && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().restoreSnapshot(bpId, node.id)}>{t("bp.snapshotRestore")}</NeonButton>}
+        </>
+      )}
+      {d.type === "verify" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.verify")} />
+          <ModelPicker providerId={(parseModelRef(d.modelRef || `${models[0]?.providerId ?? "codex"}:${models[0]?.id ?? ""}`).providerId || "codex") as ProviderId} modelId={parseModelRef(d.modelRef || "").modelId} onChange={(p, m) => patch({ modelRef: modelRef(p, m) })} />
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.verifyLanes")}
+            <Textarea value={d.lanes.join("\n")} onChange={(e) => patch({ lanes: e.target.value.split("\n") })} rows={5} placeholder={t("bp.verifyLanesPlaceholder")} className="mono text-[12px]" />
+            <span className="text-[10px]">{t("bp.verifyLanesHint")}</span>
+          </label>
+          <pre className="mono max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
+        </>
+      )}
+      {d.type === "budget" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.budget")} />
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.budgetMax")}
+            <input type="number" min={1000} step={10000} value={d.maxTokens} onChange={(e) => patch({ maxTokens: Math.max(1000, Number(e.target.value) || 200000) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" />
+            <span className="text-[10px]">{t("bp.budgetHint")}</span>
+          </label>
         </>
       )}
       {d.type === "variable" && (
