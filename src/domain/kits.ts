@@ -167,7 +167,7 @@ export function detectKit(prompt: string): ExpertKit | undefined {
 /** English brief text for workers and the planner: kit brief + checklist + where the references live. */
 export function renderKitBrief(kit: ExpertKit, refPaths: Array<{ name: string; path: string; hint: string }> = []): string {
   const refs = refPaths.length
-    ? `Reference implementations (read-only, study before designing):\n${refPaths.map((r) => `- ${r.path} — ${r.hint}`).join("\n")}`
+    ? `Reference implementations (read-only; read \`<path>/SILENT-DIGEST.md\` first and open files only where the digest points, do not browse the whole clone):\n${refPaths.map((r) => `- ${r.path} — ${r.hint} (digest: ${r.path}/SILENT-DIGEST.md)`).join("\n")}`
     : `Reference implementations: ${kit.references.map((r) => `${r.url} (${r.hint})`).join("; ")}`
   return [`EXPERT KIT — ${kit.name.en}`, kit.brief, `Quality checklist (the final polish review scores against this):\n${kit.checklist.map((c) => `- ${c}`).join("\n")}`, refs].join("\n\n")
 }

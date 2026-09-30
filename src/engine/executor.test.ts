@@ -327,3 +327,28 @@ describe("targeted verification and diff polish (Faz 1)", () => {
     expect(polish).not.toMatch(/play\/click through the main flows/)
   })
 })
+
+describe("repo digest in worker briefs (Faz 2)", () => {
+  it("carries a 12 KB project context (digest + architecture brief) without truncating it to 8 KB", async () => {
+    class BriefWorker implements Worker {
+      readonly id = "b"
+      briefs: string[] = []
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        this.briefs.push(job.brief)
+        sink.state("coding", 50)
+        return { done: Promise.resolve({ ok: true, summary: "ok" }), cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.slice(0, 1).map((s) => ({ ...s, dependsOn: [] }))
+    const worker = new BriefWorker()
+    const context = `# Repo digest\n${"- src/x.ts: a, b\n".repeat(700)}`
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, context })
+    expect(context.length).toBeGreaterThan(9000)
+    expect(await exec.start()).toBe("completed")
+    expect(worker.briefs[0]).toContain(context.slice(0, 11000))
+  })
+})

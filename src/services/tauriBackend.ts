@@ -118,6 +118,10 @@ export class TauriBackend implements Backend {
     return invoke<string[]>("repo_changed_files", { root, sinceMs: Math.floor(sinceMs) })
   }
 
+  repoDigest(root: string, maxBytes = 12 * 1024): Promise<string> {
+    return invoke<string>("repo_digest", { root, maxBytes })
+  }
+
   readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
   }

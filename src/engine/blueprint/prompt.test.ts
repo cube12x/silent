@@ -98,3 +98,15 @@ describe("Dönüştürücü prompt", () => {
     expect(extractReport("# FINDINGS\n- a\n\nlater # CONVERTED\n- b")).toMatch(/^# CONVERTED/)
   })
 })
+
+describe("repo digest (Kaşe) in single-session prompts", () => {
+  it("puts the digest after the existing-project line and before the reference repos, and tells the AI not to re-scan", () => {
+    const p = buildAiPrompt({ wired: "Add a boss", existingProjectAt: "/p", digest: "# Repo digest\n- src/game: index.ts", refPaths: [{ name: "engine", path: "/p/.silent/refs/engine" }] })
+    const at = (s: string) => p.indexOf(s)
+    expect(at("Repo digest (already discovered")).toBeGreaterThan(at("Work inside the existing project"))
+    expect(at("- src/game: index.ts")).toBeGreaterThan(at("Repo digest (already discovered"))
+    expect(at("Reference repositories")).toBeGreaterThan(at("- src/game: index.ts"))
+    expect(p).toMatch(/do not re-scan/i)
+    expect(buildAiPrompt({ wired: "x", digest: "   " })).toBe("x")
+  })
+})

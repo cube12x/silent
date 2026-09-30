@@ -631,7 +631,9 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   } catch (e) {
     log(set, aiId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`)
   }
-  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", imageTool: Boolean(providerInfo(parseModelRef(mainRef).providerId as ProviderId).capabilities.image), role, reports })
+  // Kaşe: an existing project's digest so a single session edits instead of re-discovering (orchestrations get it through the executor context).
+  const digest = buildFolders[0] && ai.data.mode !== "orchestration" ? await backend.repoDigest(cwd, 10 * 1024).catch(() => "") : ""
+  const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, digest, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", imageTool: Boolean(providerInfo(parseModelRef(mainRef).providerId as ProviderId).capabilities.image), role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
   store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: ai.data.mode === "orchestration" ? undefined : ai.executionId })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a

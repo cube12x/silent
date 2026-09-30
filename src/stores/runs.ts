@@ -310,8 +310,10 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const loadContext = async () => {
       if (!run.repoPath) return
       try {
-        const brief = await backend.readProjectFile(run.repoPath, "docs/ARCHITECTURE-BRIEF.md", 32768)
-        executor.setContext(brief ? `docs/ARCHITECTURE-BRIEF.md:\n${brief}` : undefined)
+        // Kaşe: the repo digest (tree, exports, brief head) plus the architecture brief; workers read files only to edit them.
+        const [digest, brief] = await Promise.all([backend.repoDigest(run.repoPath, 10 * 1024).catch(() => ""), backend.readProjectFile(run.repoPath, "docs/ARCHITECTURE-BRIEF.md", 32768)])
+        const parts = [digest?.trim() ? digest.trim() : "", brief ? `docs/ARCHITECTURE-BRIEF.md:\n${brief}` : ""].filter(Boolean)
+        executor.setContext(parts.length ? parts.join("\n\n") : undefined)
       } catch {
         /* optional */
       }

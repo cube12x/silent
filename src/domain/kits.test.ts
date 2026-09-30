@@ -19,3 +19,11 @@ describe("expert kits", () => {
     }
   })
 })
+
+describe("reference digests", () => {
+  it("points workers at SILENT-DIGEST.md before they open files in a cloned reference", () => {
+    const brief = renderKitBrief(BUILTIN_KITS[0], [{ name: "littlejs", path: "/p/.silent/refs/littlejs", hint: "engine loop" }])
+    expect(brief).toMatch(/\/p\/\.silent\/refs\/littlejs\/SILENT-DIGEST\.md/)
+    expect(brief).toMatch(/read .*SILENT-DIGEST\.md.* first/i)
+  })
+})

@@ -84,6 +84,10 @@ export class TestBackend implements Backend {
   async confirm(message: string) {
     return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(message) : true
   }
+  digest = ""
+  async repoDigest() {
+    return this.digest
+  }
   async readProjectFile(_root: string, rel: string) {
     if (this.projectFiles[rel] !== undefined) return this.projectFiles[rel]
     // Dev preview: the atlas JSON of the canned pixel-art project (see listProjectFiles).

@@ -87,6 +87,7 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
         let dest = root.join(&name);
         let path = dest.to_string_lossy().into_owned();
         if dest.join(".git").exists() || dest.join("README.md").exists() {
+            super::digest::ensure_ref_digest(&dest);
             out.push(RefResult {
                 name,
                 path,
@@ -112,12 +113,15 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
             t.elapsed().as_secs_f32()
         );
         match res {
-            Ok(Ok(o)) if o.status.success() => out.push(RefResult {
-                name,
-                path,
-                ok: true,
-                error: None,
-            }),
+            Ok(Ok(o)) if o.status.success() => {
+                super::digest::ensure_ref_digest(&dest);
+                out.push(RefResult {
+                    name,
+                    path,
+                    ok: true,
+                    error: None,
+                })
+            }
             Ok(Ok(o)) => out.push(RefResult {
                 name,
                 path,

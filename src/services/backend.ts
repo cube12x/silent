@@ -96,6 +96,8 @@ export interface Backend {
   createProjectDir(name: string, base?: string): Promise<string>
   /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */
   confirm(message: string, title?: string): Promise<boolean>
+  /** Repo digest (Kaşe): bounded auto-summary of a project folder, cached under `.silent/digest.md` (see digest.rs). */
+  repoDigest(root: string, maxBytes?: number): Promise<string>
   /** Text of `root/rel` (capped), or null when missing. */
   readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
   /** Files under `root` modified at/after `sinceMs` (skips node_modules, .git, dist…); fallback when a CLI reports no file events. */

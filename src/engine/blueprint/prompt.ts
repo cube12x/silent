@@ -75,6 +75,8 @@ export interface AiPromptInput {
   instructions?: string
   /** Working folder, when it is an existing project the AI must not recreate. */
   existingProjectAt?: string
+  /** Repo digest (Kaşe): tree + exports + brief head, so the AI reads files only to edit or verify them. */
+  digest?: string
   /** Cloned reference repositories (absolute paths). */
   refPaths?: RefPath[]
   /** Uydurma: stub → ai (placeholder producer) / ai → stub (filler). */
@@ -116,6 +118,7 @@ export function buildAiPrompt(i: AiPromptInput): string {
   if (i.stubs?.length) blocks.push(stubProducerPolicy(i.stubs))
   if (i.existingProjectAt) blocks.push(`Work inside the existing project at ${i.existingProjectAt} (it is already there; do not recreate it).`)
   if (i.existingProjectAt) blocks.push("Module shadowing: a file `x.ts` beside a folder `x/` wins the import `./x` and silently replaces `x/index.ts`. Never create such a file; if you find one, or dead scaffold that shadows a real module, delete it.")
+  if (i.digest?.trim()) blocks.push(`Repo digest (already discovered — do not re-scan the tree or grep around; open a file only to edit or verify it):\n${i.digest.trim()}`)
   if (i.refPaths?.length) {
     blocks.push(
       `Reference repositories (already cloned under .silent/refs; study them, copy from them only when the task says so):\n${i.refPaths.map((r) => `- ${r.path}${r.hint ? ` — ${r.hint}` : ""}`).join("\n")}`,

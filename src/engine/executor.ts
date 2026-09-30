@@ -459,7 +459,7 @@ export class Executor {
       this.opts.gatewayBrief ?? "",
       this.opts.spec ? `SPEC (build exactly this; the user judges the result against it):\n${this.opts.spec.slice(0, 6000)}` : "",
       (this.opts.kitBrief ?? "").slice(0, 3500),
-      this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 8000)}` : "",
+      this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 14000)}` : "",
       `Task: ${subtask.title}`,
       subtask.description,
       upstream.length ? `Upstream results:\n${upstream.map((u) => `- ${u}`).join("\n")}` : "",
