@@ -4,7 +4,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
 import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix } from "./backend"
+import type { AppInfo, AutostartRequest, Backend, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix, ProjectFile, ProjectBlob } from "./backend"
 
 type Row = Record<string, unknown>
 
@@ -119,6 +119,14 @@ export class TauriBackend implements Backend {
 
   readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
+  }
+
+  listProjectFiles(root: string, maxFiles = 5000): Promise<ProjectFile[]> {
+    return invoke<ProjectFile[]>("list_project_files", { root, maxFiles })
+  }
+
+  readProjectBlob(root: string, rel: string, maxBytes = 8 * 1024 * 1024): Promise<ProjectBlob | null> {
+    return invoke<ProjectBlob | null>("read_project_blob", { root, rel, maxBytes })
   }
 
   createProjectDir(name: string, base?: string): Promise<string> {

@@ -92,6 +92,8 @@ pub fn run() {
             commands::project::create_project_dir,
             commands::files::read_project_file,
             commands::files::repo_changed_files,
+            commands::files::list_project_files,
+            commands::files::read_project_blob,
             commands::refs::refs_sync,
             commands::autostart::autostart_take,
             commands::blueprint::blueprint_build_dir,

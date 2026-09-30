@@ -80,6 +80,16 @@ export class TestBackend implements Backend {
   async readProjectFile(_root: string, rel: string) {
     return this.projectFiles[rel] ?? null
   }
+  async listProjectFiles() {
+    // A tiny pixel-art project so the Dosyalar tab has something to show in the preview.
+    const rels = ["assets/converted/hero.png", "assets/converted/hero.json", "assets/converted/tiles.png", "assets/converted/tiles.json", "assets/sprites/photo.jpg", "assets/uydurma/sfx__jump.wav", "src/game/player/index.ts", "src/game/world/index.ts", "src/render/index.ts", "README.md"]
+    return rels.map((rel, i) => ({ rel, size: 100 + i, mtimeMs: 1_700_000_000_000 + i }))
+  }
+  async readProjectBlob(_root: string, rel: string) {
+    if (rel.endsWith(".json")) return { mime: "application/json", base64: btoa(JSON.stringify({ frameW: 32, frameH: 32, columns: 2, frames: [{ name: "murkcap_idle_00", x: 0, y: 0, w: 32, h: 32 }, { name: "murkcap_idle_01", x: 32, y: 0, w: 32, h: 32 }, { name: "murkcap_run_00", x: 0, y: 32, w: 32, h: 32 }] })) }
+    if (rel.endsWith(".png") || rel.endsWith(".jpg")) return { mime: rel.endsWith(".png") ? "image/png" : "image/jpeg", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" }
+    return null
+  }
   async createProjectDir(name: string) {
     return `/Users/demo/CubeCode/${name}`
   }

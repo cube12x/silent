@@ -100,6 +100,10 @@ export interface Backend {
   readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
   /** Files under `root` modified at/after `sinceMs` (skips node_modules, .git, dist…); fallback when a CLI reports no file events. */
   changedFiles(root: string, sinceMs: number): Promise<string[]>
+  /** Every file under `root` (node_modules, .git, .silent, dist, dotfiles skipped), sorted, capped (Dosyalar tab). */
+  listProjectFiles(root: string, maxFiles?: number): Promise<ProjectFile[]>
+  /** `root/rel` as a base64 blob with its mime type (image/audio/JSON previews), or null when missing. */
+  readProjectBlob(root: string, rel: string, maxBytes?: number): Promise<ProjectBlob | null>
   openExternal(url: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore
@@ -108,4 +112,17 @@ export interface Backend {
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+/** One entry of a project listing (slash-separated path relative to the root). */
+export interface ProjectFile {
+  rel: string
+  size: number
+  mtimeMs: number
+}
+
+/** A file's bytes for the webview: `data:${mime};base64,${base64}`. */
+export interface ProjectBlob {
+  mime: string
+  base64: string
 }
