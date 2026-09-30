@@ -49,6 +49,13 @@ describe("files index heuristics", () => {
     expect(player.files).toEqual(["src/game/player/index.ts", "src/game/player/physics.ts"])
     expect(idx.items.some((i) => i.files.includes("README.md"))).toBe(false)
   })
+  it("lists 3D models as items without a preview, categorised by name", () => {
+    const idx = buildHeuristicIndex("/p", [{ rel: "assets/models/alien_brute.glb" }, { rel: "assets/models/rifle.gltf" }], {}, 1)
+    const alien = idx.items.find((i) => i.id === "model:assets/models/alien_brute.glb")!
+    expect(alien.category).toBe("dusmanlar")
+    expect(alien.previews).toEqual([])
+    expect(idx.items.find((i) => i.id === "model:assets/models/rifle.gltf")?.category).toBe("nesneler")
+  })
   it("suffixes items that share a title across atlases", () => {
     const files = ["a/hero.png", "a/hero.json", "b/hero2.png", "b/hero2.json"].map((rel) => ({ rel }))
     const frames = { frames: [{ name: "murkcap_idle_00" }, { name: "murkcap_idle_01" }] }

@@ -43,12 +43,13 @@ export interface AtlasJson {
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
 const AUDIO_EXT = /\.(wav|mp3|ogg)$/i
+const MODEL_EXT = /\.(glb|gltf|fbx|obj)$/i
 const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|py|rs|go|java|kt|swift|c|cc|cpp|h|hpp|cs|lua|gd)$/i
 
 const CATEGORY_HINTS: Array<[FileCategoryId, RegExp]> = [
-  ["dusmanlar", /enem|boss|brassbolt|valvo|spiker|hopper|crawler|monster|villain|goomba|koopa|antagonist|plumber/i],
+  ["dusmanlar", /enem|boss|brassbolt|valvo|spiker|hopper|crawler|monster|villain|goomba|koopa|antagonist|plumber|alien|brute|zombie|drone/i],
   ["karakterler", /hero|player|murkcap|morel|character|protagonist|mario|avatar/i],
-  ["nesneler", /item|coin|power|pickup|spore|acorn|berry|cap\b|wrench|collect|prop|object|treasure|key\b|ui\b|hud|icon/i],
+  ["nesneler", /item|coin|power|pickup|spore|acorn|berry|cap\b|wrench|collect|prop|object|treasure|key\b|ui\b|hud|icon|weapon|rifle|pistol|gun|ammo/i],
   ["arkaplanlar", /tile|bg\b|background|sky|cloud|world|terrain|parallax|map|level|scene/i],
 ]
 
@@ -112,6 +113,7 @@ export function buildHeuristicIndex(root: string, files: Array<{ rel: string }>,
     if (claimed.has(rel)) continue
     if (IMAGE_EXT.test(rel)) items.push({ id: `image:${rel}`, title: stem(rel), category: guessCategory(stem(rel)), files: [rel], previews: [{ kind: "image", file: rel }] })
     else if (AUDIO_EXT.test(rel)) items.push({ id: `audio:${rel}`, title: stem(rel), category: "sesler", files: [rel], previews: [{ kind: "audio", file: rel }] })
+    else if (MODEL_EXT.test(rel)) items.push({ id: `model:${rel}`, title: stem(rel), category: guessCategory(stem(rel)), files: [rel], previews: [], notes: "3D model" })
   }
 
   const codeGroups = new Map<string, string[]>()
