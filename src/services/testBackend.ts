@@ -1,5 +1,5 @@
 import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
-import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle } from "./backend"
+import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle, HostLoad } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
 /** A 1×2×1 box as GLB (trimesh export) so the 3D viewer can be exercised in the preview. */
@@ -22,6 +22,10 @@ export class TestBackend implements Backend {
   private terminal = new Map<string, TerminalLine[]>()
   private memory = new Map<string, MemoryEntry>()
 
+  load: HostLoad = { load1: 0, cpus: 8, swapUsedPct: 0 }
+  async hostLoad(): Promise<HostLoad> {
+    return this.load
+  }
   async appInfo(): Promise<AppInfo> {
     return { name: "Silent", version: "test", platform: "test" }
   }

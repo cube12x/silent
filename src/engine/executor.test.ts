@@ -398,3 +398,32 @@ describe("prompt-cache alignment and short reports (Faz 3)", () => {
     expect(worker.briefs[0]).toMatch(/summary .*at most 15 lines/i)
   })
 })
+
+describe("load guard in the executor (Faz 3)", () => {
+  it("a live concurrency cap of 1 serializes a parallel run", async () => {
+    let inFlight = 0
+    let peak = 0
+    class SlowWorker implements Worker {
+      readonly id = "s"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        sink.state("coding", 50)
+        const done = new Promise<{ ok: true; summary: string }>((r) => setTimeout(() => {
+          inFlight -= 1
+          r({ ok: true, summary: `done ${job.subtask.title}` })
+        }, 5))
+        return { done, cancel: async () => {} }
+      }
+    }
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "parallel")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    expect(run.plan.length).toBeGreaterThan(1)
+    const exec = new Executor(run, () => new SlowWorker(), new EventBus(), { models: TEST_MODELS, concurrency: () => 1 })
+    expect(await exec.start()).toBe("completed")
+    expect(peak).toBe(1)
+  })
+})

@@ -1,4 +1,6 @@
 import { create } from "zustand"
+import { mapWithLimit } from "@/engine/loadGuard"
+import { useHostStore } from "@/stores/host"
 import { parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
@@ -364,7 +366,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         const names = step.heads.map((h) => (h.data.type === "ai" && h.data.title ? h.data.title : h.id))
         log(set, step.button.id, `⇉ ${step.heads.length} AI at once: ${names.join(", ")}`)
         get().updateNode(id, step.button.id, { status: "running", note: undefined })
-        const results = await Promise.all(step.heads.map((h) => execAi(id, h.id, { ...opts, parallel: true })))
+        const results = await mapWithLimit(step.heads, () => useHostStore.getState().cap(), (h) => execAi(id, h.id, { ...opts, parallel: true }))
         const failed = results.filter((ok) => !ok).length
         get().updateNode(id, step.button.id, { status: failed ? "failed" : "done", note: failed ? `${failed}/${results.length} failed` : undefined })
         log(set, step.button.id, failed ? `✗ ${failed} of ${results.length} failed` : `✓ all ${results.length} done`)

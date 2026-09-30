@@ -16,6 +16,8 @@ export interface ExecutorOptions {
   maxRetriesPerModel?: number
   /** Cap on concurrent workers for `parallel`/`staged`. */
   maxConcurrency?: number
+  /** Live host-load cap (Faz 3): read before every scheduling pass; Infinity = no extra cap. */
+  concurrency?: () => number
   /** Gateway brief prepended to every job. */
   gatewayBrief?: string
   sandbox?: "read-only" | "workspace-write"
@@ -168,8 +170,9 @@ export class Executor {
       const ready = all.filter(
         (s) => !isTerminalState(s.state) && !running.has(s.id) && s.state !== "blocked" && s.dependsOn.every((d) => this.subtasks.get(d)?.state === "completed"),
       )
+      const cap = Math.min(limit, Math.max(1, this.opts.concurrency?.() ?? Infinity))
       for (const s of ready) {
-        if (running.size >= limit) break
+        if (running.size >= cap) break
         const p = this.execute(s.id).finally(() => running.delete(s.id))
         running.set(s.id, p)
       }

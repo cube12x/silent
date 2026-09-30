@@ -1,7 +1,7 @@
 export const tr = {
   app: { name: "Silent", tagline: "CLI orkestrasyonu" },
   nav: { newChat: "Yeni sohbet", chats: "Sohbetler", silentCode: "Silent Code", runs: "Çalıştırmalar", agents: "Ajanlar", allAgents: "Tüm ajanlar", settings: "Ayarlar", search: "Ara", collapse: "Daralt", expand: "Genişlet", language: "Dil" , blueprint: "Blueprint" },
-  top: { clis: "CLI'lar", activeAis: "aktif AI", noCli: "CLI yok", ready: "hazır", running: "çalışıyor" },
+  top: { clis: "CLI'lar", activeAis: "aktif AI", noCli: "CLI yok", ready: "hazır", running: "çalışıyor", overloaded: "makine yüklü", overloadedHint: "Yük koruması: işlemci/swap dolu; aynı anda en fazla gösterilen sayıda AI oturumu açılır. Yük düşünce sınır kalkar." },
   common: { cancel: "İptal", save: "Kaydet", delete: "Sil", back: "Geri", continue: "Devam", create: "Oluştur", start: "Başlat", close: "Kapat", add: "Ekle", remove: "Kaldır", none: "yok", default: "varsayılan", loading: "yükleniyor", retry: "Yeniden dene", copy: "kopyala", copied: "kopyalandı", installed: "kurulu", notInstalled: "kurulu değil", enabled: "etkin", disabled: "kapalı", version: "sürüm", path: "yol", model: "Model", models: "Modeller", cli: "CLI", repo: "Depo", folder: "Klasör", browse: "Gözat", justNow: "az önce", ago: "önce", unknown: "bilinmiyor" },
   bp: {
     title: "Blueprint",

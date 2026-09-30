@@ -11,6 +11,7 @@ import { PROVIDERS } from "@/providers/registry"
 import { ProviderLogo, TacticalChip } from "@/design-system"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n"
+import { useHostStore } from "@/stores/host"
 import { isMac } from "@/lib/platform"
 
 function useTitle(): { workspace: string; title: string } {
@@ -38,6 +39,7 @@ export function TopBar() {
   // Blueprint single sessions / wizards are not runs; orchestration AIs are already counted through the runs store.
   const bpActive = useBlueprintsStore((s) => s.blueprints.reduce((n, b) => n + b.nodes.filter((x) => x.status === "running" && !(x.data.type === "ai" && x.data.mode === "orchestration" && x.executionId)).length, 0))
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
+  const level = useHostStore((s) => s.level)
 
   return (
     <header data-tauri-drag-region className={cn("drag-region flex h-12 items-center gap-3 border-b border-line bg-ink-1/90 pr-3 backdrop-blur-md", isMac() ? "pl-[88px]" : "pl-3")}>
@@ -64,6 +66,12 @@ export function TopBar() {
         {installed.length === 0 && <button type="button" onClick={() => navigate("/setup")}><TacticalChip tone="warn" dot>{t("top.noCli")}</TacticalChip></button>}
       </div>
       <div className="no-drag ml-auto flex items-center gap-2">
+        {level !== "ok" && (
+          <Tooltip>
+            <TooltipTrigger asChild><span><TacticalChip tone="warn" dot>{t("top.overloaded")} · {level === "critical" ? 1 : 2}</TacticalChip></span></TooltipTrigger>
+            <TooltipContent>{t("top.overloadedHint")}</TooltipContent>
+          </Tooltip>
+        )}
         <TacticalChip tone={active + bpActive ? "cyan" : "neutral"} dot pulse={active + bpActive > 0}><Cpu className="size-3" />{active + bpActive} {t("top.activeAis")}</TacticalChip>
         <button type="button" onClick={() => navigate("/settings")} className="flex size-7 items-center justify-center rounded-md text-text-2 hover:bg-ink-3 hover:text-text-1" aria-label={t("nav.settings")}><Settings2 className="size-4" /></button>
       </div>

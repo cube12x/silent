@@ -9,6 +9,7 @@ import { estimateRun } from "@/engine/estimate"
 import { renderGatewayBrief } from "@/engine/gateway"
 import { effectivePolicy } from "@/engine/policy"
 import { effortFor } from "@/engine/effort"
+import { useHostStore } from "@/stores/host"
 import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/aiPlanner"
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
@@ -314,7 +315,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const poolModels = useProvidersStore.getState().availableModels().filter((m) => run.modelPool.includes(modelRef(m.providerId, m.id)))
     // The polish reviewer must be able to launch a browser (it play-tests); only then the strongest tier.
     const polishModel = [...poolModels].sort((a, b) => Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser) || TIER_RANK[b.tier] - TIER_RANK[a.tier])[0]
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels() })
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap() })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
     const loadContext = async () => {

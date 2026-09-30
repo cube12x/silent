@@ -12,6 +12,7 @@ import { Toasts } from "./Toasts"
 import { useUiStore } from "@/stores/ui"
 import { useProvidersStore } from "@/stores/providers"
 import { useSettingsStore } from "@/stores/settings"
+import { useHostStore } from "@/stores/host"
 import { PROVIDER_IDS } from "@/domain"
 import { shouldOpenSetup } from "@/providers/setup"
 
@@ -28,6 +29,11 @@ export function AppShell() {
   const lastError = useProvidersStore((s) => s.lastError)
   const installedCount = useProvidersStore((s) => PROVIDER_IDS.filter((id) => s.providers[id].installed).length)
   const setupCompletedAt = useSettingsStore((s) => s.settings.setupCompletedAt)
+
+  // Load guard poll (Faz 3): the executor and the Paralel fan-out read the host cap from this store.
+  React.useEffect(() => {
+    useHostStore.getState().start()
+  }, [])
 
   // Fresh machine: no CLI found after the first scan → the Setup screen, until completed or skipped.
   React.useEffect(() => {

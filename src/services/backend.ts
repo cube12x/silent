@@ -72,6 +72,8 @@ export interface AutostartRequest {
 export interface Backend {
   readonly kind: "tauri" | "test"
   appInfo(): Promise<AppInfo>
+  /** Current host load (1-min load average, CPU count, swap %). */
+  hostLoad(): Promise<HostLoad>
   providersDetect(): Promise<DetectedProvider[]>
   providerModels(providerId: ProviderId): Promise<ProviderModel[]>
   providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
@@ -122,6 +124,13 @@ export interface Backend {
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+/** Host load sample for the load guard (Faz 3). */
+export interface HostLoad {
+  load1: number
+  cpus: number
+  swapUsedPct?: number
 }
 
 export interface CheckResult {

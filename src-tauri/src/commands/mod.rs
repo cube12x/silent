@@ -4,6 +4,7 @@ pub mod blueprint;
 pub mod cli;
 pub mod digest;
 pub mod files;
+pub mod host;
 pub mod launcher;
 pub mod models;
 pub mod prereqs;

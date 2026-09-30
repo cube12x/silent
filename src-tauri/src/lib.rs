@@ -93,6 +93,7 @@ pub fn run() {
             commands::project::open_path,
             commands::project::project_run_check,
             commands::digest::repo_digest,
+            commands::host::host_load,
             commands::files::read_project_file,
             commands::files::repo_changed_files,
             commands::files::list_project_files,

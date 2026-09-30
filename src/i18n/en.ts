@@ -3,7 +3,7 @@ import type { Dictionary } from "./tr"
 export const en: Dictionary = {
   app: { name: "Silent", tagline: "CLI orchestration" },
   nav: { newChat: "New chat", chats: "Chats", silentCode: "Silent Code", runs: "Runs", agents: "Agents", allAgents: "All agents", settings: "Settings", search: "Search", collapse: "Collapse", expand: "Expand", language: "Language" , blueprint: "Blueprint" },
-  top: { clis: "CLIs", activeAis: "active AI", noCli: "no CLI", ready: "ready", running: "running" },
+  top: { clis: "CLIs", activeAis: "active AI", noCli: "no CLI", ready: "ready", running: "running", overloaded: "host busy", overloadedHint: "Load guard: CPU/swap saturated; at most the shown number of AI sessions run at once. The cap lifts when the load drops." },
   common: { cancel: "Cancel", save: "Save", delete: "Delete", back: "Back", continue: "Continue", create: "Create", start: "Start", close: "Close", add: "Add", remove: "Remove", none: "none", default: "default", loading: "loading", retry: "Retry", copy: "copy", copied: "copied", installed: "installed", notInstalled: "not installed", enabled: "enabled", disabled: "disabled", version: "version", path: "path", model: "Model", models: "Models", cli: "CLI", repo: "Repository", folder: "Folder", browse: "Browse", justNow: "just now", ago: "ago", unknown: "unknown" },
   bp: {
     title: "Blueprint",
