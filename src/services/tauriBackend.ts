@@ -1,3 +1,4 @@
+import { graphJson } from "./blueprintJson"
 import { Channel, invoke } from "@tauri-apps/api/core"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { open as openShell } from "@tauri-apps/plugin-shell"
@@ -162,7 +163,7 @@ export class TauriBackend implements Backend {
         await (await this.conn()).execute(
           `INSERT INTO blueprints (id, name, graph_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)
            ON CONFLICT(id) DO UPDATE SET name=$2, graph_json=$3, updated_at=$5`,
-          [bp.id, bp.name, JSON.stringify({ nodes: bp.nodes, edges: bp.edges, viewport: bp.viewport }), bp.createdAt, bp.updatedAt],
+          [bp.id, bp.name, graphJson(bp), bp.createdAt, bp.updatedAt],
         )
       },
       delete: async (id) => {
