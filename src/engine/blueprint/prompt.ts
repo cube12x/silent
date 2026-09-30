@@ -130,6 +130,6 @@ export function buildAiPrompt(i: AiPromptInput): string {
 export function extractReport(text: string): string {
   const t = text.trim()
   const upper = t.toUpperCase()
-  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"))
+  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"))
   return idx >= 0 ? t.slice(idx).trim() : t
 }

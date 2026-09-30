@@ -39,6 +39,8 @@ export interface BpAiData {
   effort?: Effort
   /** Bilinç: the report of the last run (findings + numbered actions). */
   report?: string
+  /** Tamirci AI box created from the Dosyalar tab (reused by later repair requests). */
+  tamirci?: boolean
 }
 export type BpAiRole = "bilinc" | "eylem" | "donusturucu"
 export interface BpAiRepo {
@@ -108,12 +110,22 @@ export interface BpEdge {
   to: string
 }
 
+/** Saved defaults of the Dosyalar tab's Tamirci AI (model, base instructions, repos, effort). */
+export interface TamirciPreset {
+  modelRef: string
+  instructions?: string
+  repos?: BpAiRepo[]
+  effort?: Effort
+}
+
 export interface Blueprint {
   id: string
   name: string
   nodes: BpNode[]
   edges: BpEdge[]
   viewport?: { x: number; y: number; zoom: number }
+  /** Blueprint-level settings that are not nodes. */
+  meta?: { tamirci?: TamirciPreset }
   createdAt: number
   updatedAt: number
 }

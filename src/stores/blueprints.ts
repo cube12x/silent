@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { parseModelRef, type ProviderId } from "@/domain"
 import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
+import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraPrompt, type TamirciRequest } from "@/engine/blueprint/tamirci"
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
@@ -58,6 +59,10 @@ interface BlueprintsState {
   autoCreate(description: string): Promise<Blueprint>
   /** "AI ile düzenle": the designer modifies the active blueprint in place (kept nodes keep ids and history). */
   autoEdit(id: string, description: string): Promise<void>
+  /** Blueprint-level settings (Tamirci preset …). */
+  setMeta(id: string, meta: Blueprint["meta"]): void
+  /** Dosyalar tab → "Tamirci AI çağır": create/reuse the repair box(es) wired from the Build and run them with the request. */
+  callTamirci(id: string, buildNodeId: string, req: TamirciRequest): Promise<{ nodeId: string }>
   /** Progress line of the auto-creation (undefined when idle). */
   autoStatus?: string
   /** Summary the designer wrote for the last auto-created blueprint. */
@@ -138,6 +143,48 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     // Folder counts and photo mirrors are derived from disk; refresh them in the background.
     for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
   },
+  setMeta(id, meta) {
+    get().update(id, (bp) => ({ ...bp, meta: { ...(bp.meta ?? {}), ...(meta ?? {}) } }), { history: false })
+  },
+  async callTamirci(id, buildNodeId, req) {
+    const store = get()
+    const bp = store.byId(id)
+    if (!bp) throw new Error("blueprint not found")
+    const build = nodeById(bp, buildNodeId)
+    if (!build || build.data.type !== "build") throw new Error("build not found")
+    store.setMeta(id, { tamirci: req.preset })
+    const found = findTamirciBoxes(bp)
+    const base = { mode: "single", modelRef: req.preset.modelRef, instructions: req.preset.instructions?.trim() || undefined, repos: req.preset.repos?.filter((r) => r.url.trim()) ?? [], effort: req.preset.effort, tamirci: true }
+    // Eylem/main box: below the Build, to the right; reused across requests so its terminal and tokens accumulate.
+    let eylem = found.eylem
+    if (!eylem) {
+      eylem = store.addNode(id, "ai", build.x + 320, build.y + 220, { ...base, title: TAMIRCI_TITLE })
+      if (!eylem) throw new Error("could not add the Tamirci box")
+      store.addEdge(id, build.id, eylem.id)
+    } else {
+      store.updateNode(id, eylem.id, { data: { ...base, role: req.bilinc ? "eylem" : undefined } })
+    }
+    let bilinc = found.bilinc
+    if (req.bilinc) {
+      if (!bilinc) {
+        bilinc = store.addNode(id, "ai", build.x + 320, build.y - 40, { ...base, role: "bilinc", title: TAMIRCI_BILINC_TITLE })
+        if (bilinc) {
+          store.addEdge(id, build.id, bilinc.id)
+          store.addEdge(id, bilinc.id, eylem.id)
+        }
+      } else {
+        store.updateNode(id, bilinc.id, { data: { ...base, role: "bilinc" } })
+      }
+      store.updateNode(id, eylem.id, { data: { role: "eylem" } })
+    } else {
+      store.updateNode(id, eylem.id, { data: { role: undefined } })
+    }
+    const extraPrompt = tamirciExtraPrompt(req)
+    if (req.bilinc && bilinc) await store.run(id, bilinc.id, { extraPrompt, only: true })
+    await store.run(id, eylem.id, { extraPrompt, only: true })
+    return { nodeId: eylem.id }
+  },
+
   async autoCreate(description) {
     const models = useProvidersStore.getState().availableModels()
     const model = pickAutoBlueprintModel(models)
@@ -625,7 +672,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     const res = await handle.done
     ok = res.ok
     used = res.tokens
-    if ((role === "bilinc" || role === "donusturucu") && res.text.trim()) {
+    if ((role === "bilinc" || role === "donusturucu" || ai.data.tamirci) && res.text.trim()) {
       // The report (from `# FINDINGS` / `# CONVERTED` on) is what the wired next node reads; the commentary before it is dropped.
       const report = extractReport(res.text)
       store.updateNode(bpId, aiId, { data: { report } })
