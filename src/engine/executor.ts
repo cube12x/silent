@@ -58,6 +58,8 @@ export class Executor {
   private polishScore?: number
   private polishNotes?: string
   private waiters = new Map<string, (answer: string | null) => void>()
+  /** Files the run touched so far (worker file events + host scan); the polish reviewer reads their diff instead of replaying everything. */
+  private changedFiles: string[] = []
   private readonly now: () => number
   private readonly run: SilentCodeRun
   private readonly resolve: WorkerResolver
@@ -97,6 +99,11 @@ export class Executor {
   /** Replace the shared project context for subsequent attempts (e.g. after the architecture task wrote the brief). */
   setContext(text: string | undefined): void {
     this.opts.context = text
+  }
+
+  /** Files touched so far (from the runs store); the polish review reads their diff instead of replaying the whole product. */
+  setChangedFiles(files: string[]): void {
+    this.changedFiles = Array.from(new Set(files))
   }
 
   /** Deliver the user's answer to a blocked subtask; its session resumes with the answer. */
@@ -310,7 +317,15 @@ export class Executor {
       "Polish review",
       [
         "You are the POLISH REVIEWER. Do not change files. Compare the repository with the SPEC and the QUALITY CHECKLIST above.",
-        "Run the project's own checks (install, typecheck, tests, build) and exercise the product the way a demanding user would (start it; for web/game projects open the built app in a real browser if this environment allows it and play/click through the main flows).",
+        // Diff polish (2026-09-30): the run's own browser tasks already played the product; replaying it here cost 20+ minutes.
+        ...(this.changedFiles.length
+          ? [
+              `Changed files (${this.changedFiles.length}) — review their diff (git diff / read them), not the whole repository:\n${this.changedFiles.slice(0, 120).map((f) => `- ${f}`).join("\n")}\n`,
+              "Look at the screenshots the verification tasks saved under .silent/tmp/shots (and .silent/tmp/shots-*) before judging visuals; the browser tasks already played the product, so play only what no browser task covered. Run the checks once (typecheck, tests, build).",
+            ]
+          : [
+              "Run the project's own checks (install, typecheck, tests, build) and exercise the product the way a demanding user would (start it; for web/game projects open the built app in a real browser if this environment allows it and play/click through the main flows).",
+            ]),
         "Then reply with: (a) 5–10 lines of what is strong and what is weak, (b) one line `SILENT_SCORE: <0-10>` (10 = ship-ready, delightful; 6 = works but rough; 3 = demo quality), (c) `SILENT_FIXES:` followed by at most 3 bullet points — each a concrete, self-contained task a worker can finish in under 30 minutes with the largest impact on the score (or `SILENT_FIXES: none` when the score is 9 or above), (d) `SILENT_DEVIATIONS: none`.",
       ].join(" "),
       modelId,
@@ -421,7 +436,19 @@ export class Executor {
       })
     if (!rows.length) return ""
     const mine = /Owns:\s*([^\n]+)/i.exec(current.description)?.[1]?.trim()
-    return `Run plan (${this.snapshot.length} tasks; yours: "${current.title}"${mine ? `, owns ${mine.slice(0, 200)}` : ""}):\n${rows.join("\n").slice(0, 2000)}\nUse these exact paths when you reference other modules (import paths, docs, briefs).`
+    return `Run plan (${this.snapshot.length} tasks; yours: "${current.title}"${mine ? `, owns ${mine.slice(0, 200)}` : ""}):\n${rows.join("\n").slice(0, 2000)}\nUse these exact paths when you reference other modules (import paths, docs, briefs). Wiring your area into the app is part of YOUR task; the integration task only stitches areas together.`
+  }
+
+  /** The one-line check a worker runs instead of the whole suite: the planner's `verify`, else derived from its ownership line. */
+  private verifyLine(subtask: Subtask): string {
+    if (subtask.verify?.trim()) return subtask.verify.trim()
+    // Up to the end of the sentence: "Owns: src/a/**, tests/a/**. Implement…" → "src/a/**, tests/a/**" (dots inside file names survive).
+    const owns = /Owns:\s*([^\n]*?)(?=\.\s|\.$|\n|$)/i.exec(subtask.description)?.[1] ?? ""
+    const paths = owns
+      .split(/[,;]/)
+      .map((p) => p.trim().replace(/\/\*\*$/, "").replace(/\/\*$/, "").replace(/\.$/, ""))
+      .filter((p) => p && !p.includes(" ") && /[\w/.-]+/.test(p))
+    return paths.length ? `npx vitest run ${paths.join(" ")} && npx tsc --noEmit` : "the project's typecheck and the tests under the paths you own"
   }
 
   private brief(subtask: Subtask, modelId: string): string {
@@ -445,6 +472,7 @@ export class Executor {
       shellNotes(),
       providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
       ...(providerInfo((model?.providerId ?? parseModelRef(modelId).providerId) as ProviderId).capabilities.image ? [IMAGE_TOOL_HINT] : []),
+      `Verify with: \`${this.verifyLine(subtask)}\` — run the full suite only if this is the integration task.`,
       "Verification scope: other tasks may be editing their own paths right now, so the GLOBAL typecheck/test/build can be red for reasons outside your paths. Verify YOUR paths (filter tsc output to them, run the tests under your directories). Mention sibling breakage as a note, not as your deviation, and never fix files you do not own. The integration task runs the full suite at the end.",
       "Rules: (1) Do exactly what the request says. If you cannot or should not do something the user asked for (policy, legal, access, missing information, ambiguity), DO NOT silently do something else: stop and write one line `SILENT_QUESTION: <your question to the user>` and end your reply; the user will answer and you will continue. (2) When you finish, reply with a concise summary of what you changed and how you verified it, then a section `SILENT_DEVIATIONS:` listing ONLY what you did differently from the request or could not do (or `SILENT_DEVIATIONS: none`), then a section `SILENT_NOTES:` with information for the user and other tasks — sibling modules that were red at the time, follow-ups, design decisions, additive contract extensions (or `SILENT_NOTES: none`). Notes are not deviations. Environment limits stated above (no browser in this sandbox, network or permission limits) are NEVER deviations: mention them under SILENT_NOTES only. (3) Other tasks may be running IN PARALLEL in this same repository. Edit only the files/directories your task owns (named in the task); never overwrite, delete or rewrite files that belong to another task. If a shared contract/type must change, make the change ADDITIVE (no renames, no removals) so other workers keep compiling, and list it under SILENT_DEVIATIONS. If you truly must change another task's file, ask with SILENT_QUESTION instead.",
     ]

@@ -16,6 +16,8 @@ export interface AiPlanSubtask {
   needsBrowser: boolean
   /** Planner's model choice for this task: a `provider:model` ref from the offered pool, or "" to let the router decide. */
   model: string
+  /** One shell line that verifies THIS task's own paths (owned test dirs + typecheck); "" = derive from the ownership line. */
+  verify: string
 }
 
 export interface AiPlanQuestion {
@@ -47,7 +49,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale", "needsBrowser", "model"],
+        required: ["key", "kind", "title", "description", "dependsOn", "weight", "tier", "effort", "rationale", "needsBrowser", "model", "verify"],
         properties: {
           key: { type: "string" },
           kind: { type: "string", enum: [...SUBTASK_KINDS] },
@@ -60,6 +62,7 @@ export const AI_PLAN_SCHEMA: Record<string, unknown> = {
           rationale: { type: "string" },
           needsBrowser: { type: "boolean" },
           model: { type: "string" },
+          verify: { type: "string" },
         },
       },
     },
@@ -101,6 +104,7 @@ export function parseAiPlan(text: string): AiPlan | null {
           rationale: String(s.rationale ?? ""),
           needsBrowser: s.needsBrowser === true,
           model: typeof s.model === "string" ? s.model.trim() : "",
+          verify: typeof s.verify === "string" ? s.verify.trim() : "",
         }))
       if (!subtasks.length) continue
       return {

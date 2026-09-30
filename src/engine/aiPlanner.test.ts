@@ -95,3 +95,26 @@ describe("AI planner", () => {
     expect(["codex", "claude"]).toContain(pickPlannerModel(models)?.providerId)
   })
 })
+
+describe("planner rules for parallel verification, per-area integration and targeted verify commands (Faz 1)", () => {
+  const ctx = { prompt: "Rebuild the graphics", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof buildPlannerPrompt>[0]
+  it("asks for one browser task per act/area instead of one long play-through", () => {
+    const p = buildPlannerPrompt(ctx)
+    expect(p).toMatch(/one `needsBrowser: true` task PER act\/area/)
+    expect(p).toMatch(/depend only on the integration task/)
+  })
+  it("makes build tasks wire their own area and keeps the final integration task short", () => {
+    const p = buildPlannerPrompt(ctx)
+    expect(p).toMatch(/wires its own area into the app/)
+    expect(p).toMatch(/integration task .*weight 1 or 2/)
+  })
+  it("requires a one-line verify command per task and carries it into the subtask", () => {
+    const p = buildPlannerPrompt(ctx)
+    expect(p).toMatch(/`verify`: ONE shell line/)
+    const plan = parseAiPlan(JSON.stringify({ ...PLAN, subtasks: PLAN.subtasks.map((s) => ({ ...s, verify: `npx vitest run tests/${s.key} && npx tsc --noEmit` })) }))!
+    expect(plan.subtasks[0].verify).toBe("npx vitest run tests/a && npx tsc --noEmit")
+    expect(parseAiPlan(JSON.stringify(PLAN))!.subtasks[0].verify).toBe("")
+    const subtasks = subtasksFromAiPlan(plan, "run_v")
+    expect(subtasks[0].verify).toBe("npx vitest run tests/a && npx tsc --noEmit")
+  })
+})

@@ -81,6 +81,8 @@ export interface Subtask {
   needsBrowser?: boolean
   /** Planner's per-task model choice (`provider:model`); honoured when in the pool. */
   modelHint?: string
+  /** One shell line that verifies this task's own paths (from the planner, else derived from the ownership line). */
+  verify?: string
   /** Worker asked the user something and is waiting (state = blocked). */
   question?: string
   answers: string[]

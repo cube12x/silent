@@ -283,3 +283,47 @@ describe("executor", () => {
     expect(fixes[1]).toMatch(/^Fix: Extend Odin's lightning hitboxes/)
   })
 })
+
+describe("targeted verification and diff polish (Faz 1)", () => {
+  class BriefWorker implements Worker {
+    readonly id = "b"
+    briefs = new Map<string, string>()
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.briefs.set(job.subtask.title, job.brief)
+      sink.state("coding", 50)
+      sink.file(`src/${job.subtask.kind}/a.ts`)
+      const summary = job.subtask.title === "Polish review" ? "Fine.\nSILENT_SCORE: 9\nSILENT_FIXES: none\nSILENT_DEVIATIONS: none" : "ok"
+      return { done: Promise.resolve({ ok: true, summary }), cancel: async () => {} }
+    }
+  }
+  it("tells every worker its verify command; falls back to the owned paths when the planner gave none", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s, i) => ({ ...s, dependsOn: [], description: `Owns: src/mod${i}/**, tests/mod${i}/**. ${s.description}`, verify: i === 0 ? "npx vitest run tests/mod0 && npx tsc --noEmit" : undefined }))
+    const worker = new BriefWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    const first = worker.briefs.get(run.plan[0].title)!
+    expect(first).toMatch(/Verify with: `npx vitest run tests\/mod0 && npx tsc --noEmit`/)
+    const second = worker.briefs.get(run.plan[1].title)!
+    expect(second).toMatch(/Verify with: `npx vitest run src\/mod1 tests\/mod1/)
+    expect(second).toMatch(/full suite only if this is the integration task/)
+  })
+  it("the polish reviewer gets the changed files and the screenshot folder instead of a full play-through", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId))
+    const worker = new BriefWorker()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, polish: true, polishModelId: "claude:opus" })
+    exec.setChangedFiles(["src/backend/a.ts", "src/backend/b.ts"])
+    expect(await exec.start()).toBe("completed")
+    const polish = worker.briefs.get("Polish review")!
+    expect(polish).toMatch(/Changed files \(2\)/)
+    expect(polish).toMatch(/src\/backend\/b\.ts/)
+    expect(polish).toMatch(/\.silent\/tmp\/shots/)
+    expect(polish).toMatch(/run the checks once/i)
+    expect(polish).not.toMatch(/play\/click through the main flows/)
+  })
+})

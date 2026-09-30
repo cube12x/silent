@@ -374,6 +374,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") {
           void loadContext().catch((e) => reportError(e, "context"))
+          // Diff polish: the reviewer reads the diff of what the run touched instead of replaying the product.
+          executor.setChangedFiles(updated.plan.flatMap((s) => s.files))
           const done = updated.plan.find((s) => s.id === e.subtaskId)
           const since = done?.attempts[0]?.startedAt
           if (done && !done.files.length && run.repoPath && since) {
@@ -383,6 +385,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
               if (!cur) return
               const next = { ...cur, plan: cur.plan.map((s) => (s.id === done.id ? { ...s, files: files.slice(0, 200) } : s)) }
               set({ runs: get().runs.map((r) => (r.id === run.id ? next : r)) })
+              executor.setChangedFiles(next.plan.flatMap((s) => s.files))
               persist(next)
             }).catch(() => {})
           }
