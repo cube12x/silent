@@ -147,6 +147,7 @@ export const tr = {
     kitHint: "Alana özel kalite çıtası, kontrol listesi ve referans depolar. Referanslar başlatırken projeye klonlanır (.silent/refs), worker'lar önce onları inceler.",
     refs: "Ek referans depolar (her satıra bir URL)",
     refsHint: "Modellerin örnek alacağı, iyi yazılmış depolar. Yalnız https:// veya git@.",
+    turbo: "Turbo", turboHint: "En hızlı koşu: cila yok, effort en fazla medium, planlayıcı review/doküman görevi kurmaz ve tarayıcı doğrulamasını değişen alanla sınırlar. Kalite bar aynı; sadece fazlalıklar atılır.", mechanical: "Ucuz işçi", mechanicalHint: "Test, doküman, çeviri ve varlık dönüştürme gibi mekanik işler havuzdaki en ucuz modele gider; mimari ve entegrasyon en derin modelde kalır.",
     polish: "Cila turu",
     polishHint: "Bitince en güçlü model spec ve kontrol listesine göre 0-10 puan verir, en etkili 3 düzeltme görevini koşar.",
     spec: "Spec (İngilizce, planlayıcı yazdı)",

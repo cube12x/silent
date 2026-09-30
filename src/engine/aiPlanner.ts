@@ -21,6 +21,10 @@ export interface AiPlanContext {
   language: "tr" | "en"
   /** Expert kit brief (English) — the planner must plan to its quality bar. */
   kitBrief?: string
+  /** Turbo preset: lean plan, no review/docs, browser work capped (Faz 3). */
+  turbo?: boolean
+  /** Mechanical preset: cheapest pool model for tests/docs/translation (Faz 3). */
+  mechanical?: boolean
 }
 
 export interface PlannerRunner {
@@ -85,6 +89,8 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "- Parallel tasks share one repository: give every task an explicit OWNERSHIP line in its description (`Owns: src/game/player/**, src/game/input.ts`) and make the owned paths DISJOINT across tasks that can run at the same time. Shared contracts/types belong to the architecture task (or to exactly one task); other tasks may only add to them.",
     "- docs/ARCHITECTURE-BRIEF.md must stay under 12 KB with the normative sections (module map, contracts, conventions, ownership) first; every worker reads it, so long prose costs tokens on every task.",
     "- If an architecture task exists, its description must say to write docs/ARCHITECTURE-BRIEF.md (module map, contracts, conventions): every later worker receives that file and skips repository discovery.",
+    ...(ctx.turbo ? ["- TURBO MODE: the user wants the fastest possible run. Plan NO review or docs task and no separate tests task (each build task verifies its own paths); plan at most one `needsBrowser: true` task and limit it to the areas this request changes; keep every task at weight ≤ 2 and `effort` ≤ medium; skip anything that is not needed to finish the request."] : []),
+    ...(ctx.mechanical ? ["- MECHANICAL MODE: route tests, docs, translation/localization, asset conversion and other mechanical work to the CHEAPEST/fastest model in the pool (its exact ref in `model`); keep architecture, cross-module contracts and integration on the deepest reasoning model."] : []),
     "- Kinds: architecture (only for larger multi-part work), backend, frontend, algorithm, tests, review, integration, docs.",
     "- Each subtask: a concrete title, a precise description another engineer could execute, dependencies by key, weight 1-3, the model tier it deserves (fast for light/mechanical work, strong for normal implementation, frontier only for hard design/algorithms/critical review), and effort.",
     "- `verify`: ONE shell line that checks only that task's own paths from the repository's test layout (e.g. `npx vitest run tests/player && npx tsc --noEmit`); the integration task's line runs the full suite. Workers run exactly this instead of the whole suite.",

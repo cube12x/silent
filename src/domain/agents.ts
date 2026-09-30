@@ -88,6 +88,10 @@ export interface RunDefaults {
   prefer?: string
   costMode?: "economy" | "balanced" | "max-quality"
   polish?: boolean
+  /** Turbo preset by default (Faz 3). */
+  turbo?: boolean
+  /** Mechanical preset by default (Faz 3). */
+  mechanical?: boolean
   refs?: string[]
 }
 

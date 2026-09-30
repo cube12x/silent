@@ -101,6 +101,7 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
 
 fn parse_run(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
     let (mut kit, mut polish, mut cost, mut pool, mut prefer, mut agent) = (None::<String>, None::<bool>, None::<String>, Vec::<String>::new(), None::<String>, None::<String>);
+    let (mut turbo, mut mechanical) = (false, false);
     let mut i = 0;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -110,6 +111,14 @@ fn parse_run(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
             }
             "--no-polish" => {
                 polish = Some(false);
+                i += 1;
+            }
+            "--turbo" => {
+                turbo = true;
+                i += 1;
+            }
+            "--mechanical" => {
+                mechanical = true;
                 i += 1;
             }
             "--cost" => {
@@ -134,7 +143,7 @@ fn parse_run(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
     let folder = rest.get(i).cloned().filter(|f| !f.is_empty());
     let prompt = rest[(i + 1).min(rest.len())..].join(" ");
     let (Some(folder), false) = (folder, prompt.trim().is_empty()) else {
-        return Err("usage: silent run [--kit ID] [--no-polish] [--cost MODE] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>".into());
+        return Err("usage: silent run [--kit ID] [--no-polish] [--turbo] [--mechanical] [--cost MODE] [--pool p:m,p:m] [--prefer p:m] [--agent NAME] <folder> <request…>".into());
     };
     let mut path = PathBuf::from(&folder);
     if path.is_relative() {
@@ -149,6 +158,8 @@ fn parse_run(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
         "prompt": prompt,
         "kit": kit,
         "polish": polish,
+        "turbo": turbo,
+        "mechanical": mechanical,
         "cost": cost,
         "pool": pool,
         "prefer": prefer,
@@ -230,10 +241,12 @@ mod tests {
         let base = std::env::temp_dir().join(format!("silent-argv-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
-        let v = parse_argv(&argv("--cwd BASE run --kit game-2d-web --no-polish --cost economy --pool a:b,c:d --prefer a:b --agent Pixel demo make a game").iter().map(|s| s.replace("BASE", &base.to_string_lossy())).collect::<Vec<_>>(), None).unwrap().unwrap();
+        let v = parse_argv(&argv("--cwd BASE run --kit game-2d-web --no-polish --turbo --mechanical --cost economy --pool a:b,c:d --prefer a:b --agent Pixel demo make a game").iter().map(|s| s.replace("BASE", &base.to_string_lossy())).collect::<Vec<_>>(), None).unwrap().unwrap();
         assert_eq!(v["prompt"], "make a game");
         assert_eq!(v["kit"], "game-2d-web");
         assert_eq!(v["polish"], false);
+        assert_eq!(v["turbo"], true);
+        assert_eq!(v["mechanical"], true);
         assert_eq!(v["cost"], "economy");
         assert_eq!(v["pool"], json!(["a:b", "c:d"]));
         assert_eq!(v["prefer"], "a:b");
@@ -242,6 +255,7 @@ mod tests {
         assert!(folder.is_absolute() && folder.ends_with("demo") && folder.is_dir());
         let v = parse_argv(&argv("run demo hello"), Some(&base)).unwrap().unwrap();
         assert!(v["polish"].is_null() && v["kit"].is_null());
+        assert_eq!(v["turbo"], false);
         assert_eq!(v["pool"], json!([]));
         assert!(parse_argv(&argv("run demo"), Some(&base)).is_err());
         let _ = std::fs::remove_dir_all(&base);

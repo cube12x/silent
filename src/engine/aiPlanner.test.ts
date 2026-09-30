@@ -118,3 +118,20 @@ describe("planner rules for parallel verification, per-area integration and targ
     expect(subtasks[0].verify).toBe("npx vitest run tests/a && npx tsc --noEmit")
   })
 })
+
+describe("Turbo and mechanical presets (Faz 3)", () => {
+  const ctx = { prompt: "Add a settings screen", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof buildPlannerPrompt>[0]
+  it("Turbo tells the planner to skip review/docs, cap browser work and verify only owned paths", () => {
+    expect(buildPlannerPrompt(ctx)).not.toMatch(/TURBO/)
+    const p = buildPlannerPrompt({ ...ctx, turbo: true })
+    expect(p).toMatch(/TURBO/)
+    expect(p).toMatch(/no review or docs task/i)
+    expect(p).toMatch(/at most one .*needsBrowser/i)
+  })
+  it("Mechanical routes tests/docs/translation to the cheapest pool model and keeps architecture on the deepest", () => {
+    expect(buildPlannerPrompt(ctx)).not.toMatch(/MECHANICAL/)
+    const p = buildPlannerPrompt({ ...ctx, mechanical: true })
+    expect(p).toMatch(/MECHANICAL/)
+    expect(p).toMatch(/cheapest/i)
+  })
+})

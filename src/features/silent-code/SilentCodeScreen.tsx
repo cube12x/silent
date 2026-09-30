@@ -72,6 +72,8 @@ function Composer() {
   const [kitSel, setKitSel] = React.useState<string>(parent?.kitId ?? "auto")
   const [refsText, setRefsText] = React.useState((parent?.refs ?? []).join("\n"))
   const [polish, setPolish] = React.useState(parent?.polish ?? true)
+  const [turbo, setTurbo] = React.useState(parent?.turbo ?? false)
+  const [mechanical, setMechanical] = React.useState(parent?.mechanical ?? false)
   const detectedKit = React.useMemo(() => (kitSel === "auto" ? detectKit(prompt) : kitById(kitSel)), [kitSel, prompt])
   const refs = React.useMemo(() => refsText.split(/\s+/).map((x) => x.trim()).filter((x) => /^(https:\/\/|git@)/.test(x)), [refsText])
   const agent = agents.find((a) => a.id === agentId)
@@ -122,7 +124,7 @@ function Composer() {
       setApproved(false)
       const qa = withAnswers && result ? (result.run.questions ?? []).map((q) => ({ ...q, answer: answers[q.id] || undefined })) : undefined
       if (parent && !parent.repoPath && repoPath && !agentId) await useRunsStore.getState().attachRepo(parent.id, repoPath)
-      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa, kitId: detectedKit?.id ?? "", refs, polish, overrides: agentOverrides })
+      const res = await planWithAi({ prompt, pool, executionMode: mode, costMode, repoAgentId: agentId, repoPath, parentRunId: parent?.id, answers: qa, kitId: detectedKit?.id ?? "", refs, polish, turbo, mechanical, overrides: agentOverrides })
       setResult(res)
       if (!withAnswers) setAnswers({})
       setStep("plan")
@@ -143,6 +145,10 @@ function Composer() {
       if (d?.prefer && !req.prefer) req = { ...req, prefer: d.prefer }
       if (d?.costMode && !req.cost) req = { ...req, cost: d.costMode }
       if (d?.polish !== undefined && req.polish == null) req = { ...req, polish: d.polish }
+      if (d?.turbo && !req.turbo) req = { ...req, turbo: true }
+      if (d?.mechanical && !req.mechanical) req = { ...req, mechanical: true }
+      if (req.turbo) setTurbo(true)
+      if (req.mechanical) setMechanical(true)
       if (req.kit != null) setKitSel(req.kit === "auto" ? "auto" : req.kit)
       if (req.polish != null) setPolish(req.polish)
       const cost = (["economy", "balanced", "max-quality"] as CostMode[]).find((c) => c === req.cost) ?? costMode
@@ -154,7 +160,7 @@ function Composer() {
       const prefer = req.prefer && runPool.includes(req.prefer) ? req.prefer : undefined
       if (req.prefer && !prefer) console.warn("[autostart] --prefer not in pool, ignored", req.prefer)
       const overrides = prefer ? Object.fromEntries((["architecture", "backend", "frontend", "algorithm", "integration"] as const).map((k) => [k, prefer])) : undefined
-      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoAgentId: expert?.id, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true, overrides })
+      const res = await planWithAi({ prompt: req.prompt, pool: runPool, executionMode: mode, costMode: cost, repoAgentId: expert?.id, repoPath: req.folder, kitId: kit?.id ?? "", refs, polish: req.polish ?? true, turbo: req.turbo, mechanical: req.mechanical, overrides })
       console.warn("[autostart] planned", JSON.stringify({ source: res.source, error: res.error, subtasks: res.run.plan.length, questions: res.run.questions?.length ?? 0 }))
       setResult(res)
       setAnswers({})
@@ -271,6 +277,8 @@ function Composer() {
                     if (d.pool?.length) setPool(d.pool.filter((ref) => modelLabels[ref]))
                     if (d.costMode) setCostMode(d.costMode)
                     if (d.polish !== undefined) setPolish(d.polish)
+                    setTurbo(Boolean(d.turbo))
+                    setMechanical(Boolean(d.mechanical))
                     if (d.refs?.length) setRefsText(d.refs.join("\n"))
                   }
                 }} className="rounded-sm border border-line bg-ink-2 px-1.5 py-0.5 text-[11px] text-text-1 outline-none focus:border-text-2">
@@ -327,8 +335,16 @@ function Composer() {
                 <span className="text-text-3">{t("code.refsHint")}</span>
               </label>
               <label className="flex items-start gap-2 text-xs text-text-1">
-                <input type="checkbox" checked={polish} onChange={(e) => setPolish(e.target.checked)} className="mt-0.5" />
+                <input type="checkbox" checked={polish && !turbo} disabled={turbo} onChange={(e) => setPolish(e.target.checked)} className="mt-0.5" />
                 <span><span className="block font-medium">{t("code.polish")}</span><span className="block text-[11px] text-text-3">{t("code.polishHint")}</span></span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-text-1">
+                <input type="checkbox" checked={turbo} onChange={(e) => setTurbo(e.target.checked)} className="mt-0.5" />
+                <span><span className="block font-medium">{t("code.turbo")}</span><span className="block text-[11px] text-text-3">{t("code.turboHint")}</span></span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-text-1">
+                <input type="checkbox" checked={mechanical} onChange={(e) => setMechanical(e.target.checked)} className="mt-0.5" />
+                <span><span className="block font-medium">{t("code.mechanical")}</span><span className="block text-[11px] text-text-3">{t("code.mechanicalHint")}</span></span>
               </label>
             </div>
           </GlowCard>

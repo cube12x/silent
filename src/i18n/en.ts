@@ -149,6 +149,7 @@ export const en: Dictionary = {
     kitHint: "Domain quality bar, checklist and reference repositories. References are cloned into the project at start (.silent/refs); workers study them first.",
     refs: "Extra reference repositories (one URL per line)",
     refsHint: "Well-written repositories the models should learn from. https:// or git@ only.",
+    turbo: "Turbo", turboHint: "Fastest run: no polish, effort at most medium, the planner adds no review/docs task and limits browser verification to the changed areas. Same quality bar; only the extras are dropped.", mechanical: "Cheap worker", mechanicalHint: "Mechanical work (tests, docs, translation, asset conversion) goes to the cheapest pool model; architecture and integration stay on the deepest one.",
     polish: "Polish round",
     polishHint: "When done, the strongest model scores the result 0-10 against the spec and checklist and runs the 3 most valuable fix tasks.",
     spec: "Spec (English, written by the planner)",

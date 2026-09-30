@@ -37,6 +37,10 @@ export interface BpAiData {
   role?: BpAiRole
   /** Reasoning effort the run starts with (absent = Silent's per-task policy). Clamped to what each CLI accepts. */
   effort?: Effort
+  /** Turbo: no polish round, effort ≤ medium, lean plan (orchestration) / single session capped at medium (Faz 3). */
+  turbo?: boolean
+  /** Mechanical: cheapest pool model for tests/docs/translation (orchestration only, Faz 3). */
+  mechanical?: boolean
   /** Bilinç: the report of the last run (findings + numbered actions). */
   report?: string
   /** Tamirci AI box created from the Dosyalar tab (reused by later repair requests). */

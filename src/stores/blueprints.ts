@@ -716,7 +716,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
   if (ai.data.mode === "orchestration" && role !== "bilinc" && role !== "donusturucu" && role !== "kesifci") {
     const runs = useRunsStore.getState()
-    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: true, effort: ai.data.effort })
+    const res = await runs.plan({ prompt, pool: poolRefs, executionMode: "staged", costMode: (ai.data.costMode ?? "balanced") as CostMode, repoPath: cwd, kitId: ai.data.kitId ?? "", polish: !ai.data.turbo, effort: ai.data.turbo && ai.data.effort && (ai.data.effort === "high" || ai.data.effort === "xhigh") ? "medium" : ai.data.effort, turbo: ai.data.turbo, mechanical: ai.data.mechanical })
     if (res.source !== "ai") {
       log(set, aiId, `⚠ planner failed: ${res.error ?? "unknown"}`)
       store.updateNode(bpId, aiId, { status: "failed", note: res.error ?? "planner failed" })

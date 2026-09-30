@@ -371,6 +371,16 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                 </div>
                 <span className="text-[10px]">{t("bp.effortHint")}</span>
               </label>
+              <label className="col-span-2 flex items-start gap-2 text-text-1">
+                <input type="checkbox" checked={Boolean(d.turbo)} onChange={(e) => patch({ turbo: e.target.checked || undefined })} className="mt-0.5" />
+                <span><span className="block font-medium">{t("code.turbo")}</span><span className="block text-[10px] text-text-3">{t("code.turboHint")}</span></span>
+              </label>
+              {d.mode === "orchestration" && (
+                <label className="col-span-2 flex items-start gap-2 text-text-1">
+                  <input type="checkbox" checked={Boolean(d.mechanical)} onChange={(e) => patch({ mechanical: e.target.checked || undefined })} className="mt-0.5" />
+                  <span><span className="block font-medium">{t("code.mechanical")}</span><span className="block text-[10px] text-text-3">{t("code.mechanicalHint")}</span></span>
+                </label>
+              )}
               {d.mode === "orchestration" && (
                 <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.pool")}
                   <ModelSelectorGrid compact models={models} selected={d.pool ?? []} onToggle={(ref) => patch({ pool: (d.pool ?? []).includes(ref) ? (d.pool ?? []).filter((x) => x !== ref) : [...(d.pool ?? []), ref] })} />

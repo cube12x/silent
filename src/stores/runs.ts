@@ -45,6 +45,10 @@ export interface DraftInput {
   refs?: string[]
   /** Polish review + fix round at the end (default true). */
   polish?: boolean
+  /** Turbo preset: polish off, effort ≤ medium, lean plan (see SilentCodeRun.turbo). */
+  turbo?: boolean
+  /** Mechanical preset: cheapest pool model for mechanical kinds (see SilentCodeRun.mechanical). */
+  mechanical?: boolean
   /** Pin these kinds to a model ref (e.g. `silent run --prefer codex:gpt-6-astra` pins every build kind). */
   overrides?: Partial<Record<SubtaskKind, string>>
 }
@@ -142,6 +146,8 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     if (row?.timeoutMin && !s.timeoutSecs) s.timeoutSecs = row.timeoutMin * 60
     // The Blueprint box's explicit effort wins over the policy ceiling (the user asked for it).
     if (input.effort) s.effort = input.effort
+    // Turbo never thinks above medium: deep reasoning is where the minutes go (2026-09-30 measurement).
+    if (input.turbo && s.effort && EFFORT_RANK[s.effort] > EFFORT_RANK.medium) s.effort = "medium"
   }
   const routing = routeSubtasks({ subtasks: plan, pool: input.pool, models, costMode: input.costMode, overrides, policy, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined })
   const title = plan[0]?.title.replace(/^Architecture & task decomposition for /, "") ?? input.prompt
@@ -164,7 +170,9 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     questions: input.answers,
     kitId: input.kitId || undefined,
     refs: input.refs?.filter(Boolean),
-    polish: input.polish ?? true,
+    polish: input.turbo ? false : (input.polish ?? true),
+    turbo: input.turbo || undefined,
+    mechanical: input.mechanical || undefined,
   }
 }
 
@@ -246,6 +254,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
             answers: input.answers?.filter((a) => a.answer).map((a) => ({ question: a.question, answer: a.answer! })),
             language: useI18nStore.getState().language,
             kitBrief: kit ? renderKitBrief(kit) : undefined,
+            turbo: input.turbo,
+            mechanical: input.mechanical,
           },
           plannerModel,
         )

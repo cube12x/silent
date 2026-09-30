@@ -52,6 +52,10 @@ export interface AutostartRequest {
   prompt: string
   kit?: string
   polish?: boolean
+  /** `--turbo`: lean, no polish, effort ≤ medium. */
+  turbo?: boolean
+  /** `--mechanical`: cheapest pool model for mechanical kinds. */
+  mechanical?: boolean
   cost?: string
   /** Restrict the model pool to these refs (provider:model). */
   pool?: string[]

@@ -144,6 +144,10 @@ export interface SilentCodeRun {
   polish?: boolean
   /** User-chosen effort for every task of this run (Blueprint AI box); absent = per-task policy. */
   effort?: Effort
+  /** Turbo: no polish round, effort capped at medium, planner skips review/docs and limits browser work (Faz 3). */
+  turbo?: boolean
+  /** Mechanical: the planner sends tests/docs/translation to the cheapest pool model (Faz 3). */
+  mechanical?: boolean
   actual?: { tokens: number; costUsd: number }
   createdAt: number
   startedAt?: number

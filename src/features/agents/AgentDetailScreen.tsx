@@ -54,6 +54,8 @@ function RunDefaultsEditor({ agent }: { agent: RepoAgent }) {
           </select></label>
       </div>
       <label className="flex items-center gap-2 text-xs text-text-1"><input type="checkbox" checked={draft.polish !== false} onChange={(e) => setDraft({ ...draft, polish: e.target.checked })} />{t("code.polish")}</label>
+      <label className="flex items-center gap-2 text-xs text-text-1"><input type="checkbox" checked={Boolean(draft.turbo)} onChange={(e) => setDraft({ ...draft, turbo: e.target.checked || undefined })} />{t("code.turbo")}</label>
+      <label className="flex items-center gap-2 text-xs text-text-1"><input type="checkbox" checked={Boolean(draft.mechanical)} onChange={(e) => setDraft({ ...draft, mechanical: e.target.checked || undefined })} />{t("code.mechanical")}</label>
       <div>
         <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("code.pool")} · {pool.length || t("common.none")}</div>
         <div className="flex flex-wrap gap-1">
