@@ -361,6 +361,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       return
     }
     for (const step of plan) {
+      try {
       if (step.kind === "ai") {
         const ok = await execAi(id, step.node.id, opts)
         if (!ok) break
@@ -400,6 +401,15 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         if (failed) break
       }
       opts = undefined
+      } catch (e) {
+        // A crash inside one step used to end the chain silently (2026-10-01: nothing ran after a Bölücü). Log it loudly and stop.
+        const msg = e instanceof Error ? (e.stack ?? e.message) : String(e)
+        const nid = step.kind === "parallel" ? step.button.id : step.node.id
+        log(set, nid, `✖ step crashed: ${msg.slice(0, 400)}`)
+        console.error(`[bp] step ${step.kind} crashed on ${nid}: ${msg}`)
+        get().updateNode(id, nid, { status: "failed", note: "crashed (see log)" })
+        break
+      }
     }
   },
   async cancel(id, nodeId) {
