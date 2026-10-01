@@ -18,7 +18,7 @@ import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, re
 import { BUILTIN_KITS } from "@/domain/kits"
 import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydurma"
 import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
-import { effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, verifyLanePrompt, type RefPath } from "@/engine/blueprint/prompt"
+import { defaultTaskForRole, effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, verifyLanePrompt, type RefPath } from "@/engine/blueprint/prompt"
 import { clampEffort } from "@/engine/effort"
 import { isModelRejected } from "@/engine/modelErrors"
 import { handoverBlock } from "@/engine/executor"
@@ -847,7 +847,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     return []
   })
   const purpose = effectivePurpose(role, ai.data.purpose, opts?.purpose)
-  const task = aiTaskText({ purpose, wired, extraPrompt: opts?.extraPrompt, reports })
+  // A Dikiş (stitch) box needs no wired prompt: its task is its policy (2026-10-01: the chain stopped on "no prompt").
+  const task = aiTaskText({ purpose, wired, extraPrompt: opts?.extraPrompt, reports }) || defaultTaskForRole(role)
   if (!task && !fills.length) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no prompt" })
     log(set, aiId, "⚠ wire a prompt into this AI")
@@ -1020,7 +1021,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   const photo = firstOutgoing(bp, aiId, "buildPhoto")
   if (photo) await store.refreshBuild(bpId, photo.id)
   if (ok && outBuild && outBuild.data.type === "build" && (!outBuild.data.description || outBuild.data.title === "build")) {
-    const namer = pickPlannerModel(useProvidersStore.getState().availableModels())
+    const namer = pickPlannerModel(useProvidersStore.getState().availableModels(), dosageWeights(useSettingsStore.getState().settings))
     if (namer) {
       const res = await runSingle(backend, {
         runId: `bp:name:${outBuild.id}:${Date.now()}`,

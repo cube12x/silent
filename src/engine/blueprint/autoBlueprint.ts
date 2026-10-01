@@ -173,7 +173,7 @@ export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
     `User's language: ${ctx.language === "tr" ? "Turkish" : "English"}.`,
     ...(ctx.existing
       ? [
-          `EXISTING BLUEPRINT (modify it, do not start over): return the FULL updated graph. Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
+          `EXISTING BLUEPRINT (modify it, do not start over): return the FULL updated graph — EVERY existing node and wire must come back unless the request explicitly asks to remove it (a node you leave out is deleted). Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
         ]
       : []),
     `User request:\n${ctx.request}`,

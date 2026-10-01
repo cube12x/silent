@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aiTaskText, buildAiPrompt, effectivePurpose, extractReport, isRepoUrl, repoName, verifyLanePrompt } from "./prompt"
+import { aiTaskText, buildAiPrompt, defaultTaskForRole, effectivePurpose, extractReport, isRepoUrl, repoName, verifyLanePrompt } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -153,5 +153,14 @@ describe("Faz 4: Dikiş role and Çoklu Tarayıcı reports", () => {
     expect(t).toContain("Start button does nothing")
     expect(t).not.toContain("EYLEM")
     expect(extractReport("played…\n\n# VERIFY\n- OK")).toMatch(/^# VERIFY/)
+  })
+})
+
+
+describe("role default task", () => {
+  it("a Dikiş box without a wired prompt still has a task", () => {
+    expect(defaultTaskForRole("dikis")).toMatch(/full suite/i)
+    expect(defaultTaskForRole("eylem")).toBe("")
+    expect(aiTaskText({ wired: "" }) || defaultTaskForRole("dikis")).toMatch(/seam/i)
   })
 })

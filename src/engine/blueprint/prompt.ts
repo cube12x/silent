@@ -151,6 +151,11 @@ export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kes
 }
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
+/** Task text a role carries by itself when nothing is wired into the box (Dikiş: its job is fixed by its policy). */
+export function defaultTaskForRole(role: AiPromptInput["role"]): string {
+  return role === "dikis" ? "Stitch the split build in this folder: run the full suite, typecheck and build, close every cross-area seam and missing wiring, then report under # FIXED." : ""
+}
+
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
   return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), verifyBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
