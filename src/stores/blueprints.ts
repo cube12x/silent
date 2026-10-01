@@ -990,7 +990,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
       store.updateNode(bpId, budget.id, { status: "failed", note: `over by ${formatTokens(used - maxTokens)}`, data: { spent: used } })
       log(set, aiId, `⛔ budget: ${formatTokens(used)} > ${formatTokens(maxTokens)}`)
     } else if (budget) store.updateNode(bpId, budget.id, { status: "done", note: undefined, data: { spent: used } })
-    if ((role === "bilinc" || role === "donusturucu" || role === "kesifci" || ai.data.tamirci) && res.text.trim()) {
+    if ((role === "bilinc" || role === "donusturucu" || role === "kesifci" || role === "dikis" || ai.data.tamirci) && res.text.trim()) {
       // The report (from `# FINDINGS` / `# CONVERTED` on) is what the wired next node reads; the commentary before it is dropped.
       const report = extractReport(res.text)
       store.updateNode(bpId, aiId, { data: { report } })
