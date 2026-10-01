@@ -95,7 +95,11 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     }
     // Uydurma wires (ai → stub → ai) are policy markers, not flow: never walk through a stub, or a filler would
     // re-trigger the producer AI (2026-09-29: a Paralel fan-out walked filler → stub → Mimar and re-ran the whole orchestration).
-    const next = outgoing(bp, id).filter((n) => n.type !== "stub")
+    // Context-only wires: a Build → AI wire into a fixer (an AI fed by a check/verify) or into an AI that sits behind a
+    // snapshot/queue only gives that AI its folder — it must not START it. 2026-10-01: one Build hub fanned every
+    // trigger out into every stage's fixers and stitchers (Eylem boxes failed with "no prompt", stages re-ran).
+    const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue")
+    const next = outgoing(bp, id).filter((n) => n.type !== "stub" && !contextOnly(node, n))
     // Paralel buttons first: they are a barrier for everything else hanging off the same node.
     queue.push(...next.filter((n) => isParallel(n)).map((n) => n.id), ...next.filter((n) => !isParallel(n)).map((n) => n.id))
   }

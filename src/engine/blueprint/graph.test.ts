@@ -326,3 +326,22 @@ describe("an AI behind pass-through boxes inherits the project folder", () => {
     expect(composeAiInput(g, "dikis2").buildFolders).toEqual(["/tmp/loki2"]) // a → b is the base fixture's build
   })
 })
+
+
+describe("Build → AI wires into fixers/stitchers are context only", () => {
+  it("a walk through the Build does not start an Eylem fed by a check or a Dikiş behind a snapshot", () => {
+    const g = bp()
+    g.nodes.push(
+      { id: "chk", type: "check", x: 0, y: 0, data: { type: "check", commands: ["npm test"], maxLines: 40, timeoutSecs: 60 } },
+      { id: "fix", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "eylem" } },
+      { id: "snap", type: "snapshot", x: 0, y: 0, data: { type: "snapshot" } },
+      { id: "stitch", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "dikis" } },
+    )
+    // a → b (build). b → chk → fix, and b → fix (context). a → snap → stitch, and b → stitch (context).
+    g.edges.push({ id: "x1", from: "b", to: "chk" }, { id: "x2", from: "chk", to: "fix" }, { id: "x3", from: "b", to: "fix" }, { id: "x4", from: "a", to: "snap" }, { id: "x5", from: "snap", to: "stitch" }, { id: "x6", from: "b", to: "stitch" })
+    const plan = walkPlan(g, "s").map((st) => (st.kind === "parallel" ? "par" : `${st.kind}:${st.node.id}`))
+    expect(plan).not.toContain("ai:fix")
+    expect(plan.filter((p) => p === "ai:stitch")).toHaveLength(1) // reached through the snapshot only
+    expect(plan).toContain("check:chk")
+  })
+})
