@@ -262,3 +262,18 @@ describe("additive edits", () => {
     expect(third.nodes.some((n) => n.id === idOf("K"))).toBe(false)
   })
 })
+
+
+describe("edges may reference existing boxes by title", () => {
+  it("resolves a title to the existing node id", () => {
+    const first = materializeAutoBlueprint(
+      { name: "t", summary: "", nodes: [{ key: "p", type: "prompt", title: "P", text: "x" }, { key: "a", type: "ai", title: "Main AI", modelRef: "codex:gpt-6-astra", mode: "single" }], edges: [{ from: "p", to: "a" }] },
+      TEST_MODELS,
+    )
+    const existing = { id: "bp", name: "t", createdAt: 0, updatedAt: 0, nodes: first.nodes, edges: first.edges }
+    const aiId = first.nodes.find((n) => n.data.type === "ai")!.id
+    const second = materializeAutoBlueprint({ name: "t", summary: "", nodes: [{ key: "bud", type: "budget", title: "Bütçe", maxTokens: 1000 }], edges: [{ from: "bud", to: "Main AI" }] }, TEST_MODELS, existing)
+    const bud = second.nodes.find((n) => n.data.type === "budget")!
+    expect(second.edges.some((e) => e.from === bud.id && e.to === aiId)).toBe(true)
+  })
+})

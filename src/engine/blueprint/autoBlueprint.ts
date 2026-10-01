@@ -176,7 +176,7 @@ export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
     `User's language: ${ctx.language === "tr" ? "Turkish" : "English"}.`,
     ...(ctx.existing
       ? [
-          `EXISTING BLUEPRINT (modify it, do not start over): return the nodes you ADD or CHANGE plus their wires; every existing node you leave out is KEPT unchanged with its wires. To delete an existing node, list its key in the "removed" array (only when the request asks for it). Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
+          `EXISTING BLUEPRINT (modify it, do not start over): return the nodes you ADD or CHANGE plus their wires; every existing node you leave out is KEPT unchanged with its wires. To delete an existing node, list its key in the "removed" array (only when the request asks for it). In edges, reference existing boxes by their exact key (or, if you must, by their exact title). Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
         ]
       : []),
     `User request:\n${ctx.request}`,
@@ -242,7 +242,8 @@ export interface MaterializedBlueprint {
 }
 
 /** Turn the CLI's answer into real nodes/edges: keys → ids, illegal wires dropped, unknown models replaced. */
-export function materializeAutoBlueprint(result: AutoBlueprintResult, models: ProviderModel[], existing?: Blueprint): MaterializedBlueprint {
+export function materializeAutoBlueprint(input: AutoBlueprintResult, models: ProviderModel[], existing?: Blueprint): MaterializedBlueprint {
+  let result = input
   const warnings: string[] = []
   const keep = new Map((existing?.nodes ?? []).map((n) => [n.id, n]))
   const known = new Set(models.map((m) => modelRef(m.providerId, m.id)))
@@ -338,6 +339,15 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
   })
   nodes.push(...untouched)
   const typeOf = new Map<string, BpNodeType>([...result.nodes.map((n) => [n.key, n.type] as [string, BpNodeType]), ...untouched.map((n) => [n.id, n.type] as [string, BpNodeType])])
+  // Designers often reference boxes by title instead of key (2026-10-01: two edits lost every wire to existing boxes).
+  const titleKey = new Map<string, string>()
+  for (const n of result.nodes) if (n.title?.trim()) titleKey.set(n.title.trim().toLowerCase(), n.key)
+  for (const n of untouched) {
+    const t = (n.data as { title?: string }).title?.trim().toLowerCase()
+    if (t && !titleKey.has(t)) titleKey.set(t, n.id)
+  }
+  const resolveKey = (k: string): string => (typeOf.has(k) ? k : (titleKey.get(k.trim().toLowerCase()) ?? k))
+  result = { ...result, edges: result.edges.map((e) => ({ from: resolveKey(e.from), to: resolveKey(e.to) })) }
   const seen = new Set<string>()
   const edges: BpEdge[] = []
   for (const e of result.edges) {
