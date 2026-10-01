@@ -151,7 +151,7 @@ const RULES = `Node types and what they do:
 - verify ("Çoklu Tarayıcı", speed): N browser lanes (field lanes: one screen/flow each) verified IN PARALLEL by modelRef (a browser-capable model); when the lanes find problems, the ai wired after it (role eylem) gets the findings as its work order; when all lanes are OK the chain ends there. Wire build → verify → eylem ai.
 - budget ("Bütçe", cost guard, zero tokens): wire budget → ai; the AI's run is cancelled once it passes maxTokens.
 - stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
-Wiring rules (from → to): prompt→ai|wizard|queue; ai→build|buildPhoto|ai|stub|check|snapshot|verify; build|buildPhoto→prompt|button|ai|variable|check|queue|snapshot|verify; button→ai|build|buildPhoto|prompt|queue|snapshot; variable→wizard|ai; wizard→ai; stub→ai; check→ai; queue→build|ai; snapshot→ai|prompt|queue; verify→ai; budget→ai.
+Wiring rules (from → to): prompt→ai|wizard|queue; ai→build|buildPhoto|ai|stub|check|snapshot|verify; build|buildPhoto→prompt|button|ai|variable|check|queue|snapshot|verify; button→ai|build|buildPhoto|prompt|queue|snapshot; variable→wizard|ai; wizard→ai; stub→ai; check→ai; queue→build|ai; snapshot→ai|prompt|queue|button; verify→ai; budget→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
 Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → a parallel button → follow-up prompts → independent role AIs (visuals, audio, art, text) each wired back into the same Build, and Build → integration prompt → integrator AI (runs after the fan-out); add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
@@ -312,6 +312,13 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
       // prompt whose text came back truncated keeps its full original text.
       const fresh = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== ""))
       if (prev.data.type === "prompt" && data.type === "prompt" && prev.data.text.startsWith(data.text.trim())) delete fresh.text
+      // Defaults are for NEW boxes only: a kept box keeps what the designer did not mention (2026-10-01: an edit
+      // reset a 1.5M Bütçe to the 200k default and would have emptied a Denetçi's commands).
+      if (typeof n.maxTokens !== "number") delete fresh.maxTokens
+      if (!n.commands?.length) delete fresh.commands
+      if (!n.lanes?.length) delete fresh.lanes
+      delete fresh.maxLines
+      delete fresh.timeoutSecs
       return { ...prev, data: { ...prev.data, ...fresh } as BpNodeData }
     }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }

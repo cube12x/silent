@@ -207,8 +207,8 @@ export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
   check: ["ai"],
   // queue → build/ai: what the queued session produced, and what runs after it.
   queue: ["build", "ai"],
-  // snapshot → ai/prompt/queue: the chain continues after the snapshot is taken.
-  snapshot: ["ai", "prompt", "queue"],
+  // snapshot → ai/prompt/queue/button: the chain (or a Paralel fan-out) continues after the snapshot is taken.
+  snapshot: ["ai", "prompt", "queue", "button"],
   // verify → ai: the fixer(s) that run only when the lanes found problems.
   verify: ["ai"],
   // budget → ai: the guarded box.

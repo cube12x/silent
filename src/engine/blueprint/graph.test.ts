@@ -279,6 +279,7 @@ describe("Faz 4 boxes: Sıra (queue), Anlık Görüntü (snapshot), Çoklu Taray
     expect(validateEdge(g, { from: "bud", to: "b" })).toMatch(/no-rule/)
     expect(validateEdge(g, { from: "ver", to: "b" })).toMatch(/no-rule/)
     expect(validateEdge(g, { from: "p", to: "snap" })).toMatch(/no-rule/)
+    expect(validateEdge(g, { from: "snap", to: "s" })).toBeNull() // snapshot → Paralel/Start button
   })
   it("walkPlan: snapshot and queue are their own steps and the walk continues; verify stops before its fixers", () => {
     const g = withBoxes()

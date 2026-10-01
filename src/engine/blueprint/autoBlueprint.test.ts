@@ -214,3 +214,24 @@ describe("turbo / keepSession in auto blueprints", () => {
     expect(buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })).toContain("turbo")
   })
 })
+
+
+describe("edits keep what the designer did not mention", () => {
+  it("a kept Bütçe keeps its limit and a kept Denetçi its commands when the edit omits them", () => {
+    const first = materializeAutoBlueprint(
+      { name: "k", summary: "", nodes: [{ key: "p", type: "prompt", title: "P", text: "x" }, { key: "bud", type: "budget", title: "B", maxTokens: 1500000 }, { key: "a", type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }, { key: "k", type: "check", title: "K", commands: ["npm run lint"] }], edges: [{ from: "p", to: "a" }, { from: "bud", to: "a" }, { from: "a", to: "k" }] },
+      TEST_MODELS,
+    )
+    const existing = { id: "bp", name: "k", createdAt: 0, updatedAt: 0, nodes: first.nodes, edges: first.edges }
+    const keyOf = (title: string) => first.nodes.find((n) => n.data.type !== "button" && (n.data as { title?: string }).title === title)!.id
+    const second = materializeAutoBlueprint(
+      { name: "k", summary: "", nodes: [{ key: keyOf("P"), type: "prompt", title: "P", text: "x" }, { key: keyOf("B"), type: "budget", title: "B" }, { key: keyOf("A"), type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }, { key: keyOf("K"), type: "check", title: "K" }], edges: [{ from: keyOf("P"), to: keyOf("A") }, { from: keyOf("B"), to: keyOf("A") }, { from: keyOf("A"), to: keyOf("K") }] },
+      TEST_MODELS,
+      existing,
+    )
+    const bud = second.nodes.find((n) => n.data.type === "budget")!.data
+    expect(bud.type === "budget" && bud.maxTokens).toBe(1500000)
+    const chk = second.nodes.find((n) => n.data.type === "check")!.data
+    expect(chk.type === "check" && chk.commands).toEqual(["npm run lint"])
+  })
+})
