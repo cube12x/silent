@@ -14,11 +14,22 @@ export interface HostLoad {
 
 export type LoadLevel = "ok" | "high" | "critical"
 
+/**
+ * macOS keeps its swap files allocated, so "swap used %" sits near 90 for hours while load1 is low (2026-10-01:
+ * the cap flapped 1↔2 on 90/91 %). Swap therefore only counts when it is nearly full; CPU load is the main signal.
+ */
 export function loadLevel(h: HostLoad): LoadLevel {
   const cpus = Math.max(1, h.cpus)
-  if (h.load1 > 2 * cpus || (h.swapUsedPct ?? 0) >= 90) return "critical"
-  if (h.load1 > cpus || (h.swapUsedPct ?? 0) >= 70) return "high"
+  if (h.load1 > 2 * cpus || (h.swapUsedPct ?? 0) >= 97) return "critical"
+  if (h.load1 > cpus || (h.swapUsedPct ?? 0) >= 93) return "high"
   return "ok"
+}
+
+/** Hysteresis: a level change needs two consecutive samples, so a 1 % swap wobble does not flip the cap. */
+export function settleLevel(prev: LoadLevel, pending: LoadLevel | undefined, sample: LoadLevel): { level: LoadLevel; pending: LoadLevel | undefined } {
+  if (sample === prev) return { level: prev, pending: undefined }
+  if (pending === sample) return { level: sample, pending: undefined }
+  return { level: prev, pending: sample }
 }
 
 /** How many AI sessions may run concurrently at this load; Infinity = no extra cap beyond the run's own limit. */

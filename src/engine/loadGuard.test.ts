@@ -1,13 +1,25 @@
 import { describe, expect, it } from "vitest"
-import { concurrencyCap, loadLevel, mapWithLimit } from "./loadGuard"
+import { concurrencyCap, loadLevel, mapWithLimit, settleLevel } from "./loadGuard"
 
 describe("load guard (Faz 3)", () => {
   it("classifies host load by CPU count and swap", () => {
     expect(loadLevel({ load1: 3, cpus: 8 })).toBe("ok")
     expect(loadLevel({ load1: 9, cpus: 8 })).toBe("high")
     expect(loadLevel({ load1: 17, cpus: 8 })).toBe("critical")
-    expect(loadLevel({ load1: 1, cpus: 8, swapUsedPct: 75 })).toBe("high")
-    expect(loadLevel({ load1: 1, cpus: 8, swapUsedPct: 95 })).toBe("critical")
+    expect(loadLevel({ load1: 1, cpus: 8, swapUsedPct: 90 })).toBe("ok") // macOS swap sits near 90 % for hours
+    expect(loadLevel({ load1: 1, cpus: 8, swapUsedPct: 94 })).toBe("high")
+    expect(loadLevel({ load1: 1, cpus: 8, swapUsedPct: 98 })).toBe("critical")
+  })
+  it("a level change needs two consecutive samples", () => {
+    let st = settleLevel("ok", undefined, "high")
+    expect(st.level).toBe("ok")
+    st = settleLevel(st.level, st.pending, "high")
+    expect(st.level).toBe("high")
+    st = settleLevel(st.level, st.pending, "ok")
+    expect(st.level).toBe("high")
+    st = settleLevel(st.level, st.pending, "high")
+    expect(st.level).toBe("high")
+    expect(st.pending).toBeUndefined()
   })
   it("caps concurrency to 2 on a busy host and to 1 on a starved one; no cap otherwise", () => {
     expect(concurrencyCap(undefined)).toBe(Infinity)
