@@ -196,8 +196,9 @@ export function parseAutoBlueprint(text: string): AutoBlueprintResult | null {
         .filter((n): n is AutoBlueprintNode => Boolean(n) && typeof n.key === "string" && NODE_TYPES.includes(n.type as BpNodeType))
         .map((n) => ({ ...n, title: typeof n.title === "string" ? n.title : n.key }))
       if (!nodes.length) continue
-      const keys = new Set(nodes.map((n) => n.key))
-      const edges = v.edges.filter((e) => e && typeof e.from === "string" && typeof e.to === "string" && keys.has(e.from) && keys.has(e.to))
+      // Edits reference existing boxes the designer did not re-emit (by key or title): keep every string pair here,
+      // materialize resolves and drops what it cannot (2026-10-01: six wires to existing boxes vanished at parse).
+      const edges = v.edges.filter((e) => e && typeof e.from === "string" && typeof e.to === "string")
       return { name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Blueprint", summary: typeof v.summary === "string" ? v.summary : "", nodes, edges, removed: Array.isArray(v.removed) ? v.removed.filter((k): k is string => typeof k === "string") : undefined }
     } catch {
       /* try the next candidate */

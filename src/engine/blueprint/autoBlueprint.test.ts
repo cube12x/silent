@@ -277,3 +277,11 @@ describe("edges may reference existing boxes by title", () => {
     expect(second.edges.some((e) => e.from === bud.id && e.to === aiId)).toBe(true)
   })
 })
+
+
+describe("parse keeps edges to boxes the designer did not re-emit", () => {
+  it("does not drop an edge whose endpoint is an existing box key", () => {
+    const r = parseAutoBlueprint(JSON.stringify({ name: "x", summary: "", nodes: [{ key: "bud", type: "budget", title: "B", maxTokens: 10 }], edges: [{ from: "bud", to: "n_existing_ai" }] }))
+    expect(r?.edges).toEqual([{ from: "bud", to: "n_existing_ai" }])
+  })
+})
