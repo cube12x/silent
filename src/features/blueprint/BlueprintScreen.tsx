@@ -1,6 +1,6 @@
 import * as React from "react"
 import "@xyflow/react/dist/style.css"
-import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type EdgeChange, type NodeChange, type Edge } from "@xyflow/react"
+import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type NodeChange, type Edge } from "@xyflow/react"
 import { useNavigate, useParams } from "react-router"
 import { cn } from "cn"
 import { Plus, Play, Send, Trash2, FolderOpen, Sparkles, Loader2, Maximize2, Minimize2 } from "lucide-react"
@@ -108,18 +108,17 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
       }
       for (const c of changes) {
         if (c.type === "position" && c.position) updateNode(bpId, c.id, { x: c.position.x, y: c.position.y })
-        else if (c.type === "remove") removeNode(bpId, c.id)
+        // "remove" changes are NOT handled here: React Flow also emits them from its own prop diff (a node missing from
+        // the `nodes` prop for one render), and persisting those deleted two Bütçe boxes during a run (2026-10-01).
+        // User deletions arrive through onNodesDelete / onEdgesDelete only.
         else if (c.type === "select") setSelectedId((cur) => (c.selected ? c.id : cur === c.id ? undefined : cur))
       }
     },
-    [bpId, updateNode, removeNode, doFit],
+    [bpId, updateNode, doFit],
   )
-  const onEdgesChange = React.useCallback(
-    (changes: EdgeChange[]) => {
-      for (const c of changes) if (c.type === "remove") removeEdge(bpId, c.id)
-    },
-    [bpId, removeEdge],
-  )
+  const onNodesDelete = React.useCallback((deleted: BpFlowNode[]) => { for (const n of deleted) removeNode(bpId, n.id) }, [bpId, removeNode])
+  const onEdgesDelete = React.useCallback((deleted: Edge[]) => { for (const e of deleted) removeEdge(bpId, e.id) }, [bpId, removeEdge])
+  const onEdgesChange = React.useCallback((): void => undefined, [])
   const onConnect = React.useCallback(
     (c: Connection) => {
       if (!c.source || !c.target) return
@@ -232,6 +231,8 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
           nodeTypes={NODE_TYPES as never}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodesDelete={onNodesDelete}
+          onEdgesDelete={onEdgesDelete}
           onConnect={onConnect}
           onNodeDoubleClick={(_, n) => {
             // Deferred: the 3rd click of a quad sequence cancels it, so opening a terminal never restarts a finished node.
