@@ -26,6 +26,11 @@ export class TestBackend implements Backend {
   async hostLoad(): Promise<HostLoad> {
     return this.load
   }
+  orphansCancelled = 0
+  async cliCancelOrphans(): Promise<number> {
+    this.orphansCancelled += 1
+    return 0
+  }
   async appInfo(): Promise<AppInfo> {
     return { name: "Silent", version: "test", platform: "test" }
   }

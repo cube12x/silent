@@ -185,6 +185,18 @@ pub enum InstallMethod {
 }
 
 /// Run the provider's install command through a login shell, streaming its output as `stdout` lines.
+/// Webview (re)start: every child the registry still tracks belongs to a page that no longer exists — its events
+/// have no consumer and it only burns quota (2026-10-01: two verification lanes kept playing after a reload under
+/// swap pressure). Flip their cancel flags; returns how many were active.
+#[tauri::command]
+pub async fn cli_cancel_orphans(registry: tauri::State<'_, RunRegistry>) -> Result<usize, String> {
+    let n = registry.cancel_all();
+    if n > 0 {
+        log::warn!("webview restarted with {n} active CLI run(s): cancelled as orphans");
+    }
+    Ok(n)
+}
+
 #[tauri::command]
 pub async fn provider_install(
     app: tauri::AppHandle,

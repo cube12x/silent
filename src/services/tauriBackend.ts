@@ -42,6 +42,9 @@ export class TauriBackend implements Backend {
   hostLoad(): Promise<HostLoad> {
     return invoke<HostLoad>("host_load")
   }
+  cliCancelOrphans(): Promise<number> {
+    return invoke<number>("cli_cancel_orphans")
+  }
 
   providersDetect(): Promise<DetectedProvider[]> {
     return invoke<DetectedProvider[]>("providers_detect")

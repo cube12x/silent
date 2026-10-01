@@ -18,8 +18,17 @@ export function bootstrap(): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  const info = await (await getBackend()).appInfo()
+  const backend = await getBackend()
+  const info = await backend.appInfo()
   initPlatform(info.platform, info.version)
+  // A reloaded webview has no handles for the CLI children the host may still be running: stop them before the
+  // stores mark their nodes/runs interrupted (otherwise they keep burning quota with nobody listening).
+  try {
+    const n = await backend.cliCancelOrphans()
+    if (n > 0) console.warn(`[boot] cancelled ${n} orphaned CLI run(s) left by the previous page`)
+  } catch {
+    /* preview / older host */
+  }
   await useSettingsStore.getState().load()
   useI18nStore.getState().setLanguage(useSettingsStore.getState().settings.language)
   await Promise.all([useAgentsStore.getState().load(), useChatsStore.getState().load(), useRunsStore.getState().load(), useMemoryStore.getState().load()])

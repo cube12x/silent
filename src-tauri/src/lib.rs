@@ -85,6 +85,7 @@ pub fn run() {
             commands::repo::repo_inspect,
             commands::cli::cli_run_start,
             commands::cli::cli_run_cancel,
+            commands::cli::cli_cancel_orphans,
             commands::cli::provider_install,
             commands::cli::provider_login,
             commands::launcher::cli_launcher_status,

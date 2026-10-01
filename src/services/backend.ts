@@ -74,6 +74,8 @@ export interface Backend {
   appInfo(): Promise<AppInfo>
   /** Current host load (1-min load average, CPU count, swap %). */
   hostLoad(): Promise<HostLoad>
+  /** Webview (re)start: cancel every CLI child the host still runs for the previous page; returns the count. */
+  cliCancelOrphans(): Promise<number>
   providersDetect(): Promise<DetectedProvider[]>
   providerModels(providerId: ProviderId): Promise<ProviderModel[]>
   providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
