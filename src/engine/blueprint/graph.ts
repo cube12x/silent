@@ -121,7 +121,23 @@ export function composeAiInput(bp: Blueprint, aiId: string): { prompt: string; b
   }
   const viaPrompt = prompts.flatMap((p) => upstreamBuilds(p.id))
   const viaButton = incoming(bp, aiId).filter((n) => n.type === "button").flatMap((b) => incoming(bp, b.id).filter(isBuild))
-  const folders = Array.from(new Set([...builds, ...viaPrompt, ...viaButton].map((b) => (b.data.type === "build" || b.data.type === "buildPhoto" ? b.data.folderPath : "")).filter(Boolean)))
+  // Pass-through boxes (snapshot, check, verify, queue, button) and upstream AIs: the project an AI wired behind them
+  // works on is the build those boxes sit on. 2026-10-01: a Dikiş wired Bölücü → snapshot → Dikiş got no folder and
+  // ran in a fresh empty build.
+  const passThrough = new Set<BpNodeType>(["snapshot", "check", "verify", "queue", "button", "budget"])
+  const inherited = (id: string, seen = new Set<string>(), depth = 0): BpNode[] => {
+    if (seen.has(id) || depth > 6) return []
+    seen.add(id)
+    const out: BpNode[] = []
+    for (const n of incoming(bp, id)) {
+      if (isBuild(n)) out.push(n)
+      else if (passThrough.has(n.type)) out.push(...inherited(n.id, seen, depth + 1))
+      else if (n.type === "ai") out.push(...outgoing(bp, n.id).filter(isBuild), ...inherited(n.id, seen, depth + 1))
+    }
+    return out
+  }
+  const viaChain = builds.length || viaPrompt.length || viaButton.length ? [] : inherited(aiId)
+  const folders = Array.from(new Set([...builds, ...viaPrompt, ...viaButton, ...viaChain].map((b) => (b.data.type === "build" || b.data.type === "buildPhoto" ? b.data.folderPath : "")).filter(Boolean)))
   const text = prompts.map((p) => (p.data.type === "prompt" ? `${p.data.title ? `# ${p.data.title}\n` : ""}${p.data.text}` : "")).filter(Boolean).join("\n\n")
   // Uydurma: stub → ai makes this AI a placeholder producer; ai → stub makes it the filler.
   const stubs = incoming(bp, aiId).flatMap((n) => (n.data.type === "stub" ? [n.data] : []))

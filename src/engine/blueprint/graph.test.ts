@@ -310,3 +310,19 @@ describe("Faz 4 boxes: Sıra (queue), Anlık Görüntü (snapshot), Çoklu Taray
     expect(lintBlueprint(g2).ver).toEqual(["verify.noLanes"])
   })
 })
+
+
+describe("an AI behind pass-through boxes inherits the project folder", () => {
+  it("Build → snapshot → Dikiş and Bölücü → snapshot → Dikiş both resolve to the build folder", () => {
+    const g = bp()
+    g.nodes.push(
+      { id: "snap", type: "snapshot", x: 0, y: 0, data: { type: "snapshot" } },
+      { id: "dikis", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "dikis" } },
+      { id: "snap2", type: "snapshot", x: 0, y: 0, data: { type: "snapshot" } },
+      { id: "dikis2", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "dikis" } },
+    )
+    g.edges.push({ id: "x1", from: "b", to: "snap" }, { id: "x2", from: "snap", to: "dikis" }, { id: "x3", from: "a", to: "snap2" }, { id: "x4", from: "snap2", to: "dikis2" })
+    expect(composeAiInput(g, "dikis").buildFolders).toEqual(["/tmp/loki2"])
+    expect(composeAiInput(g, "dikis2").buildFolders).toEqual(["/tmp/loki2"]) // a → b is the base fixture's build
+  })
+})
