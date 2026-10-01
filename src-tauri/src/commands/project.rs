@@ -51,6 +51,30 @@ mod tests {
 
 /// Show a folder (or a file's folder) in the OS file browser: Finder, Explorer or the desktop's default handler.
 /// Four quick clicks on a Build box call this so the user can watch what an AI is writing while it runs.
+/// Open an http(s) URL in the system browser. The webview must never navigate to it: a click on a worker's
+/// `http://localhost:5173` link replaced Silent's UI with the dev server's page and there was no way back (2026-10-01).
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Err("only http(s) urls can be opened".into());
+    }
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(u);
+        c
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", u]);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(u);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| format!("could not open {u}: {e}"))
+}
+
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
     let p = PathBuf::from(path.trim());

@@ -14,6 +14,7 @@ pub mod refs;
 pub mod repo;
 pub mod shell;
 pub mod snapshot;
+pub mod sweep;
 pub mod terminal;
 
 #[derive(serde::Serialize)]

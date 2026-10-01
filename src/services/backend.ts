@@ -76,6 +76,8 @@ export interface Backend {
   hostLoad(): Promise<HostLoad>
   /** Webview (re)start: cancel every CLI child the host still runs for the previous page; returns the count. */
   cliCancelOrphans(): Promise<number>
+  /** Kill dev servers and Playwright browsers a worker left running for this project folder; returns the count. */
+  projectSweep(folder: string): Promise<number>
   providersDetect(): Promise<DetectedProvider[]>
   providerModels(providerId: ProviderId): Promise<ProviderModel[]>
   providerInstall(providerId: ProviderId, method: InstallMethod, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
@@ -123,6 +125,8 @@ export interface Backend {
   openExternal(url: string): Promise<void>
   /** Show a folder in Finder / Explorer / the desktop file browser (4 clicks on a Build box). */
   openPath(path: string): Promise<void>
+  /** Open an http(s) link in the system browser (the webview never navigates away from Silent). */
+  openUrl(url: string): Promise<void>
   cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle>
   kv: KvStore
   db: Repositories

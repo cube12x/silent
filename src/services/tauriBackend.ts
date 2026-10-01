@@ -45,6 +45,9 @@ export class TauriBackend implements Backend {
   cliCancelOrphans(): Promise<number> {
     return invoke<number>("cli_cancel_orphans")
   }
+  projectSweep(folder: string): Promise<number> {
+    return invoke<number>("project_sweep", { folder })
+  }
 
   providersDetect(): Promise<DetectedProvider[]> {
     return invoke<DetectedProvider[]>("providers_detect")
@@ -160,6 +163,9 @@ export class TauriBackend implements Backend {
 
   openPath(path: string): Promise<void> {
     return invoke<void>("open_path", { path })
+  }
+  openUrl(url: string): Promise<void> {
+    return invoke<void>("open_url", { url })
   }
 
   async cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {

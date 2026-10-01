@@ -35,6 +35,22 @@ export function AppShell() {
     useHostStore.getState().start()
   }, [])
 
+  // External links open in the system browser. Left to the webview, a click on a worker's `http://localhost:5173`
+  // link navigated Silent's own window to the dev server page with no way back (2026-10-01).
+  React.useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null
+      if (!a) return
+      const href = a.getAttribute("href") ?? ""
+      if (!/^https?:\/\//i.test(href)) return
+      e.preventDefault()
+      e.stopPropagation()
+      void getBackend().then((b) => b.openUrl(href)).catch(() => undefined)
+    }
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [])
+
   // Fresh machine: no CLI found after the first scan → the Setup screen, until completed or skipped.
   React.useEffect(() => {
     if (shouldOpenSetup({ detecting, lastDetectedAt, lastError, installedCount, setupCompletedAt, pathname: location.pathname })) navigate("/setup", { replace: true })

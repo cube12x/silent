@@ -26,6 +26,11 @@ export class TestBackend implements Backend {
   async hostLoad(): Promise<HostLoad> {
     return this.load
   }
+  swept: string[] = []
+  async projectSweep(folder: string): Promise<number> {
+    this.swept.push(folder)
+    return 0
+  }
   orphansCancelled = 0
   async cliCancelOrphans(): Promise<number> {
     this.orphansCancelled += 1
@@ -137,6 +142,10 @@ export class TestBackend implements Backend {
   opened: string[] = []
   async openPath(path: string) {
     this.opened.push(path)
+  }
+  openedUrls: string[] = []
+  async openUrl(url: string) {
+    this.openedUrls.push(url)
   }
   async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
     if (this.preview && _request.runId.startsWith("plan:")) {

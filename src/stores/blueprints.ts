@@ -783,6 +783,9 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
     return { lane, ok: res.ok, text: extractReport(res.text), tokens: res.tokens }
   })
   const tokens = results.reduce((n, r) => n + r.tokens, 0)
+  // Lanes start dev servers and browsers; nothing waits for them once the lane is done.
+  const swept = await backend.projectSweep(cwd).catch(() => 0)
+  if (swept) log(set, nodeId, `🧹 swept ${swept} leftover browser/dev-server process(es)`)
   const findings = results.filter((r) => !r.ok || !/^# VERIFY\s*\n?-\s*OK\s*$/i.test(r.text.trim()))
   const report = ["# VERIFY", ...results.map((r) => `## ${r.lane}\n${r.ok ? r.text.replace(/^# VERIFY\s*/i, "").trim() || "- OK" : `- [high] lane could not be verified (${r.text.slice(0, 200) || "no output"})`}`), ...skipped.map((l) => `## ${l}\n- OK (previous pass)`)].join("\n\n")
   const allOk = findings.length === 0 && !cancelled
@@ -1003,6 +1006,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined
     if (sessionId) store.updateNode(bpId, aiId, { data: { sessionCwd: cwd } })
+    const swept = cwd ? await backend.projectSweep(cwd).catch(() => 0) : 0
+    if (swept) log(set, aiId, `🧹 swept ${swept} leftover browser/dev-server process(es)`)
     if (!ok) log(set, aiId, `✖ ${res.error ?? "failed"}`)
   }
   useBlueprintsStore.setState((s) => {
