@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CliRunRequest, RuntimeEvent } from "@/domain"
-import { CliWorker, isEnvironmentLimit, isModelRejected, type CliRunner } from "./CliWorker"
+import { CliWorker, isEnvironmentLimit, isKilled, isModelRejected, type CliRunner } from "./CliWorker"
 import type { WorkerJob, WorkerSink } from "./Worker"
 
 /** Captures the request the worker hands to the host and completes the run immediately. */
@@ -167,5 +167,27 @@ describe("handover support", () => {
     expect(res.ok).toBe(false)
     expect(res.lastMessage).toContain("next I will add tests")
     expect(res.retryable).toBe(true) // model rejection → the executor hands over instead of retrying
+  })
+})
+
+
+describe("killed from outside (SIGTERM/SIGKILL)", () => {
+  it("exit code 143 resumes the session like a time limit instead of failing the task", async () => {
+    class KilledRunner implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "sessionStarted", data: { sessionId: "s-9" } } as unknown as RuntimeEvent)
+          onEvent({ type: "failed", data: { code: "exit_nonzero", message: "exit_nonzero: process exited with code 143", retryable: false } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 143 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const res = await new CliWorker(new KilledRunner()).start(job(), sink).done
+    expect(res.ok).toBe(false)
+    expect(res.timedOut).toBe(true)
+    expect(res.retryable).toBe(true)
+    expect(isKilled("process exited with code 137")).toBe(true)
+    expect(isKilled("exited with code 1")).toBe(false)
   })
 })

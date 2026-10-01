@@ -41,6 +41,11 @@ export interface CliRunner {
  * The only worker: runs a subtask through a real CLI and maps the normalised RuntimeEvents onto the
  * generic WorkerSink. Sessions are persistent so a timed-out attempt can be resumed instead of restarted.
  */
+/** Exit by SIGTERM (143) or SIGKILL (137): the process was killed from outside, the session is still resumable. */
+export function isKilled(message: string): boolean {
+  return /\bcode (143|137)\b/.test(message)
+}
+
 export class CliWorker implements Worker {
   readonly id = "cli"
   private readonly runner: CliRunner
@@ -156,7 +161,9 @@ export class CliWorker implements Worker {
           sink.log(e.data.line)
           break
         case "failed":
-          if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable || isModelRejected(e.data.message), timedOut: e.data.code === "timeout" }
+          // SIGTERM/SIGKILL from outside (a `pkill claude`, an updater, the OS) is not the model's failure: resume the session
+          // like a time limit instead of failing the task (2026-10-01: two Opus workers died with 143 in the same second).
+          if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable || isModelRejected(e.data.message) || isKilled(e.data.message), timedOut: e.data.code === "timeout" || isKilled(e.data.message) }
           sink.log(`${e.data.code}: ${e.data.message}`, "stderr")
           break
         case "turnCompleted":
@@ -167,7 +174,7 @@ export class CliWorker implements Worker {
           if (cancelled) return resolveDone({ ok: false, summary: "cancelled", error: "cancelled", retryable: false, lastMessage })
           if (question) return resolveDone({ ok: false, blocked: true, question, summary: question, retryable: false, deviations, notes })
           if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes, lastMessage })
-          if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true, lastMessage })
+          if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true, timedOut: e.data.code === 143 || e.data.code === 137, lastMessage })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
           resolveDone({ ok: true, summary, deviations, notes, split: split.length ? split : undefined })
         }
