@@ -27,11 +27,6 @@ export function capabilityOf(model: ProviderModel, kind: SubtaskKind): number {
   return Math.max(0, Math.min(1, base + TIER_BONUS[model.tier]))
 }
 
-/** Relative "price" proxy in [0,1]: frontier tiers cost more; used by economy mode. No real pricing (CLIs bill via subscriptions). */
-export function priceProxy(model: ProviderModel): number {
-  return model.tier === "frontier" ? 1 : model.tier === "strong" ? 0.55 : 0.25
-}
-
 /** Lookup helper shared by router/executor/UI. */
 export class ModelIndex {
   private byRef = new Map<string, ProviderModel>()

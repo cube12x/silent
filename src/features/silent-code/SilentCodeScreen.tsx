@@ -470,6 +470,8 @@ function RunView({ runId }: { runId: string }) {
   const usage = useRunsStore((s) => s.usage[runId])
   const cancel = useRunsStore((s) => s.cancel)
   const split = useRunsStore((s) => s.split)
+  const handover = useRunsStore((s) => s.handover)
+  const unavailableRefs = useProvidersStore((s) => s.unavailable)
   const answer = useRunsStore((s) => s.answer)
   const openDrawer = useUiStore((s) => s.openDrawer)
   const drawer = useUiStore((s) => s.drawer)
@@ -479,6 +481,10 @@ function RunView({ runId }: { runId: string }) {
   const createChat = useChatsStore((s) => s.create)
   const chats = useChatsStore((s) => s.chats)
   const modelLabels = React.useMemo(() => Object.fromEntries(selectAvailableModels(providers).map((m) => [modelRef(m.providerId, m.id), m.displayName])), [providers])
+  const handoverOptions = React.useMemo(() => {
+    const dead = new Set([...unavailableRefs, ...(run ? useRunsStore.getState().deadModels(run.id) : [])])
+    return (run?.modelPool ?? []).filter((ref) => modelLabels[ref] && !dead.has(ref)).map((ref) => ({ ref, label: modelLabels[ref] }))
+  }, [run, unavailableRefs, modelLabels])
   const [now, setNow] = React.useState(() => Date.now())
   React.useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 5000)
@@ -567,7 +573,7 @@ function RunView({ runId }: { runId: string }) {
         <div className="flex flex-col gap-5">
           <section>
             <SectionHeader eyebrow={t("code.workers")} title={t("code.workersHint")} className="mb-3" />
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{run.plan.map((s) => <AgentWorkerCard key={s.id} subtask={s} now={now} selected={drawer?.subtaskId === s.id} kindLabel={labels.kinds[s.kind]} stateLabel={labels.states[s.state]} onOpen={() => openDrawer(run.id, s.id)} onSplit={run.status === "running" ? () => split(run.id, s.id) : undefined} splitLabel={t("code.split")} />)}</div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{run.plan.map((s) => <AgentWorkerCard key={s.id} subtask={s} now={now} selected={drawer?.subtaskId === s.id} kindLabel={labels.kinds[s.kind]} stateLabel={labels.states[s.state]} onOpen={() => openDrawer(run.id, s.id)} onSplit={run.status === "running" ? () => split(run.id, s.id) : undefined} splitLabel={t("code.split")} onHandover={run.status === "running" ? (to) => void handover(run.id, s.id, to) : undefined} handoverOptions={handoverOptions} handoverLabel={t("code.handover")} handoverAutoLabel={t("code.handoverAuto")} />)}</div>
           </section>
           <GlowCard><RouteGraph plan={run.plan} routing={run.routing} labels={modelLabels} kindLabels={labels.kinds} onSelectSubtask={(id) => openDrawer(run.id, id)} selectedSubtaskId={drawer?.subtaskId} /></GlowCard>
         </div>

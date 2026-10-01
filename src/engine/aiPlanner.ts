@@ -27,6 +27,8 @@ export interface AiPlanContext {
   mechanical?: boolean
   /** Lite / Bölücü (Faz 4): only disjoint build tasks; a separate Dikiş step stitches afterwards. */
   lite?: boolean
+  /** Dosage sentence (engine/dosage.ts dosageLine): the user's quota plan per provider. */
+  dosage?: string
 }
 
 export interface PlannerRunner {
@@ -36,11 +38,13 @@ export interface PlannerRunner {
 export const PLANNER_TIMEOUT_SECS = 240
 
 /** Pick the planner model: a strong-tier model from the pool, else the best available. */
-export function pickPlannerModel(models: ProviderModel[]): ProviderModel | undefined {
+export function pickPlannerModel(models: ProviderModel[], weights?: Partial<Record<ProviderModel["providerId"], number>>): ProviderModel | undefined {
   const order = (m: ProviderModel) => (m.tier === "strong" ? 0 : m.tier === "frontier" ? 1 : 2)
+  const w = (m: ProviderModel) => (weights && weights[m.providerId] !== undefined ? weights[m.providerId]! : 1)
   // Only CLIs whose structured planning is verified (Antigravity rejected the schema with INVALID_ARGUMENT, 2026-09-25).
-  const capable = models.filter((m) => providerInfo(m.providerId).capabilities.planner)
-  return [...capable].sort((a, b) => order(a) - order(b) || (a.isDefault ? -1 : 1))[0]
+  const capable = models.filter((m) => providerInfo(m.providerId).capabilities.planner && w(m) > 0)
+  // Dosage: a minimal provider plans only when nothing else can (planning is one short call, so low/medium are fine).
+  return [...capable].sort((a, b) => Number(w(a) <= 0.15) - Number(w(b) <= 0.15) || order(a) - order(b) || (a.isDefault ? -1 : 1))[0]
 }
 
 /** Short, model-family based strengths so the planner can assign tasks sensibly (kept generic and honest). */
@@ -98,6 +102,7 @@ export function buildPlannerPrompt(ctx: AiPlanContext): string {
     "- Each subtask: a concrete title, a precise description another engineer could execute, dependencies by key, weight 1-3, the model tier it deserves (fast for light/mechanical work, strong for normal implementation, frontier only for hard design/algorithms/critical review), and effort.",
     "- `verify`: ONE shell line that checks only that task's own paths from the repository's test layout (e.g. `npx vitest run tests/player && npx tsc --noEmit`); the integration task's line runs the full suite. Workers run exactly this instead of the whole suite.",
     `- MODELS IN THE POOL (choose \`model\` per task from these exact refs; "" lets the router pick by tier):\n${ctx.models.map((m) => `  ${modelRef(m.providerId, m.id)} — ${m.tier} — ${modelStrengths(m)}`).join("\n")}`,
+    ...(ctx.dosage ? [ctx.dosage] : []),
     "- Match each task to the model that is genuinely best at it (architecture and cross-module contracts → the deepest reasoning model; creative visuals, effects, game feel and content → a creative frontier model; solid implementation → strong models; tests/docs → fast models). Prefer a cheaper model when the task is mechanical. Browser-driving tasks must use a Claude model (Codex/Grok sandboxes cannot launch a browser).",
     `- Available tiers in the user's pool: ${tiers.join(", ") || "strong"}. Default policy kind→tier: ${Object.entries(ctx.policy).map(([k, v]) => `${k}=${v}`).join(", ")}. Follow it unless the task clearly needs otherwise; explain in rationale.`,
     "- If anything is ambiguous, or the request asks for something you cannot or should not do (legal, access, missing info), DO NOT decide silently: put it in `questions` (with why, and options when useful). Do not turn such things into `assumptions`.",

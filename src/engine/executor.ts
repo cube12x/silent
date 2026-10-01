@@ -13,6 +13,20 @@ import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "
 
 /** Continuation hint (Faz 3): a long task hands its remaining work back as parallel sub-briefs instead of running alone for another hour. */
 export const SPLIT_HINT = "If more than ~20 min of work remain, do NOT continue alone: reply with `SILENT_SPLIT:` followed by 2–3 independent sub-briefs (one per line, each with its own `Owns:` paths, disjoint from each other), then stop; they will run in parallel as separate tasks."
+/** `# HANDOVER` block shared by orchestration workers and Blueprint single sessions: what the previous model already did. */
+export function handoverBlock(i: { fromModel: string; reason: string; files?: string[]; commands?: string[]; lastMessage?: string }): string {
+  const files = (i.files ?? []).slice(-40)
+  return [
+    "# HANDOVER",
+    `A previous worker (${i.fromModel}) started this task and stopped: ${i.reason.slice(0, 300)}. The repository already contains its work — verify the current state first (git status/diff, run the checks), then continue from there; do not redo what exists and do not revert its files.`,
+    files.length ? `Files it touched:\n${files.map((f) => `- ${f}`).join("\n")}` : "",
+    i.commands?.length ? `Its last commands:\n${i.commands.map((c) => `- ${c}`).join("\n")}` : "",
+    i.lastMessage?.trim() ? `Its last message:\n${i.lastMessage.trim().slice(-1500)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+}
+
 /** Brief for a user-requested split: stop now and hand the rest back. */
 export const SPLIT_BRIEF = "STOP: the user wants the remaining work of this task split. Finish only the edit you are in the middle of (leave the checks green for your paths), then reply with a short summary of what is done so far, followed by `SILENT_SPLIT:` and 2–3 independent sub-briefs for the remaining work (one per line, each with its own `Owns:` paths, disjoint from each other), then `SILENT_DEVIATIONS: none`."
 
@@ -74,6 +88,12 @@ export class Executor {
   private splitRequested = new Set<string>()
   /** Tasks created by a split: they may not split again (depth 1), so a run cannot fan out forever. */
   private splitChildren = new Set<string>()
+  /** Models rejected (quota, limit, no access) during this run: no later subtask starts on them. */
+  private dead = new Set<string>()
+  /** Subtasks the user asked to hand over → target model ref or "auto". */
+  private handoverTo = new Map<string, string>()
+  /** Index into `subtask.commands` where the current attempt started (handover briefs list only that attempt's commands). */
+  private attemptCommandStart = new Map<string, number>()
   private waiters = new Map<string, (answer: string | null) => void>()
   /** Files the run touched so far (worker file events + host scan); the polish reviewer reads their diff instead of replaying everything. */
   private changedFiles: string[] = []
@@ -136,6 +156,31 @@ export class Executor {
     this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: "✂ split requested — stopping this attempt and asking the worker to hand back the remaining work as parallel sub-tasks" } })
     handle.cancel()
     return true
+  }
+
+  /**
+   * Görev aktarımı: stop the running attempt of `subtaskId` and continue it on `toModelId` (or the next model by pool
+   * order) in a fresh session, with a HANDOVER brief describing what the previous worker already did.
+   */
+  requestHandover(subtaskId: string, toModelId?: string): boolean {
+    const subtask = this.subtasks.get(subtaskId)
+    if (!subtask || isTerminalState(subtask.state)) return false
+    const handle = this.handles.get(subtaskId)
+    const waiter = this.waiters.get(subtaskId)
+    if (!handle && !waiter) return false
+    this.handoverTo.set(subtaskId, toModelId ?? "auto")
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ handover requested → ${toModelId ?? "next model"}: stopping this attempt; the next model continues from the repository state` } })
+    if (handle) handle.cancel()
+    else if (waiter) {
+      this.waiters.delete(subtaskId)
+      waiter(null)
+    }
+    return true
+  }
+
+  /** Models this run will not start another attempt on (quota/limit/no access). */
+  get deadModels(): string[] {
+    return Array.from(this.dead)
   }
 
   answer(subtaskId: string, text: string): boolean {
@@ -239,13 +284,23 @@ export class Executor {
     let cause: Attempt["cause"] = "initial"
     const tried: string[] = []
     let attemptNo = 0
+    if (this.dead.has(modelId)) {
+      const alt = nextModel(decision, [], this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true })
+      if (!alt) {
+        this.setState(subtask, "failed", 0, `no usable model: ${modelId} is out of quota`)
+        return
+      }
+      this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ ${modelId} is out of quota in this run — starting on ${alt.modelId}` } })
+      modelId = alt.modelId
+    }
+    let handoverFrom: { modelId: string; reason: string; lastMessage?: string; commandsFrom: number } | undefined
 
     while (!this.cancelled) {
       attemptNo += 1
       let retriesOnModel = 0
       let continuations = 0
       const warm = cause === "initial" ? this.takeWarm(modelId) : undefined
-      let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm)
+      let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm, undefined, cause === "handover" && handoverFrom ? this.handoverBrief(subtask, modelId, handoverFrom) : undefined)
       // A warm session that could not be resumed (expired, CLI refused) costs one fresh attempt, never a model change.
       if (warm && !result.ok && !result.blocked && !result.timedOut) {
         attemptNo += 1
@@ -262,7 +317,11 @@ export class Executor {
         this.setState(subtask, "blocked", subtask.progress)
         this.bus.emit({ type: "subtask.question", runId: this.run.id, subtaskId, question: result.question ?? "", at: this.now() })
         const answer = await new Promise<string | null>((resolve) => this.waiters.set(subtaskId, resolve))
-        if (answer === null) return
+        if (answer === null) {
+          if (!this.handoverTo.has(subtaskId)) return
+          result = { ok: false, summary: "handover", error: "handover requested", retryable: false, lastMessage: result.question }
+          break
+        }
         subtask.answers.push(answer)
         subtask.question = undefined
         this.bus.emit({ type: "subtask.answered", runId: this.run.id, subtaskId, answer, at: this.now() })
@@ -287,6 +346,22 @@ export class Executor {
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: "timeout → continue session", at: this.now() })
         this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `⏱ time limit reached — not a failure: resuming the same session where it left off (continuation ${continuations}/${maxContinuations})` } })
         result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId)
+      }
+      // Görev aktarımı (manual): the user stopped this attempt; continue on the chosen model.
+      const manual = this.handoverTo.get(subtaskId)
+      if (manual !== undefined && !this.cancelled) {
+        this.handoverTo.delete(subtaskId)
+        tried.push(modelId)
+        const target = manual !== "auto" && manual !== modelId ? manual : nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true })?.modelId
+        if (!target) {
+          this.setState(subtask, "failed", subtask.progress, "handover: no other model available")
+          return
+        }
+        handoverFrom = { modelId, reason: "handed over by the user", lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
+        this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId, fromModelId: modelId, toModelId: target, cause: "handover", reason: "handover requested", at: this.now() })
+        modelId = target
+        cause = "handover"
+        continue
       }
       // A model the CLI cannot use (no access, auth, quota) will not start working on the second try: skip straight to the next model.
       const rejected = (r: WorkerResult) => !r.ok && isModelRejected(r.error ?? "")
@@ -316,7 +391,9 @@ export class Executor {
       }
       if (this.cancelled) return
       tried.push(modelId)
-      const next = nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser))
+      const isReject = rejected(result)
+      if (isReject) this.dead.add(modelId)
+      const next = nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: isReject })
       if (result.blocked) {
         // Unanswered after the question budget: leave it blocked so the user can still answer later.
         this.setState(subtask, "failed", subtask.progress, result.question)
@@ -326,10 +403,18 @@ export class Executor {
         this.setState(subtask, "failed", subtask.progress, result.error)
         return
       }
-      this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId, fromModelId: modelId, toModelId: next.modelId, cause: next.cause, reason: result.error ?? "failed", at: this.now() })
+      const nextCause: Attempt["cause"] = isReject ? "handover" : next.cause
+      if (isReject) handoverFrom = { modelId, reason: result.error ?? "quota/limit", lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
+      this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId, fromModelId: modelId, toModelId: next.modelId, cause: nextCause === "handover" ? "handover" : next.cause, reason: result.error ?? "failed", at: this.now() })
       modelId = next.modelId
-      cause = next.cause
+      cause = nextCause
     }
+  }
+
+  /** HANDOVER brief: the normal brief plus what the previous worker already did, so the new model continues instead of restarting. */
+  private handoverBrief(subtask: Subtask, modelId: string, from: { modelId: string; reason: string; lastMessage?: string; commandsFrom: number }): string {
+    const commands = subtask.commands.slice(from.commandsFrom).slice(-5)
+    return `${this.brief(subtask, modelId)}\n\n${handoverBlock({ fromModel: from.modelId, reason: from.reason, files: subtask.files, commands, lastMessage: from.lastMessage })}`
   }
 
   /** Materialize a worker's SILENT_SPLIT: sibling tasks on the same model; whoever depended on the parent now also waits for them. */
@@ -453,6 +538,7 @@ export class Executor {
   private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string, briefOverride?: string) {
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
+    this.attemptCommandStart.set(subtask.id, subtask.commands.length)
     subtask.assignedModelId = modelId
     subtask.lastUpdate = this.now()
     this.bus.emit({ type: "subtask.assigned", runId: this.run.id, subtaskId: subtask.id, modelId, attempt: { ...attempt }, at: this.now() })

@@ -76,6 +76,32 @@ export const BUILTIN_KITS: ExpertKit[] = [
     ],
   },
   {
+    id: "voxel-3d-web",
+    name: { tr: "3D voxel oyun (web, Minecraft tarzı)", en: "3D voxel game (web, Minecraft-style)" },
+    keywords: ["voxel", "minecraft", "küp", "kup", "blok", "block", "chunk", "three.js", "threejs", "three", "3d", "craft", "survival", "madencilik", "mine"],
+    brief: [
+      "Expert kit: Minecraft-style 3D voxel game in the browser. Stack: Vite + TypeScript + three.js (WebGL2), no game engine framework.",
+      "World: chunk-based (16×256×16 or 32×128×32) voxel storage in typed arrays; terrain from layered simplex noise (height, caves, biomes) generated in a Web Worker; chunk meshing in a Worker with face culling (never a cube per block) — greedy meshing where it is cheap; one geometry per chunk, one atlas material; load/unload chunks around the player in a ring; never block the main thread for more than a frame.",
+      "Blocks: a data-driven registry (id, name, textures per face, solid/transparent/light, hardness, drops, tool). Textures: a procedurally generated 16×16 atlas drawn with canvas code at startup (noise + palette per block) — graphics are LOW priority, nothing hand-drawn, no external art; keep the atlas builder pluggable so real textures can replace it later.",
+      "Player: pointer-lock first person, AABB physics against voxels (gravity, jump, swim, sneak), raycast (DDA) block selection with wireframe highlight, break/place with hardness timing, reach 5 blocks. Inventory + 9-slot hotbar + data-driven crafting (2×2 and 3×3 recipes), tools and durability, health/hunger, damage and death/respawn.",
+      "Systems: day/night cycle with sky colour + simple sun light; mobs with simple state machines (wander, chase, attack) spawned by light/biome; save/load worlds to IndexedDB (chunk diffs + player + inventory); menus (title, pause, settings, world list).",
+      "Architecture first: write docs/ARCHITECTURE-BRIEF.md (module map, chunk/world/mesh contracts, worker messages, block registry contract, save format) before features; each feature wires itself into the game loop and the UI; tests with vitest for pure logic (noise, meshing, inventory, crafting, physics), Playwright for a smoke of the real game.",
+      "Process: study the references in .silent/refs first (read SILENT-DIGEST.md, then only the files it points to) and reuse the proven chunk/mesh/worker patterns.",
+    ].join(" "),
+    checklist: [
+      "60 fps with an 8-chunk view distance on an integrated GPU; chunk generation and meshing never stall the main thread",
+      "Face-culled chunk meshes (no per-block cubes), one draw call per chunk, transparent blocks (water, glass, leaves) in a second pass",
+      "Break/place feels right: raycast highlight, hardness timing, drops into the inventory, hotbar selection, crafting works from recipes data",
+      "Day/night, mobs, health/hunger, death/respawn and world save/load all work end to end",
+      "docs/ARCHITECTURE-BRIEF.md exists and matches the code; pure logic covered by vitest; one Playwright smoke plays a new world",
+      "npm run typecheck, test and build pass; the built game opens and plays in a real browser with no console errors",
+    ],
+    references: [
+      { name: "minecraft-threejs", url: "https://github.com/vyse12138/minecraft-threejs", hint: "Three.js + TS Minecraft clone: chunk generation, block placing, player controls, UI." },
+      { name: "minecraft-javascript", url: "https://github.com/dgreenheck/minecraft-javascript", hint: "Three.js voxel tutorial series: world generation with noise, instanced meshing, physics, inventory." },
+    ],
+  },
+  {
     id: "web-app",
     name: { tr: "Web uygulaması (React / Next.js)", en: "Web app (React / Next.js)" },
     keywords: ["web app", "web uygulaması", "next", "react", "dashboard", "saas", "landing", "site", "frontend", "tailwind", "auth", "login"],

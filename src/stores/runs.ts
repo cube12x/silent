@@ -10,6 +10,7 @@ import { renderGatewayBrief } from "@/engine/gateway"
 import { effectivePolicy } from "@/engine/policy"
 import { effortFor } from "@/engine/effort"
 import { useHostStore } from "@/stores/host"
+import { dosageLine, dosageWeights, orderByDosage } from "@/engine/dosage"
 import { pickPlannerModel, requestAiPlan, subtasksFromAiPlan } from "@/engine/aiPlanner"
 import type { AiPlan } from "@/engine/planSchema"
 import { CliWorker, isModelRejected } from "@/engine/workers/CliWorker"
@@ -81,6 +82,10 @@ interface RunsState {
   answer(runId: string, subtaskId: string, text: string): boolean
   /** Görevi böl: stop the running attempt and let the worker hand the rest back as parallel sub-tasks. */
   split(runId: string, subtaskId: string): boolean
+  /** Görev aktarımı: continue the subtask on another model (undefined = next by dosage order). */
+  handover(runId: string, subtaskId: string, toRef?: string): boolean
+  /** Models this run will not start on any more (quota/limit). */
+  deadModels(runId: string): string[]
   cancel(runId: string): void
   /** Bind a working folder to an existing run (older runs may have none); persisted. */
   attachRepo(runId: string, repoPath: string): Promise<void>
@@ -154,7 +159,9 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     // Turbo never thinks above medium: deep reasoning is where the minutes go (2026-09-30 measurement).
     if ((input.turbo || input.lite) && s.effort && EFFORT_RANK[s.effort] > EFFORT_RANK.medium) s.effort = "medium"
   }
-  const routing = routeSubtasks({ subtasks: plan, pool: input.pool, models, costMode: input.costMode, overrides, policy, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined })
+  const weights = dosageWeights(settings)
+  const pool = orderByDosage(input.pool, weights)
+  const routing = routeSubtasks({ subtasks: plan, pool, models, costMode: input.costMode, overrides, policy, preferredModelRef: agent ? modelRef(agent.providerId, agent.modelId) : undefined, weights })
   const title = plan[0]?.title.replace(/^Architecture & task decomposition for /, "") ?? input.prompt
   return {
     id,
@@ -162,7 +169,7 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     prompt: input.prompt,
     repoAgentId: agent?.id,
     repoPath: input.repoPath ?? agent?.repoPath,
-    modelPool: input.pool,
+    modelPool: pool,
     executionMode: input.executionMode,
     costMode: input.costMode,
     effort: input.effort,
@@ -205,6 +212,12 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       }
     })
     set({ runs: runs.map((r) => ({ ...r, plan: r.plan.map((s) => ({ ...s, answers: s.answers ?? [], deviations: s.deviations ?? [] })) })).sort((a, b) => b.createdAt - a.createdAt) })
+    // Persist the remap, or the DB keeps the run "running" forever and every launch repeats it (2026-09-30: four stale runs).
+    const raw = await backend.db.runs.list()
+    for (const r of runs) {
+      const before = raw.find((x) => x.id === r.id)
+      if (before && before.status === "running" && r.status !== "running") await backend.db.runs.upsert(r).catch(() => undefined)
+    }
   },
 
   async attachRepo(runId, repoPath) {
@@ -231,7 +244,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
       const all = useProvidersStore.getState().availableModels()
       const models = all.filter((m) => input.pool.includes(modelRef(m.providerId, m.id)))
       // Workers stay inside the pool; the planner may come from the whole catalog when the pool has no planner-capable CLI.
-      const plannerModel = pickPlannerModel(models.length ? models : all) ?? pickPlannerModel(all)
+      const weights = dosageWeights(settings)
+      const plannerModel = pickPlannerModel(models.length ? models : all, weights) ?? pickPlannerModel(all, weights) ?? pickPlannerModel(all)
       const heuristic = get().draft(input)
       if (!plannerModel) return { run: heuristic, source: "heuristic", error: "no model" }
       const repoPath = input.repoPath ?? agent?.repoPath
@@ -263,6 +277,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
             turbo: input.turbo || input.lite,
             mechanical: input.mechanical,
             lite: input.lite,
+            dosage: dosageLine(settings, models.length ? models : all),
           },
           plannerModel,
         )
@@ -320,7 +335,8 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     }
     const poolModels = useProvidersStore.getState().availableModels().filter((m) => run.modelPool.includes(modelRef(m.providerId, m.id)))
     // The polish reviewer must be able to launch a browser (it play-tests); only then the strongest tier.
-    const polishModel = [...poolModels].sort((a, b) => Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser) || TIER_RANK[b.tier] - TIER_RANK[a.tier])[0]
+    const pw = dosageWeights(useSettingsStore.getState().settings)
+    const polishModel = [...poolModels].filter((m) => pw[m.providerId] > 0).sort((a, b) => Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser) || TIER_RANK[b.tier] - TIER_RANK[a.tier] || pw[b.providerId] - pw[a.providerId])[0]
     const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap(), warmSessions: useSettingsStore.getState().settings.warmSessions !== false })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
@@ -419,6 +435,12 @@ export const useRunsStore = create<RunsState>((set, get) => ({
   },
   split(runId, subtaskId) {
     return get().executors[runId]?.requestSplit(subtaskId) ?? false
+  },
+  handover(runId, subtaskId, toRef) {
+    return get().executors[runId]?.requestHandover(subtaskId, toRef) ?? false
+  },
+  deadModels(runId) {
+    return get().executors[runId]?.deadModels ?? []
   },
   cancel(runId) {
     get().executors[runId]?.cancel()

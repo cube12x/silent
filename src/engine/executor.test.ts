@@ -99,9 +99,9 @@ describe("executor", () => {
     const exec = new Executor(run, () => worker, bus, { maxRetriesPerModel: 1, models: TEST_MODELS })
     expect(await exec.start()).toBe("completed")
     const backend = exec.snapshot.find((s) => s.kind === "backend")!
-    expect(backend.attempts.map((a) => a.cause)).toEqual(["initial", "fallback"])
+    expect(backend.attempts.map((a) => a.cause)).toEqual(["initial", "handover"])
     expect(backend.attempts[1].modelId).not.toBe(backend.attempts[0].modelId)
-    expect(events.some((e) => e.type === "subtask.fallback")).toBe(true)
+    expect(events.some((e) => e.type === "subtask.fallback" && e.cause === "handover")).toBe(true)
   })
 
   it("fails the run and blocks dependents when every model is exhausted", async () => {
@@ -566,5 +566,93 @@ describe("task split (Faz 3)", () => {
     expect(jobs[1].resumeSessionId).toBe("sess-9")
     expect(briefs[1]).toMatch(/SILENT_SPLIT:/)
     expect(exec.snapshot).toHaveLength(3)
+  })
+})
+
+
+describe("task handover (quota/limit → another model continues)", () => {
+  class RejectThenBrief implements Worker {
+    readonly id = "rb"
+    jobs: WorkerJob[] = []
+    private n = 0
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.jobs.push(job)
+      this.n += 1
+      sink.state("coding", 40)
+      sink.command("npm test -- player")
+      sink.file("src/game/player.ts")
+      const first = this.n === 1
+      return {
+        done: Promise.resolve(first ? { ok: false, summary: "failed", error: "You have hit your usage limit for this model (429)", retryable: false, lastMessage: "I implemented the player module and was about to wire input." } : { ok: true, summary: "finished" }),
+        cancel: async () => {},
+      }
+    }
+  }
+  it("a same-tier model takes over with a HANDOVER brief that carries files, commands and the previous worker's last message", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId)).map((r) => ({ ...r, fallbackModelIds: [] }))
+    const worker = new RejectThenBrief()
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS })
+    expect(await exec.start()).toBe("completed")
+    const st = exec.snapshot[0]
+    expect(st.attempts.map((a) => a.cause)).toEqual(["initial", "handover"])
+    expect(st.attempts[1].modelId).not.toBe(st.attempts[0].modelId)
+    const brief = worker.jobs[1].brief
+    expect(brief).toMatch(/# HANDOVER/)
+    expect(brief).toContain("src/game/player.ts")
+    expect(brief).toContain("npm test -- player")
+    expect(brief).toContain("about to wire input")
+    expect(brief).toMatch(/already contains/i)
+    expect(worker.jobs[1].resumeSessionId).toBeUndefined()
+  })
+  it("a dead model is skipped by every later subtask of the run and is never retried", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra", "claude:opus"], "sequential")
+    run.plan = run.plan.filter((s) => s.kind === "backend" || s.kind === "frontend").map((s) => ({ ...s, dependsOn: [] }))
+    run.routing = run.routing.filter((r) => run.plan.some((s) => s.id === r.subtaskId)).map((r) => ({ ...r, primaryModelId: "codex:gpt-6-astra", fallbackModelIds: [] }))
+    const worker = new ScriptedWorker({ backend: ["reject", "ok"], frontend: ["ok"] })
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, maxRetriesPerModel: 2 })
+    expect(await exec.start()).toBe("completed")
+    const backend = exec.snapshot.find((s) => s.kind === "backend")!
+    expect(backend.attempts).toHaveLength(2)
+    expect(backend.attempts.map((a) => a.modelId)).toEqual(["codex:gpt-6-astra", "claude:opus"])
+    const frontend = exec.snapshot.find((s) => s.kind === "frontend")!
+    expect(frontend.attempts[0].modelId).toBe("claude:opus")
+  })
+  it("requestHandover stops the running attempt and continues on the chosen model without resuming a session", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra", "claude:opus", "claude:sonnet"], "sequential")
+    run.plan = run.plan.slice(0, 1).map((s) => ({ ...s, dependsOn: [] }))
+    const jobs: WorkerJob[] = []
+    let n = 0
+    class HangOnce implements Worker {
+      readonly id = "ho"
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        jobs.push(job)
+        n += 1
+        sink.session(`sess-${n}`)
+        if (n === 1) {
+          let resolve!: (r: { ok: false; summary: string; error: string; retryable: false }) => void
+          const done = new Promise<{ ok: false; summary: string; error: string; retryable: false }>((r) => (resolve = r))
+          return { done, cancel: async () => resolve({ ok: false, summary: "cancelled", error: "cancelled", retryable: false }) }
+        }
+        return { done: Promise.resolve({ ok: true, summary: "ok" }), cancel: async () => {} }
+      }
+    }
+    const exec = new Executor(run, () => new HangOnce(), new EventBus(), { models: TEST_MODELS })
+    const finished = exec.start()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(exec.requestHandover(run.plan[0].id, "claude:sonnet")).toBe(true)
+    expect(await finished).toBe("completed")
+    const st = exec.snapshot[0]
+    expect(st.attempts.map((a) => a.cause)).toEqual(["initial", "handover"])
+    expect(jobs[1].modelId).toBe("claude:sonnet")
+    expect(jobs[1].resumeSessionId).toBeUndefined()
+    expect(jobs[1].brief).toMatch(/# HANDOVER/)
   })
 })

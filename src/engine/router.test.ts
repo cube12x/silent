@@ -94,3 +94,33 @@ describe("router (CLI models)", () => {
     expect(off.reason).not.toMatch(/AI planner chose/)
   })
 })
+
+
+describe("nextModel for handovers", () => {
+  it("skips excluded (dead) models and, when lateral, steps to a same-tier pool model instead of only escalating", () => {
+    const plan = planSubtasks({ prompt: "Build the backend API" }, "r")
+    const [decision] = routeSubtasks({ subtasks: plan.filter((s) => s.kind === "backend"), pool: ["codex:gpt-6-astra", "claude:opus", "claude:sonnet"], models: TEST_MODELS, costMode: "balanced" })
+    const d = { ...decision, primaryModelId: "codex:gpt-6-astra", fallbackModelIds: ["claude:sonnet"] }
+    // fallback list first, but never a dead one
+    expect(nextModel(d, ["codex:gpt-6-astra"], ["codex:gpt-6-astra", "claude:opus", "claude:sonnet"], TEST_MODELS, false, { exclude: new Set(["claude:sonnet"]), lateral: true })?.modelId).toBe("claude:opus")
+    // lateral: a same-tier (frontier) model is acceptable even though nothing is "higher"
+    expect(nextModel({ ...d, fallbackModelIds: [] }, ["claude:opus"], ["claude:opus", "codex:gpt-6-astra"], TEST_MODELS, false, { lateral: true })?.modelId).toBe("codex:gpt-6-astra")
+    // without lateral the old escalation-only rule holds
+    expect(nextModel({ ...d, fallbackModelIds: [] }, ["claude:opus"], ["claude:opus", "codex:gpt-6-astra"], TEST_MODELS, false)).toBeNull()
+  })
+})
+
+describe("dosage weights in routing", () => {
+  it("a low-weight provider loses ties and the share, a zero-weight provider is never routed to unless pinned", () => {
+    const plan = planSubtasks({ prompt: "Build the backend API and the frontend dashboard" }, "r").filter((s) => s.kind === "backend" || s.kind === "frontend")
+    const pool = ["codex:gpt-6-astra", "claude:opus"]
+    const plain = routeSubtasks({ subtasks: plan, pool, models: TEST_MODELS, costMode: "balanced" })
+    const weighted = routeSubtasks({ subtasks: plan, pool, models: TEST_MODELS, costMode: "balanced", weights: { codex: 0.15 } })
+    expect(plain.some((d) => d.primaryModelId === "codex:gpt-6-astra")).toBe(true)
+    expect(weighted.every((d) => d.primaryModelId === "claude:opus")).toBe(true)
+    const none = routeSubtasks({ subtasks: plan, pool, models: TEST_MODELS, costMode: "balanced", weights: { codex: 0 } })
+    expect(none.every((d) => d.primaryModelId === "claude:opus" && !d.fallbackModelIds.includes("codex:gpt-6-astra"))).toBe(true)
+    const pinned = routeSubtasks({ subtasks: plan, pool, models: TEST_MODELS, costMode: "balanced", weights: { codex: 0 }, overrides: { backend: "codex:gpt-6-astra" } })
+    expect(pinned.find((d) => d.kind === "backend")?.primaryModelId).toBe("codex:gpt-6-astra")
+  })
+})

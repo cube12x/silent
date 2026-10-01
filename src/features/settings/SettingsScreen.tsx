@@ -5,7 +5,7 @@ import { useSettingsStore } from "@/stores/settings"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
 import { GlowCard, KeyValueList, ModelTag, NeonButton, PageHeader, PermissionToggle, ProviderLogo, SectionHeader, TacticalChip } from "@/design-system"
-import { COST_MODES, PROVIDER_IDS, modelRef, type PermissionKey, type ProviderId, type SubtaskKind } from "@/domain"
+import { COST_MODES, DOSAGE_LEVELS, PROVIDER_IDS, modelRef, type Dosage, type PermissionKey, type ProviderId, type SubtaskKind } from "@/domain"
 import { PROVIDERS } from "@/providers/registry"
 import { TARGET_TIER } from "@/engine/router"
 import { effortFor, timeoutFor } from "@/engine/effort"
@@ -194,6 +194,15 @@ export function SettingsScreen() {
                 <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                   {KINDS.map((k) => (
                     <label key={k} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-ink-2/50 px-3 py-2 text-sm">{t(`code.kinds.${k}` as const)}<Select value={settings.routingOverrides[k] ?? ""} options={[{ value: "", label: t("settings.auto") }, ...modelOptions]} onChange={(v) => void update((s) => ({ ...s, routingOverrides: { ...s.routingOverrides, [k]: v || undefined } }))} className="w-40" /></label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("settings.dosage")}</div>
+                <div className="mb-2 text-[11px] text-text-3">{t("settings.dosageHint")}</div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  {installedIds.map((id) => (
+                    <label key={id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-ink-2/50 px-3 py-2 text-sm"><span className="flex items-center gap-2"><ProviderLogo provider={id} size={12} plain className="!size-4" />{PROVIDERS[id].name}</span><Select value={settings.providerDosage?.[id] ?? "high"} options={DOSAGE_LEVELS.map((l) => ({ value: l, label: t(`settings.dosageLevels.${l}` as const) }))} onChange={(v) => void update((s) => ({ ...s, providerDosage: { ...(s.providerDosage ?? {}), [id]: v as Dosage } }))} className="w-32" /></label>
                   ))}
                 </div>
               </div>

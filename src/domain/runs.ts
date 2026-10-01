@@ -43,7 +43,7 @@ export interface Attempt {
   outcome: "success" | "failure" | "cancelled" | "running"
   error?: string
   /** Why this attempt happened: first try, retry after failure, continuation of a timed-out session, or fallback to another model. */
-  cause: "initial" | "retry" | "continue" | "answer" | "fallback" | "escalation" | "warm"
+  cause: "initial" | "retry" | "continue" | "answer" | "fallback" | "escalation" | "warm" | "handover"
   /** CLI session id, kept so a timed-out attempt can be resumed. */
   sessionId?: string
 }

@@ -225,7 +225,7 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
   if (!bp) return null
   return (
     <div className="relative flex h-full min-h-0 flex-1" onKeyDown={onKeyDown}>
-      <div ref={canvasRef} className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: e.clientX, y: e.clientY, left: e.clientX - r.left, top: e.clientY - r.top }) }} onClick={() => menu && setMenu(null)}>
+      <div ref={canvasRef} className="relative min-h-0 flex-1" onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); const menuH = Math.min(r.height - 8, MENU.length * 34 + 8); setMenu({ x: e.clientX, y: e.clientY, left: Math.min(e.clientX - r.left, Math.max(0, r.width - 216)), top: Math.min(e.clientY - r.top, Math.max(0, r.height - menuH)) }) }} onClick={() => menu && setMenu(null)}>
         <ReactFlow<BpFlowNode>
           nodes={flowNodes}
           edges={flowEdges}
@@ -273,7 +273,7 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
         )}
         {bp.nodes.length === 0 && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-text-3">{t("bp.emptyCanvas")}</div>}
         {menu && (
-          <div className="absolute z-30 w-52 rounded-sm border border-line bg-ink-2 p-1 text-xs shadow-xl" style={{ left: menu.left, top: menu.top }}>
+          <div className="absolute z-30 max-h-[calc(100%-8px)] w-52 overflow-y-auto rounded-sm border border-line bg-ink-2 p-1 text-xs shadow-xl" style={{ left: menu.left, top: menu.top }}>
             {MENU.map((m) => (
               <button
                 key={m.key}
@@ -318,6 +318,8 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
   const unavailable = useProvidersStore((s) => s.unavailable)
   const models = React.useMemo(() => selectAvailableModels(providers, unavailable), [providers, unavailable])
   const patch = (data: Record<string, unknown>) => updateNode(bpId, node.id, { data })
+  const [handoverOpen, setHandoverOpen] = React.useState(false)
+  const [handoverRef, setHandoverRef] = React.useState("")
   const d = node.data
   const pickFolder = async () => {
     const p = await (await getBackend()).pickDirectory()
@@ -330,9 +332,21 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
         <div className="flex gap-1">
           {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
+          {node.type === "ai" && d.type === "ai" && (running || node.status === "failed") && <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen((v) => !v)} title={t("bp.handoverHint")}>↪ {t("bp.handover")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
       </div>
+      {handoverOpen && d.type === "ai" && (
+        <div className="flex flex-col gap-2 rounded-sm border border-line bg-ink-0 p-2 text-xs">
+          <div className="text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("bp.handoverTarget")}</div>
+          <ModelPicker providerId={(parseModelRef(handoverRef || d.modelRef || `${models[0]?.providerId ?? "codex"}:${models[0]?.id ?? ""}`).providerId || "codex") as ProviderId} modelId={parseModelRef(handoverRef || "").modelId} onChange={(p, m) => setHandoverRef(modelRef(p, m))} />
+          <div className="text-[10px] text-text-3">{t("bp.handoverHint")}</div>
+          <div className="flex gap-1">
+            <NeonButton size="sm" disabled={!handoverRef || handoverRef === d.modelRef} onClick={() => { setHandoverOpen(false); void useBlueprintsStore.getState().handover(bpId, node.id, handoverRef) }}>↪ {t("bp.handover")}</NeonButton>
+            <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen(false)}>{t("common.cancel")}</NeonButton>
+          </div>
+        </div>
+      )}
       {d.type === "prompt" && (
         <>
           <Input value={d.title} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.promptTitle")} />
@@ -394,10 +408,10 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
                   <span><span className="block font-medium">{t("bp.keepSession")}</span><span className="block text-[10px] text-text-3">{t("bp.keepSessionHint")}</span></span>
                 </label>
               )}
-              {d.mode !== "single" && (
-                <label className="col-span-2 flex flex-col gap-1 text-text-3">{t("bp.pool")}
+              {(
+                <label className="col-span-2 flex flex-col gap-1 text-text-3">{d.mode === "single" ? t("bp.poolBackup") : t("bp.pool")}
                   <ModelSelectorGrid compact models={models} selected={d.pool ?? []} onToggle={(ref) => patch({ pool: (d.pool ?? []).includes(ref) ? (d.pool ?? []).filter((x) => x !== ref) : [...(d.pool ?? []), ref] })} />
-                  <span className="text-[10px]">{t("bp.poolHint")}</span>
+                  <span className="text-[10px]">{d.mode === "single" ? t("bp.poolBackupHint") : t("bp.poolHint")}</span>
                 </label>
               )}
             </div>

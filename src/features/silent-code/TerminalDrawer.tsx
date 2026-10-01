@@ -103,7 +103,7 @@ export function TerminalDrawer() {
                           <div className="flex items-center gap-2 text-sm">
                             <span className="mono text-text-3">#{a.n}</span>
                             <ModelTag modelRef={a.modelId} size="xs" />
-                            <TacticalChip size="xs" tone={a.cause === "initial" ? "neutral" : a.cause === "retry" ? "warn" : "violet"}>{a.cause}</TacticalChip>
+                            <TacticalChip size="xs" tone={a.cause === "initial" ? "neutral" : a.cause === "retry" ? "warn" : a.cause === "handover" ? "cyan" : "violet"}>{a.cause}</TacticalChip>
                             <TacticalChip size="xs" tone={a.outcome === "success" ? "success" : a.outcome === "failure" ? "danger" : "cyan"} dot pulse={a.outcome === "running"}>{a.outcome}</TacticalChip>
                             <span className="mono ml-auto text-[10px] text-text-3">{a.finishedAt ? formatDuration(a.finishedAt - a.startedAt) : "running"}</span>
                           </div>

@@ -149,3 +149,23 @@ describe("SILENT_SPLIT (Faz 3)", () => {
     expect(res.summary).toBe("done")
   })
 })
+
+
+describe("handover support", () => {
+  it("keeps the agent's last message on failure so the next model can continue", async () => {
+    class LimitRunner implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "Wrote src/a.ts; next I will add tests." } } as unknown as RuntimeEvent)
+          onEvent({ type: "failed", data: { code: "exit", message: "You have hit your usage limit", retryable: false } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 1 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const res = await new CliWorker(new LimitRunner()).start(job(), sink).done
+    expect(res.ok).toBe(false)
+    expect(res.lastMessage).toContain("next I will add tests")
+    expect(res.retryable).toBe(true) // model rejection → the executor hands over instead of retrying
+  })
+})

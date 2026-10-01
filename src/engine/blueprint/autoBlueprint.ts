@@ -94,6 +94,8 @@ export interface AutoBlueprintContext {
   language: "tr" | "en"
   models: ProviderModel[]
   kits: ExpertKit[]
+  /** Dosage sentence (engine/dosage.ts dosageLine). */
+  dosage?: string
   /** "AI ile düzenle": the blueprint to modify (node ids become keys so kept nodes survive); absent = design a new one. */
   existing?: Blueprint
 }
@@ -161,6 +163,7 @@ export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
     "You design a Silent Blueprint: a node graph where AI CLIs build a project through wired boxes. Return ONLY the JSON object required by the schema.",
     RULES,
     `Model catalog (installed CLIs):\n${catalog}`,
+    ...(ctx.dosage ? [ctx.dosage] : []),
     `Expert kits (kitId for AI nodes; reference repos are cloned for workers):\n${kits}`,
     `User's language: ${ctx.language === "tr" ? "Turkish" : "English"}.`,
     ...(ctx.existing

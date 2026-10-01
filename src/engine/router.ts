@@ -4,6 +4,8 @@ import { ModelIndex, TIER_RANK, capabilityOf } from "./capabilities"
 import { providerInfo } from "@/providers/registry"
 
 export interface RouteInput {
+  /** Dosage weights per provider (0..1); 0 = only when pinned by override/hint. */
+  weights?: Partial<Record<ProviderModel["providerId"], number>>
   subtasks: Subtask[]
   /** Enabled model pool as ModelRefs. Routing never picks outside this pool. */
   pool: string[]
@@ -60,16 +62,21 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
     // A pool without any browser-capable CLI (e.g. a Blueprint node pinned to Astra) still gets its browser task
     // done: escalate to a browser-capable model from the catalog rather than sending it into a sandbox that cannot.
     const catalogBrowser = browserOk.length ? browserOk : input.models.filter((m) => providerInfo(m.providerId).capabilities.browser)
-    const candidates = subtask.needsBrowser && catalogBrowser.length ? catalogBrowser : poolModels
+    const weightOf = (m: ProviderModel) => (input.weights && input.weights[m.providerId] !== undefined ? input.weights[m.providerId]! : 1)
+    const pinned = override ?? (input.honourHints !== false ? subtask.modelHint : undefined)
+    const all = subtask.needsBrowser && catalogBrowser.length ? catalogBrowser : poolModels
+    // Dosage: a none-level provider only runs when pinned by hand/planner; lower levels lose score and share.
+    const candidates = all.filter((m) => weightOf(m) > 0 || modelRef(m.providerId, m.id) === pinned)
     const ranked = candidates
       .map((model) => {
         const ref = modelRef(model.providerId, model.id)
         let score = scoreModel(model, subtask.kind, input.costMode, subtask.tierHint ?? input.policy?.[subtask.kind])
         if (input.preferredModelRef === ref) score += 0.03
+        score -= (1 - Math.min(1, weightOf(model))) * 0.25
         return { model, ref, score }
       })
-      // Equal scores: prefer the model with fewer assignments so a cheap pool shares the work.
-      .sort((a, b) => b.score - a.score || (assigned.get(a.ref) ?? 0) - (assigned.get(b.ref) ?? 0))
+      // Equal scores: prefer the model with fewer assignments (weighted by dosage) so a cheap pool shares the work.
+      .sort((a, b) => b.score - a.score || (assigned.get(a.ref) ?? 0) / Math.max(0.05, weightOf(a.model)) - (assigned.get(b.ref) ?? 0) / Math.max(0.05, weightOf(b.model)))
 
     let primary = ranked[0]
     let usedOverride = false
@@ -98,18 +105,24 @@ export function routeSubtasks(input: RouteInput): RoutingDecision[] {
   })
 }
 
-/** Next model to try after failures: remaining fallbacks, then escalation to a higher tier in the pool. */
-export function nextModel(decision: RoutingDecision, tried: string[], pool: string[], models: ProviderModel[], needsBrowser = false): { modelId: string; cause: "fallback" | "escalation" } | null {
+/**
+ * Next model to try after failures: remaining fallbacks, then escalation to a higher tier in the pool.
+ * `exclude` = models dead for this run (quota/limit); `lateral` (handover) also accepts same/lower-tier pool models,
+ * in pool order (the caller orders the pool by the user's dosage).
+ */
+export function nextModel(decision: RoutingDecision, tried: string[], pool: string[], models: ProviderModel[], needsBrowser = false, opts?: { exclude?: Set<string>; lateral?: boolean }): { modelId: string; cause: "fallback" | "escalation" } | null {
   const index = new ModelIndex(models)
+  const dead = opts?.exclude ?? new Set<string>()
+  const tried2 = [...tried, ...dead]
   // A browser-driving task must stay on CLIs whose sandbox can launch one (2026-09-25: a play-test task
   // escalated to Codex after three Claude sessions and could not open Chromium).
   const allowed = (ref: string) => !needsBrowser || providerInfo((index.get(ref)?.providerId ?? ref.split(":")[0]) as ProviderModel["providerId"]).capabilities.browser
-  const fb = decision.fallbackModelIds.find((id) => !tried.includes(id) && allowed(id))
+  const fb = decision.fallbackModelIds.find((id) => !tried2.includes(id) && allowed(id))
   if (fb) return { modelId: fb, cause: "fallback" }
   const highest = Math.max(-1, ...tried.map((ref) => TIER_RANK[index.get(ref)?.tier ?? "fast"]))
-  const escalation = pool
-    .map((ref) => ({ ref, model: index.get(ref) }))
-    .filter((x): x is { ref: string; model: ProviderModel } => Boolean(x.model) && !tried.includes(x.ref) && allowed(x.ref) && TIER_RANK[x.model!.tier] > highest)
-    .sort((a, b) => TIER_RANK[b.model.tier] - TIER_RANK[a.model.tier])[0]
-  return escalation ? { modelId: escalation.ref, cause: "escalation" } : null
+  const candidates = pool.map((ref) => ({ ref, model: index.get(ref) })).filter((x): x is { ref: string; model: ProviderModel } => Boolean(x.model) && !tried2.includes(x.ref) && allowed(x.ref))
+  const escalation = candidates.filter((x) => TIER_RANK[x.model.tier] > highest).sort((a, b) => TIER_RANK[b.model.tier] - TIER_RANK[a.model.tier])[0]
+  if (escalation) return { modelId: escalation.ref, cause: "escalation" }
+  if (opts?.lateral && candidates[0]) return { modelId: candidates[0].ref, cause: "fallback" }
+  return null
 }

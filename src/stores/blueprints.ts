@@ -20,6 +20,9 @@ import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydur
 import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
 import { effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, verifyLanePrompt, type RefPath } from "@/engine/blueprint/prompt"
 import { clampEffort } from "@/engine/effort"
+import { isModelRejected } from "@/engine/modelErrors"
+import { handoverBlock } from "@/engine/executor"
+import { dosageWeights, orderByDosage, pickHandoverTarget } from "@/engine/dosage"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -50,7 +53,7 @@ interface BlueprintsState {
   addEdge(id: string, from: string, to: string): string | null
   removeEdge(id: string, edgeId: string): void
   /** Execute from a node forward (Start/Enter): every AI reachable through wires, in order. */
-  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean }): Promise<void>
+  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string }): Promise<void>
   cancel(id: string, nodeId: string): Promise<void>
   /** Send button: copy the wired build's files into the wired targets. */
   send(id: string, buttonId: string): Promise<void>
@@ -60,6 +63,8 @@ interface BlueprintsState {
   answer(id: string, nodeId: string, text: string): number
   /** Anlık Görüntü "Geri al": restore the wired folder to the node's last snapshot. */
   restoreSnapshot(id: string, nodeId: string): Promise<boolean>
+  /** Görev aktarımı for a box: stop it (if running) and continue on `toRef` from the folder's current state. */
+  handover(id: string, nodeId: string, toRef: string): Promise<void>
   /** "AI ile oluştur": a planner-capable CLI (Claude first) designs a whole blueprint from a description. */
   autoCreate(description: string): Promise<Blueprint>
   /** "AI ile düzenle": the designer modifies the active blueprint in place (kept nodes keep ids and history). */
@@ -397,6 +402,18 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const stop = get().running[nodeId]
     if (stop) await stop()
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
+  },
+  async handover(id, nodeId, toRef) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!node || node.data.type !== "ai") return
+    const from = node.data.modelRef
+    const tail = (get().logs[nodeId] ?? []).filter((l) => l.stream === "stdout").slice(-12).map((l) => l.text).join("\n").slice(-1500)
+    const stop = get().running[nodeId]
+    if (stop) await stop()
+    log(set, nodeId, `↪ handover ${from} → ${toRef} (requested by the user)`)
+    const extra = handoverBlock({ fromModel: from, reason: "handed over by the user", lastMessage: tail || undefined })
+    await get().run(id, nodeId, { only: true, modelRef: toRef, extraPrompt: extra })
   },
   async restoreSnapshot(id, nodeId) {
     const bp = get().byId(id)
@@ -797,14 +814,15 @@ function addTokens(bpId: string, nodeId: string, delta: number) {
   )
 }
 
-async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean }): Promise<boolean> {
+async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean; /** Görev aktarımı: run on this model instead of the box's own (the box keeps its setting). */ modelRef?: string }): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   let bp = store.byId(bpId)
   const ai = bp && nodeById(bp, aiId)
   if (!bp || !ai || ai.data.type !== "ai") return false
-  const mainRef = ai.data.modelRef || ai.data.pool?.[0] || ""
-  const poolRefs = Array.from(new Set([mainRef, ...(ai.data.pool ?? [])].filter(Boolean)))
+  const mainRef = opts?.modelRef || ai.data.modelRef || ai.data.pool?.[0] || ""
+  const dosage = dosageWeights(useSettingsStore.getState().settings)
+  const poolRefs = Array.from(new Set([mainRef, ...orderByDosage(ai.data.pool ?? [], dosage)].filter(Boolean)))
   if (!mainRef) {
     store.updateNode(bpId, aiId, { status: "failed", note: "no model" })
     return false
@@ -932,13 +950,35 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     used = (final?.plan ?? []).reduce((n, st) => n + (st.tokens ?? 0), 0)
     if (final?.report?.polishScore !== undefined) log(set, aiId, `polish ${final.report.polishScore}/10`)
   } else {
-    const handle = runSingle(
-      backend,
-      { runId: `bp:${aiId}:${Date.now()}`, modelRef: mainRef, prompt: role === "bilinc" || role === "donusturucu" || role === "kesifci" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: opts?.resume || ai.data.keepSession ? sessionId : undefined, effort: clampEffort(parseModelRef(mainRef).providerId as ProviderId, ai.data.effort) },
-      (line, stream) => log(set, aiId, line, stream),
-    )
+    const keepSession = Boolean(ai.data.keepSession)
+    const boxEffort = ai.data.effort
+    const singlePrompt = role === "bilinc" || role === "donusturucu" || role === "kesifci" ? prompt : `${prompt}\n\nWhen done, reply with a concise summary of what you produced.`
+    const startSingle = (ref: string, extra?: string) =>
+      runSingle(
+        backend,
+        { runId: `bp:${aiId}:${Date.now()}`, modelRef: ref, prompt: extra ? `${singlePrompt}\n\n${extra}` : singlePrompt, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: !extra && (opts?.resume || keepSession) ? sessionId : undefined, effort: clampEffort(parseModelRef(ref).providerId as ProviderId, boxEffort) },
+        (line, stream) => log(set, aiId, line, stream),
+      )
+    let handle = startSingle(mainRef)
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
-    const res = await handle.done
+    let res = await handle.done
+    let usedRef = mainRef
+    // Görev aktarımı: a dead quota/limit hands the session to the next backup model (dosage order), once.
+    if (!res.ok && res.error && res.error !== "cancelled" && isModelRejected(res.error)) {
+      useProvidersStore.getState().markUnavailable(mainRef, res.error)
+      const target = pickHandoverTarget({ current: mainRef, pool: ai.data.pool ?? [], unavailable: useProvidersStore.getState().unavailable, weights: dosage, fallbackRef: useSettingsStore.getState().settings.fallbackModelRef })
+      if (target) {
+        log(set, aiId, `↪ handover ${mainRef} → ${target} (${res.error.slice(0, 80)})`)
+        const extra = handoverBlock({ fromModel: mainRef, reason: res.error, lastMessage: res.text.trim().slice(-1500) || undefined })
+        handle = startSingle(target, extra)
+        useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
+        const first = res
+        res = await handle.done
+        res = { ...res, tokens: res.tokens + first.tokens }
+        usedRef = target
+      } else log(set, aiId, `✖ ${mainRef} rejected (${res.error.slice(0, 80)}) and no backup model is left — wire backup models into the box or set a fallback model in Settings`)
+    }
+    void usedRef
     ok = res.ok
     used = res.tokens
     if (maxTokens && budget && used > maxTokens) {

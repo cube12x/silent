@@ -7,7 +7,7 @@ export type RunEvent =
   | { type: "subtask.state"; runId: string; subtaskId: string; state: WorkerState; progress?: number; at: number }
   | { type: "subtask.assigned"; runId: string; subtaskId: string; modelId: string; attempt: Attempt; at: number }
   | { type: "subtask.retry"; runId: string; subtaskId: string; modelId: string; attempt: number; reason: string; at: number }
-  | { type: "subtask.fallback"; runId: string; subtaskId: string; fromModelId: string; toModelId: string; cause: "fallback" | "escalation"; reason: string; at: number }
+  | { type: "subtask.fallback"; runId: string; subtaskId: string; fromModelId: string; toModelId: string; cause: "fallback" | "escalation" | "handover"; reason: string; at: number }
   | { type: "subtask.summary"; runId: string; subtaskId: string; summary: string; at: number }
   | { type: "subtask.question"; runId: string; subtaskId: string; question: string; at: number }
   | { type: "subtask.answered"; runId: string; subtaskId: string; answer: string; at: number }

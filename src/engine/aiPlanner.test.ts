@@ -146,3 +146,11 @@ describe("Lite (Bölücü) planning (Faz 4)", () => {
     expect(p).toMatch(/no review, tests, docs or integration task/i)
   })
 })
+
+describe("dosage in the planner prompt", () => {
+  it("tells the planner the user's quota plan", () => {
+    const ctx = { prompt: "x", models: TEST_MODELS, policy: { architecture: "frontier", backend: "strong", frontend: "strong", algorithm: "frontier", tests: "fast", review: "frontier", integration: "strong", docs: "fast" }, language: "tr" } as Parameters<typeof buildPlannerPrompt>[0]
+    expect(buildPlannerPrompt(ctx)).not.toMatch(/MODEL DOSAGE/)
+    expect(buildPlannerPrompt({ ...ctx, dosage: "MODEL DOSAGE: codex: minimal" })).toMatch(/MODEL DOSAGE: codex: minimal/)
+  })
+})

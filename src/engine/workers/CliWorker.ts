@@ -163,10 +163,11 @@ export class CliWorker implements Worker {
           sink.state("reviewing", 96)
           break
         case "exited": {
-          if (cancelled) return resolveDone({ ok: false, summary: "cancelled", error: "cancelled", retryable: false })
+          const lastMessage = messages.filter(Boolean).at(-1)?.trim().slice(-1500) || undefined
+          if (cancelled) return resolveDone({ ok: false, summary: "cancelled", error: "cancelled", retryable: false, lastMessage })
           if (question) return resolveDone({ ok: false, blocked: true, question, summary: question, retryable: false, deviations, notes })
-          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes })
-          if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true })
+          if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes, lastMessage })
+          if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true, lastMessage })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
           resolveDone({ ok: true, summary, deviations, notes, split: split.length ? split : undefined })
         }

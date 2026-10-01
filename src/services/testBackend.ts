@@ -143,7 +143,15 @@ export class TestBackend implements Backend {
       })
       return { cancel: async () => {} }
     }
-    if (this.preview) throw new Error("Browser preview: CLIs only run inside the Silent desktop app.")
+    if (this.preview) {
+      // Dev preview: a short canned session so every Blueprint box (single AI, queue, verify, wizard, naming) can be clicked through without a CLI.
+      queueMicrotask(() => {
+        onEvent({ type: "sessionStarted", data: { sessionId: `preview-${Date.now().toString(36)}` } } as RuntimeEvent)
+        onEvent({ type: "agentMessage", data: { text: "Preview session: nothing is executed in the browser.\n\n# FINDINGS\n- preview only\n\n# VERIFY\n- OK\n\nNAME: Preview\nSUMMARY: Preview build.\n\nSILENT_DEVIATIONS: none" } } as RuntimeEvent)
+        onEvent({ type: "exited", data: { code: 0 } } as RuntimeEvent)
+      })
+      return { cancel: async () => {} }
+    }
     let cancelled = false
     queueMicrotask(() => {
       for (const e of this.transcript) if (!cancelled) onEvent(e)

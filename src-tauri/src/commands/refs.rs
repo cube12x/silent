@@ -100,7 +100,8 @@ pub async fn refs_sync(repo_path: String, refs: Vec<RefSpec>) -> Result<Vec<RefR
         let git = super::binaries::resolve("git").unwrap_or_else(|| "git".into());
         let mut clone = Command::new(git);
         clone
-            .args(["clone", "--depth", "1", "--single-branch", "--quiet", &r.url, &path])
+            // Partial clone: blobs above 1 MB (bundled binaries, videos, model files) are not fetched — a shallow Excalibur clone was 778 MB (2026-09-24).
+            .args(["clone", "--depth", "1", "--single-branch", "--filter=blob:limit=1m", "--quiet", &r.url, &path])
             .env("PATH", super::binaries::augmented_path())
             .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(Stdio::null());

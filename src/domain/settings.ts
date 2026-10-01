@@ -41,7 +41,11 @@ export interface Settings {
   }
   /** Warm sessions (Faz 3): a new orchestration task resumes the previous task's finished session on the same model (default on; ceiling 120k tokens per session). */
   warmSessions?: boolean
+  /** Model dosage (2026-10-01): how much of each CLI's quota Silent may use; routing, planning and handover order follow it. Missing = high. */
+  providerDosage?: Partial<Record<ProviderId, Dosage>>
 }
+export type Dosage = "none" | "minimal" | "low" | "medium" | "high"
+export const DOSAGE_LEVELS: Dosage[] = ["none", "minimal", "low", "medium", "high"]
 
 export const DEFAULT_SETTINGS: Settings = {
   language: "tr",

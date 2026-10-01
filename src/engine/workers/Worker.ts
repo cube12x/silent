@@ -44,6 +44,8 @@ export interface WorkerResult {
   notes?: string[]
   /** `SILENT_SPLIT:` sub-briefs: the worker stopped and asks the executor to run these as sibling tasks (Faz 3). */
   split?: string[]
+  /** The agent's last message when the attempt failed (quota, cancel, crash): the next model continues from it (handover). */
+  lastMessage?: string
 }
 
 export interface WorkerHandle {

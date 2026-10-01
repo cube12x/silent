@@ -7,6 +7,6 @@
 export function isModelRejected(message: string): boolean {
   return (
     /model.{0,40}(is not supported|not supported|unsupported|not available|unavailable|does not exist|unknown model|invalid model)|unsupported model|invalid_model|model_not_found/i.test(message) ||
-    /auth_error|authentication (failed|error)|unauthori[sz]ed|not authenticated|(does not|doesn't|do not) have access|no access to|not entitled|insufficient[_ ]quota|quota exceeded|resource[_ ]exhausted|rate[ _-]?limit|\b(401|403|429)\b|upgrade (to|your) .{0,30}plan/i.test(message)
+    /auth_error|authentication (failed|error)|unauthori[sz]ed|not authenticated|(does not|doesn't|do not) have access|no access to|not entitled|insufficient[_ ]quota|quota exceeded|exceeded your (current )?quota|usage limit|limit reached|too many requests|out of credits|no credits|resource[_ ]exhausted|rate[ _-]?limit|\b(401|403|429)\b|upgrade (to|your) .{0,30}plan/i.test(message)
   )
 }
