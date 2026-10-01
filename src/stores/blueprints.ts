@@ -364,21 +364,24 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       if (step.kind === "ai") {
         const ok = await execAi(id, step.node.id, opts)
         if (!ok) break
-      } else if (step.kind === "check") {
-        // Denetçi: no model. Green → the chain goes on; red → the wired fixer AIs get the report and the chain stops here.
-        const ok = await execCheck(id, step.node.id)
+      } else if (step.kind === "check" || step.kind === "verify") {
+        // Denetçi / Çoklu Tarayıcı: green → the chain goes on. Red → the wired fixer AIs get the report, then the
+        // check runs ONCE more: green → the chain continues (self-healing, 2026-10-01); still red → the chain stops.
+        const exec = step.kind === "check" ? execCheck : execVerify
+        let ok = await exec(id, step.node.id)
         if (!ok) {
           const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
-          for (const f of fixers) await execAi(id, f.id, { ...opts, parallel: false })
-          break
-        }
-      } else if (step.kind === "verify") {
-        // Çoklu Tarayıcı: lanes in parallel; findings → the wired fixer AIs, then the chain stops here.
-        const ok = await execVerify(id, step.node.id)
-        if (!ok) {
-          const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
-          for (const f of fixers) await execAi(id, f.id, { ...opts, parallel: false })
-          break
+          if (!fixers.length) break
+          for (const f of fixers) {
+            try {
+              await execAi(id, f.id, { ...opts, parallel: false })
+            } catch (e) {
+              log(set, f.id, `✖ fixer crashed: ${e instanceof Error ? e.message : String(e)}`)
+            }
+          }
+          log(set, step.node.id, "↻ re-checking after the fixer")
+          ok = await exec(id, step.node.id)
+          if (!ok) break
         }
       } else if (step.kind === "snapshot") {
         if (!(await execSnapshot(id, step.node.id))) break

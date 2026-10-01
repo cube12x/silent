@@ -199,3 +199,18 @@ describe("Faz 4 boxes in auto blueprints", () => {
     for (const word of ["queue", "snapshot", "verify", "budget", "dikis", "lite"]) expect(p).toContain(word)
   })
 })
+
+
+describe("turbo / keepSession in auto blueprints", () => {
+  it("materializes the box flags", () => {
+    const res = materializeAutoBlueprint(
+      { name: "t", summary: "", nodes: [{ key: "p", type: "prompt", title: "P", text: "x" }, { key: "a", type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "orchestration", turbo: true }, { key: "s", type: "ai", title: "S", modelRef: "codex:gpt-6-astra", mode: "single", keepSession: true }], edges: [{ from: "p", to: "a" }, { from: "p", to: "s" }] },
+      TEST_MODELS,
+    )
+    const a = res.nodes.find((n) => n.data.type === "ai" && n.data.title === "A")!.data
+    const s = res.nodes.find((n) => n.data.type === "ai" && n.data.title === "S")!.data
+    expect(a.type === "ai" && a.turbo).toBe(true)
+    expect(s.type === "ai" && s.keepSession).toBe(true)
+    expect(buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })).toContain("turbo")
+  })
+})

@@ -39,6 +39,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           instructions: { type: "string", description: "ai: base instructions prepended to every run (persona, standing rules)" },
           role: { type: "string", enum: ["bilinc", "eylem", "donusturucu", "kesifci", "dikis"], description: "ai: bilinc = read-only investigator that writes a report; eylem = applies the wired bilinc reports; donusturucu = converts wired assets (images/audio) into the format the next AI needs; kesifci = cheap read-only scout whose RECON report the next AI works from; dikis = stitch step after a lite/Bölücü build: full suite + cross-area seams, no features" },
           effort: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "ai: reasoning effort the run starts with (omit for Silent's per-task policy)" },
+          turbo: { type: "boolean", description: "ai: Turbo — no polish round, effort ≤ medium, lean plan (fastest run)" },
+          keepSession: { type: "boolean", description: "ai (single mode): every run resumes the box's last CLI session" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
           modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
@@ -81,6 +83,8 @@ export interface AutoBlueprintNode {
   commands?: string[]
   lanes?: string[]
   maxTokens?: number
+  turbo?: boolean
+  keepSession?: boolean
 }
 export interface AutoBlueprintResult {
   name: string
@@ -140,6 +144,7 @@ const RULES = `Node types and what they do:
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
 - check ("Denetçi", zero tokens): runs the project's own commands (typecheck, tests, build; field commands, empty = defaults) in the wired folder WITHOUT a model; when green the chain simply ends there, when red its report becomes the work order of the ai wired after it (a cheap single-mode fixer, role eylem). Wire ai → check → ai after every build stage instead of asking a model to verify.
 - ai role kesifci ("Keşifçi", cost saver): a cheap read-only scout (fast model, single mode) that writes a RECON report of exactly which files/lines the next AI must touch; wire prompt → kesifci ai → expensive ai so the expensive model edits instead of re-scanning the repository.
+- ai field turbo (speed): set turbo: true on orchestration boxes when the user wants the fastest run (no polish round, effort ≤ medium, lean plan); field keepSession: true on a single-mode box that is re-run many times on the same project (its CLI session is resumed, files stay in context).
 - ai mode lite ("Bölücü", speed): an orchestration that plans ONLY disjoint build tasks (one per area, Turbo, no review/tests/integration) — the fastest way to build several independent systems; ALWAYS wire its Build into a single-mode ai with role dikis ("Dikiş": full suite + cross-area seams, no features).
 - queue ("Sıra", cost saver): several prompts wired into one queue run one after another in ONE CLI session of modelRef (each step resumes the previous, so files read once stay in context); wire prompt(s) → queue → build/ai. Use it for sequential follow-up steps on the same project instead of separate AIs.
 - snapshot ("Anlık Görüntü", safety, zero tokens): a git snapshot of the wired folder; the chain continues after it and the user can restore it from the box. Wire build → snapshot → prompt/ai/queue before risky stages.
@@ -264,7 +269,7 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
           warnings.push(`${n.key}: added ${fallbackRef} so the pool can plan`)
         }
         const repos = (n.repos ?? []).filter(isRepoUrl).map((url) => ({ url }))
-        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" || n.role === "kesifci" || n.role === "dikis" ? n.role : undefined, effort: n.effort }
+        data = { type: "ai", title: n.title, modelRef: main, pool: pool.length > 1 ? pool : undefined, mode, costMode: n.costMode, kitId: n.kitId, purpose: n.purpose, instructions: n.instructions?.trim() || undefined, repos: repos.length ? repos : undefined, role: n.role === "bilinc" || n.role === "eylem" || n.role === "donusturucu" || n.role === "kesifci" || n.role === "dikis" ? n.role : undefined, effort: n.effort, turbo: n.turbo === true ? true : undefined, keepSession: n.keepSession === true && mode === "single" ? true : undefined }
         break
       }
       case "wizard":

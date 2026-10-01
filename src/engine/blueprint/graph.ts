@@ -150,7 +150,7 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       if (n.data.type === "ai" && n.data.role === "kesifci" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "kesifci.noNext")
     }
     if (n.type === "check" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai")) add(n.id, "check.noSource")
-    if (n.type === "ai" && n.data.type === "ai" && n.data.role === "dikis" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai" || x.type === "verify")) add(n.id, "dikis.noSource")
+    if (n.type === "ai" && n.data.type === "ai" && n.data.role === "dikis" && !incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai" || x.type === "verify" || x.type === "snapshot" || x.type === "queue" || x.type === "check")) add(n.id, "dikis.noSource")
     if (n.type === "queue") {
       if (!incoming(bp, n.id).some((x) => x.type === "prompt")) add(n.id, "queue.noPrompt")
       if (n.data.type === "queue" && !n.data.modelRef) add(n.id, "queue.noModel")
