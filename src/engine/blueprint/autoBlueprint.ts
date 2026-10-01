@@ -58,6 +58,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
       },
     },
     edges: { type: "array", items: { type: "object", additionalProperties: false, required: ["from", "to"], properties: { from: { type: "string" }, to: { type: "string" } } } },
+    removed: { type: "array", items: { type: "string" }, description: "edit only: keys of EXISTING nodes to delete; every other existing node (and its wires) is kept even if you leave it out of nodes" },
   },
 }
 
@@ -91,6 +92,8 @@ export interface AutoBlueprintResult {
   summary: string
   nodes: AutoBlueprintNode[]
   edges: Array<{ from: string; to: string }>
+  /** Edit only: keys of existing nodes to delete. Every other existing node is kept even when the designer omits it (2026-10-01: edits kept dropping Bütçe/Denetçi/Tarayıcı boxes). */
+  removed?: string[]
 }
 
 export interface AutoBlueprintContext {
@@ -173,7 +176,7 @@ export function buildAutoBlueprintPrompt(ctx: AutoBlueprintContext): string {
     `User's language: ${ctx.language === "tr" ? "Turkish" : "English"}.`,
     ...(ctx.existing
       ? [
-          `EXISTING BLUEPRINT (modify it, do not start over): return the FULL updated graph — EVERY existing node and wire must come back unless the request explicitly asks to remove it (a node you leave out is deleted). Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
+          `EXISTING BLUEPRINT (modify it, do not start over): return the nodes you ADD or CHANGE plus their wires; every existing node you leave out is KEPT unchanged with its wires. To delete an existing node, list its key in the "removed" array (only when the request asks for it). Keep the exact "key" of every node you keep (its run history depends on it) and change only what the request asks; add, remove or rewire nodes as needed. Texts are truncated to 300 characters here: when you keep a node's text, reuse its key and repeat the truncated text as is.\n${describeExisting(ctx.existing)}`,
         ]
       : []),
     `User request:\n${ctx.request}`,
@@ -195,7 +198,7 @@ export function parseAutoBlueprint(text: string): AutoBlueprintResult | null {
       if (!nodes.length) continue
       const keys = new Set(nodes.map((n) => n.key))
       const edges = v.edges.filter((e) => e && typeof e.from === "string" && typeof e.to === "string" && keys.has(e.from) && keys.has(e.to))
-      return { name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Blueprint", summary: typeof v.summary === "string" ? v.summary : "", nodes, edges }
+      return { name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Blueprint", summary: typeof v.summary === "string" ? v.summary : "", nodes, edges, removed: Array.isArray(v.removed) ? v.removed.filter((k): k is string => typeof k === "string") : undefined }
     } catch {
       /* try the next candidate */
     }
@@ -252,7 +255,17 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
   }
   const positions = layoutAutoBlueprint(result.nodes, result.edges)
   const ids = new Map(result.nodes.map((n) => [n.key, keep.has(n.key) ? n.key : newId("n")]))
-  for (const old of keep.values()) if (!ids.has(old.id)) warnings.push(`${old.id}: removed by the designer`)
+  // Additive edits: an existing node the designer did not mention is kept as it is; only `removed` deletes.
+  const removed = new Set(result.removed ?? [])
+  const untouched: BpNode[] = []
+  for (const old of keep.values()) {
+    if (ids.has(old.id)) continue
+    if (removed.has(old.id)) warnings.push(`${old.id}: removed by the designer`)
+    else {
+      ids.set(old.id, old.id)
+      untouched.push(old)
+    }
+  }
   const nodes: BpNode[] = result.nodes.map((n) => {
     const pos = positions.get(n.key) ?? { x: 40, y: 40 }
     let data: BpNodeData
@@ -323,7 +336,8 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }
   })
-  const typeOf = new Map(result.nodes.map((n) => [n.key, n.type]))
+  nodes.push(...untouched)
+  const typeOf = new Map<string, BpNodeType>([...result.nodes.map((n) => [n.key, n.type] as [string, BpNodeType]), ...untouched.map((n) => [n.id, n.type] as [string, BpNodeType])])
   const seen = new Set<string>()
   const edges: BpEdge[] = []
   for (const e of result.edges) {
@@ -338,6 +352,17 @@ export function materializeAutoBlueprint(result: AutoBlueprintResult, models: Pr
     if (seen.has(sig)) continue
     seen.add(sig)
     edges.push({ id: newId("e"), from: ids.get(e.from)!, to: ids.get(e.to)! })
+  }
+  // Wires of untouched existing nodes survive too (both ends must still exist).
+  const finalIds = new Set(nodes.map((n) => n.id))
+  const untouchedIds = new Set(untouched.map((n) => n.id))
+  for (const e of existing?.edges ?? []) {
+    if (!(untouchedIds.has(e.from) || untouchedIds.has(e.to))) continue
+    if (!finalIds.has(e.from) || !finalIds.has(e.to)) continue
+    const sig = `${e.from}>${e.to}`
+    if (seen.has(sig)) continue
+    seen.add(sig)
+    edges.push({ ...e })
   }
   // A photo build with no producing AI never fills: wire the image-capable AI (else the main orchestration AI) into it.
   for (const photo of nodes.filter((n) => n.type === "buildPhoto")) {

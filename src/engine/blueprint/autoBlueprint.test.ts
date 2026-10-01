@@ -133,6 +133,7 @@ describe("auto blueprint", () => {
           { key: "new_stub", type: "stub", title: "Ses", kinds: ["sfx"], folder: "assets/ses" },
         ],
         edges: [{ from: "n_keep_p", to: "n_keep_ai" }, { from: "new_stub", to: "n_keep_ai" }],
+        removed: ["n_gone"], // additive edits (2026-10-01): an omitted node is kept unless listed here
       },
       TEST_MODELS,
       existing,
@@ -233,5 +234,31 @@ describe("edits keep what the designer did not mention", () => {
     expect(bud.type === "budget" && bud.maxTokens).toBe(1500000)
     const chk = second.nodes.find((n) => n.data.type === "check")!.data
     expect(chk.type === "check" && chk.commands).toEqual(["npm run lint"])
+  })
+})
+
+
+describe("additive edits", () => {
+  it("keeps existing nodes and wires the designer did not mention; `removed` deletes", () => {
+    const first = materializeAutoBlueprint(
+      { name: "k", summary: "", nodes: [{ key: "p", type: "prompt", title: "P", text: "x" }, { key: "a", type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }, { key: "k", type: "check", title: "K", commands: ["npm test"] }], edges: [{ from: "p", to: "a" }, { from: "a", to: "k" }] },
+      TEST_MODELS,
+    )
+    const existing = { id: "bp", name: "k", createdAt: 0, updatedAt: 0, nodes: first.nodes, edges: first.edges }
+    const idOf = (title: string) => first.nodes.find((n) => n.type !== "button" && (n.data as { title?: string }).title === title)!.id
+    const second = materializeAutoBlueprint(
+      { name: "k", summary: "", nodes: [{ key: idOf("P"), type: "prompt", title: "P", text: "x" }, { key: idOf("A"), type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }, { key: "q", type: "prompt", title: "Q", text: "y" }], edges: [{ from: idOf("P"), to: idOf("A") }, { from: "q", to: idOf("A") }] },
+      TEST_MODELS,
+      existing,
+    )
+    expect(second.nodes.some((n) => n.id === idOf("K"))).toBe(true)
+    expect(second.edges.some((e) => e.from === idOf("A") && e.to === idOf("K"))).toBe(true)
+    expect(second.nodes.some((n) => n.data.type === "prompt" && n.data.title === "Q")).toBe(true)
+    const third = materializeAutoBlueprint(
+      { name: "k", summary: "", nodes: [{ key: idOf("P"), type: "prompt", title: "P", text: "x" }, { key: idOf("A"), type: "ai", title: "A", modelRef: "codex:gpt-6-astra", mode: "single" }], edges: [{ from: idOf("P"), to: idOf("A") }], removed: [idOf("K")] },
+      TEST_MODELS,
+      existing,
+    )
+    expect(third.nodes.some((n) => n.id === idOf("K"))).toBe(false)
   })
 })
