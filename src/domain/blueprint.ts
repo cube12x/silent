@@ -52,6 +52,8 @@ export interface BpAiData {
   tamirci?: boolean
   /** Sıcak Oturum (Faz 4, single mode): every run resumes this box's last CLI session (files already read stay in context). */
   keepSession?: boolean
+  /** Folder the stored session ran in: a session is only resumed in the same folder (2026-10-01: a Dikiş resumed a session from a stray empty build). */
+  sessionCwd?: string
 }
 /** kesifci = cheap read-only scout whose `# RECON` report spares the next (expensive) AI from re-scanning the repo. */
 /** dikis = stitch step (Faz 4): full suite + cross-area seams after a Bölücü, never a new feature. */
@@ -100,6 +102,8 @@ export interface BpVerifyData {
   /** `# VERIFY` report of the last run (fed to the wired fixer when findings exist). */
   report?: string
   lastOk?: boolean
+  /** Lanes that had findings in the last pass: a re-check after the fixer replays only these. */
+  failedLanes?: string[]
 }
 /** Bütçe (Faz 4): the wired AI's run is cancelled once its tokens pass `maxTokens`. */
 export interface BpBudgetData {

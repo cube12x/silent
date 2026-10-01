@@ -380,7 +380,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
             }
           }
           log(set, step.node.id, "↻ re-checking after the fixer")
-          ok = await exec(id, step.node.id)
+          const after = nodeById(useBlueprintsStore.getState().byId(id)!, step.node.id)
+          ok = step.kind === "verify" && after?.data.type === "verify" && after.data.failedLanes?.length ? await execVerify(id, step.node.id, { onlyLanes: after.data.failedLanes }) : await exec(id, step.node.id)
           if (!ok) break
         }
       } else if (step.kind === "snapshot") {
@@ -752,7 +753,7 @@ async function execQueue(bpId: string, nodeId: string): Promise<boolean> {
 }
 
 /** Çoklu Tarayıcı: every lane in parallel (host load cap), findings merged into one `# VERIFY` report. */
-async function execVerify(bpId: string, nodeId: string): Promise<boolean> {
+async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -760,7 +761,10 @@ async function execVerify(bpId: string, nodeId: string): Promise<boolean> {
   if (!bp || !node || node.data.type !== "verify") return false
   const data = node.data
   const cwd = sourceFolder(bp, nodeId)
-  const lanes = data.lanes.map((l) => l.trim()).filter(Boolean)
+  const allLanes = data.lanes.map((l) => l.trim()).filter(Boolean)
+  // Re-check after the fixer: replay only the lanes that had findings; the others keep their OK from the previous pass.
+  const lanes = opts?.onlyLanes?.length ? allLanes.filter((l) => opts.onlyLanes!.includes(l)) : allLanes
+  const skipped = allLanes.filter((l) => !lanes.includes(l))
   if (!cwd || !lanes.length || !data.modelRef) {
     store.updateNode(bpId, nodeId, { status: "failed", note: !cwd ? "no folder" : !lanes.length ? "no lanes" : "no model" })
     return false
@@ -780,14 +784,14 @@ async function execVerify(bpId: string, nodeId: string): Promise<boolean> {
   })
   const tokens = results.reduce((n, r) => n + r.tokens, 0)
   const findings = results.filter((r) => !r.ok || !/^# VERIFY\s*\n?-\s*OK\s*$/i.test(r.text.trim()))
-  const report = ["# VERIFY", ...results.map((r) => `## ${r.lane}\n${r.ok ? r.text.replace(/^# VERIFY\s*/i, "").trim() || "- OK" : `- [high] lane could not be verified (${r.text.slice(0, 200) || "no output"})`}`)].join("\n\n")
+  const report = ["# VERIFY", ...results.map((r) => `## ${r.lane}\n${r.ok ? r.text.replace(/^# VERIFY\s*/i, "").trim() || "- OK" : `- [high] lane could not be verified (${r.text.slice(0, 200) || "no output"})`}`), ...skipped.map((l) => `## ${l}\n- OK (previous pass)`)].join("\n\n")
   const allOk = findings.length === 0 && !cancelled
   useBlueprintsStore.setState((s) => {
     const running = { ...s.running }
     delete running[nodeId]
     return { running }
   })
-  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : allOk ? "done" : "failed", note: cancelled ? "cancelled" : allOk ? undefined : `${findings.length}/${lanes.length} lanes with findings`, data: { report, lastOk: allOk } })
+  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : allOk ? "done" : "failed", note: cancelled ? "cancelled" : allOk ? undefined : `${findings.length}/${lanes.length} lanes with findings`, data: { report, lastOk: allOk, failedLanes: findings.map((r) => r.lane) } })
   log(set, nodeId, `${allOk ? "✓ all lanes OK" : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report`} · ${formatTokens(tokens)} tokens`)
   return allOk
 }
@@ -926,7 +930,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
   let ok: boolean
   let used: number
   let executionId: string | undefined
-  let sessionId: string | undefined = ai.executionId?.startsWith("session:") ? ai.executionId.slice(8) : undefined
+  let sessionId: string | undefined = ai.executionId?.startsWith("session:") && (!ai.data.sessionCwd || ai.data.sessionCwd === cwd) ? ai.executionId.slice(8) : undefined
   // Bütçe: the guard wired into this box; an orchestration is cancelled live once its tokens pass the limit.
   const budget = incoming(bp, aiId).find((n) => n.data.type === "budget")
   const maxTokens = budget?.data.type === "budget" ? budget.data.maxTokens : undefined
@@ -998,6 +1002,7 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     }
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined
+    if (sessionId) store.updateNode(bpId, aiId, { data: { sessionCwd: cwd } })
     if (!ok) log(set, aiId, `✖ ${res.error ?? "failed"}`)
   }
   useBlueprintsStore.setState((s) => {
