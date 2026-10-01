@@ -98,7 +98,6 @@ export const BUILTIN_KITS: ExpertKit[] = [
     ],
     references: [
       { name: "minecraft-threejs", url: "https://github.com/vyse12138/minecraft-threejs", hint: "Three.js + TS Minecraft clone: chunk generation, block placing, player controls, UI." },
-      { name: "minecraft-javascript", url: "https://github.com/dgreenheck/minecraft-javascript", hint: "Three.js voxel tutorial series: world generation with noise, instanced meshing, physics, inventory." },
     ],
   },
   {
