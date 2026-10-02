@@ -55,6 +55,8 @@ interface BlueprintsState {
   /** Execute from a node forward (Start/Enter): every AI reachable through wires, in order. */
   run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string }): Promise<void>
   cancel(id: string, nodeId: string): Promise<void>
+  /** `silent cancel`: stop every running box of every blueprint; returns how many were stopped. */
+  cancelAll(): Promise<number>
   /** Send button: copy the wired build's files into the wired targets. */
   send(id: string, buttonId: string): Promise<void>
   /** What Enter / double-click / `silent bp` do for a node: Send copies, Reload re-runs with the wired AI's purpose, anything else runs forward. */
@@ -416,6 +418,17 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const stop = get().running[nodeId]
     if (stop) await stop()
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
+  },
+  async cancelAll() {
+    const ids = Object.keys(get().running)
+    let n = 0
+    for (const nodeId of ids) {
+      const owner = get().blueprints.find((b) => b.nodes.some((x) => x.id === nodeId))
+      if (!owner) continue
+      await get().cancel(owner.id, nodeId)
+      n += 1
+    }
+    return n
   },
   async handover(id, nodeId, toRef) {
     const bp = get().byId(id)

@@ -59,7 +59,8 @@ export function parallelHeads(bp: Blueprint, buttonId: string): BpNode[] {
  */
 export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
   const startNode = nodeById(bp, startId)
-  const cycleGuard = !!startNode && !(startNode.type === "build" || startNode.type === "buildPhoto" || (startNode.data.type === "button" && startNode.data.kind === "start"))
+  // Only a walk from Start means "run everything again"; a Run on the hub Build itself continues the pipeline.
+  const cycleGuard = !!startNode && !(startNode.data.type === "button" && startNode.data.kind === "start")
   const seen = new Set<string>()
   const started = new Set<string>()
   const plan: BpStep[] = []
@@ -101,8 +102,8 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     // snapshot/queue only gives that AI its folder — it must not START it. 2026-10-01: one Build hub fanned every
     // trigger out into every stage's fixers and stitchers (Eylem boxes failed with "no prompt", stages re-ran).
     const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue")
-    // Stages meet at a shared Build hub. A walk that passes through the hub (started mid-graph, not at Start or at
-    // the Build) must not leave it into stages that already ran: Build → prompt → done AI, Build → done snapshot…
+    // Stages meet at a shared Build hub. A walk that passes through or starts at the hub (anything but Start) must
+    // not leave it into stages that already ran: Build → prompt → done AI, Build → done snapshot…
     // 2026-10-02: Bölücü → Build → every stage's entry prompt re-ran the whole blueprint (Büyük Güncelleme, Online, El…).
     const fromHub = node.type === "build" || node.type === "buildPhoto"
     const next = outgoing(bp, id).filter((n) => n.type !== "stub" && !contextOnly(node, n) && !(cycleGuard && fromHub && n.id !== startId && alreadyRan(bp, n)))

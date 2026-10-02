@@ -67,6 +67,8 @@ export interface AutostartRequest {
   blueprint?: { ref: string; node?: string; answer?: string; only?: boolean; auto?: string; edit?: string; fix?: { problem: string; files: string[] } }
   /** `silent reload`: reload the webview page (recovers a blank/black window; running orchestrations are lost). */
   reload?: boolean
+  /** `silent cancel`: stop every running blueprint box and Silent Code run (the UI's cancel buttons, from the terminal). */
+  cancel?: boolean
 }
 
 export interface Backend {

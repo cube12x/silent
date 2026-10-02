@@ -87,6 +87,8 @@ interface RunsState {
   /** Models this run will not start on any more (quota/limit). */
   deadModels(runId: string): string[]
   cancel(runId: string): void
+  /** `silent cancel`: cancel every run still planning or running; returns how many. */
+  cancelAll(): number
   /** Bind a working folder to an existing run (older runs may have none); persisted. */
   attachRepo(runId: string, repoPath: string): Promise<void>
   remove(runId: string): Promise<void>
@@ -444,6 +446,11 @@ export const useRunsStore = create<RunsState>((set, get) => ({
   },
   cancel(runId) {
     get().executors[runId]?.cancel()
+  },
+  cancelAll() {
+    const live = get().runs.filter((r) => r.status === "running")
+    for (const r of live) get().cancel(r.id)
+    return live.length
   },
   async remove(runId) {
     get().cancel(runId)

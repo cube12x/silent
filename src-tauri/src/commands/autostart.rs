@@ -20,6 +20,7 @@ pub fn parse_argv(args: &[String], cwd: Option<&Path>) -> Result<Option<Value>, 
     let Some(first) = it.next() else { return Ok(None) };
     match first.as_str() {
         "reload" => Ok(Some(json!({ "folder": "", "prompt": "", "reload": true }))),
+        "cancel" => Ok(Some(json!({ "folder": "", "prompt": "", "cancel": true }))),
         "bp" => {
             let rest: Vec<String> = it.cloned().collect();
             parse_bp(&rest).map(Some)
@@ -259,6 +260,13 @@ mod tests {
         assert_eq!(v["pool"], json!([]));
         assert!(parse_argv(&argv("run demo"), Some(&base)).is_err());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn parses_cancel() {
+        let v = parse_argv(&argv("cancel"), None).unwrap().unwrap();
+        assert_eq!(v["cancel"], true);
+        assert!(v["blueprint"].is_null());
     }
 
     #[test]

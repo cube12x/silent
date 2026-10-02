@@ -70,6 +70,12 @@ export function AppShell() {
             window.location.reload()
             return
           }
+          if (req.cancel) {
+            const boxes = await useBlueprintsStore.getState().cancelAll()
+            const runs = useRunsStore.getState().cancelAll()
+            console.warn("[autostart] cancel: stopped", boxes, "blueprint box(es),", runs, "run(s)")
+            return
+          }
           if (req.blueprint?.ref || req.blueprint?.auto || req.blueprint?.edit) {
             useBlueprintsStore.setState({ autorun: req.blueprint })
             navigate(`/blueprint?auto=${Date.now()}`)

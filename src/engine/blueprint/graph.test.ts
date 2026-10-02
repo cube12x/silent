@@ -398,9 +398,9 @@ describe("a walk through a shared Build hub skips the stages that already ran", 
   it("re-running a finished stage from its head continues only into what never ran", () => {
     expect(ids(hub(), "split2")).toEqual(["split2", "split3", "int"])
   })
-  it("Start and the Build itself still walk through everything", () => {
+  it("Start walks through everything; Run on the hub Build itself only continues into what never ran", () => {
     expect(aiChainFrom(hub(), "s").map((n) => n.id)).toEqual(["core", "split2", "online", "split3", "int"])
-    expect(aiChainFrom(hub(), "b").map((n) => n.id)).toEqual(["split2", "online", "split3", "int"])
+    expect(aiChainFrom(hub(), "b").map((n) => n.id)).toEqual(["split3", "int"])
   })
   it("a Build fed by a single AI stays a plain pipeline step", () => {
     expect(aiChainFrom(bp(), "a").map((n) => n.id)).toEqual(["a", "a2"])
