@@ -92,7 +92,7 @@ export function verifyLanePrompt(lane: string, cwd: string): string {
     `You are ONE lane of a parallel browser verification of the project at ${cwd}. Other lanes cover the other screens at the same time, so play ONLY this lane, end to end, in a real browser (Playwright/Chromium; start the dev server if none is running):`,
     `LANE: ${lane}`,
     `Do not modify any source file and do not run formatters or installers; you only observe. Save screenshots of what you saw under .silent/tmp/shots/${slug}/ (git-ignored).`,
-    "Report under `# VERIFY`: one bullet per problem with [severity] where, what happened, what was expected and how to reproduce (clicks/keys). If the lane works, reply exactly `# VERIFY\n- OK`.",
+    "Report under `# VERIFY`: one bullet per problem with [severity] where, what happened, what was expected and how to reproduce (clicks/keys). If the lane works, reply exactly `# VERIFY\n- OK`. If you could not drive the lane at all (the app did not start, the machine is overloaded and the game loop barely advances, inputs do nothing), reply exactly `# VERIFY\n- INCONCLUSIVE: <one line why>` — that is not a product finding and must not be reported as one.",
   ].join("\n\n")
 }
 

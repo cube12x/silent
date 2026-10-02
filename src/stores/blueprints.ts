@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { mapWithLimit } from "@/engine/loadGuard"
+import { judgeLanes, laneCap } from "@/engine/blueprint/verify"
 import { useHostStore } from "@/stores/host"
 import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
@@ -372,6 +373,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         // check runs ONCE more: green → the chain continues (self-healing, 2026-10-01); still red → the chain stops.
         const exec = step.kind === "check" ? execCheck : execVerify
         let ok = await exec(id, step.node.id)
+        // Inconclusive lanes (host overloaded, app did not start) are nothing to fix: stop here, replay later.
+        if (ok === "inconclusive") break
         if (!ok) {
           const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
           if (!fixers.length) break
@@ -385,7 +388,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
           log(set, step.node.id, "↻ re-checking after the fixer")
           const after = nodeById(useBlueprintsStore.getState().byId(id)!, step.node.id)
           ok = step.kind === "verify" && after?.data.type === "verify" && after.data.failedLanes?.length ? await execVerify(id, step.node.id, { onlyLanes: after.data.failedLanes }) : await exec(id, step.node.id)
-          if (!ok) break
+          if (ok !== true) break
         }
       } else if (step.kind === "snapshot") {
         if (!(await execSnapshot(id, step.node.id))) break
@@ -776,7 +779,9 @@ async function execQueue(bpId: string, nodeId: string): Promise<boolean> {
 }
 
 /** Çoklu Tarayıcı: every lane in parallel (host load cap), findings merged into one `# VERIFY` report. */
-async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean> {
+/** Returns true when every lane is OK, false when lanes have findings (the wired fixer runs), "inconclusive" when lanes
+ * could only not be driven (host overloaded, app did not start): nothing to fix, replay later. */
+async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean | "inconclusive"> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -798,7 +803,7 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
   useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await Promise.all(cancels.map((c) => c())) } } }))
   store.updateNode(bpId, nodeId, { status: "running", note: undefined })
   log(set, nodeId, `▶ ${lanes.length} lanes · ${data.modelRef} · ${cwd}`)
-  const results = await mapWithLimit(lanes, () => Math.min(4, useHostStore.getState().cap()), async (lane) => {
+  const results = await mapWithLimit(lanes, () => laneCap(useHostStore.getState().level, useHostStore.getState().cap()), async (lane) => {
     if (cancelled) return { lane, ok: false, text: "", tokens: 0 }
     const handle = runSingle(backend, { runId: `bp:verify:${nodeId}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`, modelRef: data.modelRef, prompt: verifyLanePrompt(lane, cwd), cwd, timeoutSecs: 25 * 60 }, (line, stream) => log(set, nodeId, `[${lane.slice(0, 24)}] ${line}`, stream))
     cancels.push(handle.cancel)
@@ -809,16 +814,29 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
   // Lanes start dev servers and browsers; nothing waits for them once the lane is done.
   const swept = await backend.projectSweep(cwd).catch(() => 0)
   if (swept) log(set, nodeId, `🧹 swept ${swept} leftover browser/dev-server process(es)`)
-  const findings = results.filter((r) => !r.ok || !/^# VERIFY\s*\n?-\s*OK\s*$/i.test(r.text.trim()))
-  const report = ["# VERIFY", ...results.map((r) => `## ${r.lane}\n${r.ok ? r.text.replace(/^# VERIFY\s*/i, "").trim() || "- OK" : `- [high] lane could not be verified (${r.text.slice(0, 200) || "no output"})`}`), ...skipped.map((l) => `## ${l}\n- OK (previous pass)`)].join("\n\n")
-  const allOk = findings.length === 0 && !cancelled
+  const verdict = judgeLanes(results)
+  const findings = verdict.findings
+  const inconclusive = verdict.inconclusive
+  const report = ["# VERIFY", ...results.map((r) => {
+    if (verdict.ok.includes(r.lane)) return `## ${r.lane}\n- OK`
+    if (inconclusive.some((x) => x.lane === r.lane)) return `## ${r.lane}\n- [inconclusive] lane could not be driven — not a product finding, replay when the host is idle (${(r.text.replace(/^# VERIFY\s*/i, "").trim() || "no output").slice(0, 300)})`
+    return `## ${r.lane}\n${r.text.replace(/^# VERIFY\s*/i, "").trim()}`
+  }), ...(skipped.length ? [`## skipped (OK on the previous pass)\n${skipped.map((l) => `- ${l}`).join("\n")}`] : [])].join("\n\n")
+  const allOk = findings.length === 0 && inconclusive.length === 0 && !cancelled
+  const onlyInconclusive = !cancelled && findings.length === 0 && inconclusive.length > 0
   useBlueprintsStore.setState((s) => {
     const running = { ...s.running }
     delete running[nodeId]
     return { running }
   })
-  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : allOk ? "done" : "failed", note: cancelled ? "cancelled" : allOk ? undefined : `${findings.length}/${lanes.length} lanes with findings`, data: { report, lastOk: allOk, failedLanes: findings.map((r) => r.lane) } })
-  log(set, nodeId, `${allOk ? "✓ all lanes OK" : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report`} · ${formatTokens(tokens)} tokens`)
+  const replay = [...findings, ...inconclusive].map((r) => r.lane)
+  store.updateNode(bpId, nodeId, {
+    status: cancelled ? "failed" : allOk ? "done" : "failed",
+    note: cancelled ? "cancelled" : allOk ? undefined : onlyInconclusive ? `${inconclusive.length}/${lanes.length} lanes inconclusive (host overloaded) — re-run later` : `${findings.length}/${lanes.length} lanes with findings${inconclusive.length ? `, ${inconclusive.length} inconclusive` : ""}`,
+    data: { ...data, report, failedLanes: allOk ? [] : replay },
+  })
+  log(set, nodeId, `${allOk ? "✓ all lanes OK" : onlyInconclusive ? `⚠ ${inconclusive.length} lane(s) inconclusive — host overloaded; no fixer, re-run when idle` : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report${inconclusive.length ? ` (${inconclusive.length} inconclusive, replayed later)` : ""}`} · ${formatTokens(tokens)} tokens`)
+  if (onlyInconclusive) return "inconclusive"
   return allOk
 }
 
