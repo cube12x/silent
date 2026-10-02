@@ -345,3 +345,64 @@ describe("Build → AI wires into fixers/stitchers are context only", () => {
     expect(plan).toContain("check:chk")
   })
 })
+
+describe("a walk through a shared Build hub skips the stages that already ran", () => {
+  function hub(): Blueprint {
+    const ai = (id: string, status?: "done" | "failed") => ({ id, type: "ai" as const, x: 0, y: 0, status, data: { type: "ai" as const, modelRef: "claude:sonnet", mode: "single" as const } })
+    return {
+      id: "bp2",
+      name: "stages",
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [
+        { id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } },
+        { id: "p1", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "GDD", text: "core" } },
+        ai("core", "done"),
+        { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "game", folderPath: "/tmp/game", kind: "code" } },
+        { id: "snap", type: "snapshot", x: 0, y: 0, status: "done", data: { type: "snapshot" } },
+        { id: "chk", type: "check", x: 0, y: 0, status: "done", data: { type: "check", commands: ["npm test"] } },
+        { id: "p2", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "Update", text: "stage 2" } },
+        ai("split2", "done"),
+        { id: "p3", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "Online", text: "stage 3" } },
+        ai("online", "failed"),
+        { id: "p4", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "Update 3", text: "stage 4" } },
+        ai("split3"),
+        { id: "p5", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "Integrate", text: "stitch" } },
+        ai("int"),
+      ],
+      edges: [
+        { id: "e1", from: "s", to: "p1" },
+        { id: "e2", from: "p1", to: "core" },
+        { id: "e3", from: "core", to: "b" },
+        { id: "e4", from: "b", to: "snap" },
+        { id: "e5", from: "snap", to: "chk" },
+        { id: "e6", from: "b", to: "p2" },
+        { id: "e7", from: "p2", to: "split2" },
+        { id: "e8", from: "split2", to: "b" },
+        { id: "e9", from: "b", to: "p3" },
+        { id: "e10", from: "p3", to: "online" },
+        { id: "e11", from: "online", to: "b" },
+        { id: "e12", from: "b", to: "p4" },
+        { id: "e13", from: "p4", to: "split3" },
+        { id: "e14", from: "split3", to: "b" },
+        { id: "e15", from: "b", to: "p5" },
+        { id: "e16", from: "p5", to: "int" },
+        { id: "e17", from: "int", to: "b" },
+      ],
+    } as Blueprint
+  }
+  const ids = (g: Blueprint, start: string) => walkPlan(g, start).map((s) => (s.kind === "ai" ? s.node.id : s.kind))
+  it("a new stage AI writing into the hub runs only itself and the hub's still-idle follow-ups", () => {
+    expect(ids(hub(), "split3")).toEqual(["split3", "int"])
+  })
+  it("re-running a finished stage from its head continues only into what never ran", () => {
+    expect(ids(hub(), "split2")).toEqual(["split2", "split3", "int"])
+  })
+  it("Start and the Build itself still walk through everything", () => {
+    expect(aiChainFrom(hub(), "s").map((n) => n.id)).toEqual(["core", "split2", "online", "split3", "int"])
+    expect(aiChainFrom(hub(), "b").map((n) => n.id)).toEqual(["split2", "online", "split3", "int"])
+  })
+  it("a Build fed by a single AI stays a plain pipeline step", () => {
+    expect(aiChainFrom(bp(), "a").map((n) => n.id)).toEqual(["a", "a2"])
+  })
+})
