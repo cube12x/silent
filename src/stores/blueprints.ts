@@ -126,6 +126,8 @@ export function flushNodeLogs(set: (fn: (s: BlueprintsState) => Partial<Blueprin
   })
 }
 
+let loadedOnce = false
+
 export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   blueprints: [],
   logs: {},
@@ -138,8 +140,22 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
 
   async load() {
     const backend = await getBackend()
-    const blueprints = await backend.db.blueprints.list()
+    const rows = await backend.db.blueprints.list()
+    // 2026-10-02: a `silent bp` trigger re-reads the DB while boxes run; a row whose upsert is still in flight is older
+    // than memory and used to clobber it (a fixer that had just finished came back as "running" with no executor and
+    // was marked interrupted). Keep whichever side is newer; only the first load after a restart marks orphans.
+    const firstLoad = !loadedOnce
+    loadedOnce = true
+    const mem = get().blueprints
+    const blueprints = rows.map((row) => {
+      const cur = mem.find((m) => m.id === row.id)
+      return cur && cur.updatedAt >= row.updatedAt ? cur : row
+    })
     set({ blueprints, activeId: get().activeId ?? blueprints[0]?.id })
+    if (!firstLoad) {
+      for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
+      return
+    }
     // A node left "running" has no executor after a restart (its run is marked cancelled by the runs store on load).
     for (const b of blueprints) {
       const stale = b.nodes.filter((n) => n.status === "running" && !get().running[n.id])
