@@ -14,6 +14,14 @@ describe("Çoklu Tarayıcı lane verdicts (2026-10-02)", () => {
     expect(v.findings.map((f) => f.lane)).toEqual(["b"])
     expect(v.inconclusive.map((f) => f.lane)).toEqual(["c", "d", "e"])
   })
+  it("OK followed by the lane's notes is still OK; OK followed by a [severity] bullet is a finding", () => {
+    const v = judgeLanes([
+      { lane: "a", ok: true, text: "# VERIFY\n- OK\n\nI ran the lane in headless Chromium and walked into the pool; the overlay faded out." },
+      { lane: "b", ok: true, text: "# VERIFY\n- OK\n- [medium] the air bar never hides after leaving the water" },
+    ])
+    expect(v.ok).toEqual(["a"])
+    expect(v.findings.map((f) => f.lane)).toEqual(["b"])
+  })
   it("a lane whose process failed but still wrote real findings keeps them", () => {
     const v = judgeLanes([{ lane: "a", ok: false, text: "# VERIFY\n- [high] crash on New Game: TypeError in world.ts" }])
     expect(v.findings.map((f) => f.lane)).toEqual(["a"])

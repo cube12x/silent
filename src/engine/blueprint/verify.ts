@@ -15,7 +15,8 @@ export interface LaneVerdicts {
   inconclusive: LaneResult[]
 }
 
-const OK_RE = /^#\s*VERIFY\s*\n?-\s*OK\s*$/i
+/** `# VERIFY\n- OK`, possibly followed by prose about what was played (lanes often append their notes). */
+const OK_RE = /^#\s*VERIFY\s*\n?-\s*OK\b/i
 const INCONCLUSIVE_RE = /-\s*INCONCLUSIVE\b|could not be verified|lane not verified|not verified\b|unable to verify|could not verify|machine is overloaded|load average|game loop (barely|does not|did not) advance/i
 const FINDING_RE = /^\s*-\s*\[(blocker|high|medium|low|critical)\]/im
 
@@ -27,7 +28,7 @@ export function judgeLanes(results: LaneResult[]): LaneVerdicts {
   const out: LaneVerdicts = { ok: [], findings: [], inconclusive: [] }
   for (const r of results) {
     const text = r.text.trim()
-    if (r.ok && OK_RE.test(text)) out.ok.push(r.lane)
+    if (r.ok && OK_RE.test(text) && !FINDING_RE.test(text)) out.ok.push(r.lane)
     else if (INCONCLUSIVE_RE.test(text) || (!r.ok && !FINDING_RE.test(text)) || (r.ok && !text)) out.inconclusive.push(r)
     else out.findings.push(r)
   }
