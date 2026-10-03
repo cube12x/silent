@@ -52,6 +52,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           kinds: { type: "array", items: { type: "string", enum: ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"] }, description: "stub only" },
           folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
           commands: { type: "array", items: { type: "string" }, description: "check only: shell commands run in the wired folder without a model (empty = typecheck, test, build)" },
+          timeoutSecs: { type: "number", description: "check only: seconds allowed per command (default 900; browser suites always get at least 2400)" },
           lanes: { type: "array", items: { type: "string" }, description: "verify only: one browser lane (screen/flow to play through) per item; lanes run in parallel" },
           maxTokens: { type: "number", description: "budget only: the wired AI's run is cancelled past this many tokens" },
         },
@@ -82,6 +83,7 @@ export interface AutoBlueprintNode {
   kinds?: string[]
   folder?: string
   commands?: string[]
+  timeoutSecs?: number
   lanes?: string[]
   maxTokens?: number
   turbo?: boolean
@@ -126,6 +128,7 @@ export function describeExisting(bp: Blueprint): string {
       kinds: pick("kinds"),
       folder: pick("folder"),
       commands: pick("commands"),
+      timeoutSecs: typeof d.timeoutSecs === "number" ? (d.timeoutSecs as number) : undefined,
       instructions: typeof d.instructions === "string" ? (d.instructions as string).slice(0, 200) : undefined,
       repos: Array.isArray(d.repos) ? (d.repos as Array<{ url: string }>).map((r) => r.url) : undefined,
     }
@@ -303,7 +306,7 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
         data = { type: "variable", filter: n.filter || "*.png" }
         break
       case "check":
-        data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), maxLines: 40, timeoutSecs: 900 }
+        data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), maxLines: 40, timeoutSecs: typeof n.timeoutSecs === "number" && n.timeoutSecs > 0 ? Math.round(n.timeoutSecs) : 900 }
         break
       case "queue":
         data = { type: "queue", title: n.title, modelRef: fixRef(n.modelRef, n.key) }
@@ -333,7 +336,7 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
       if (!n.commands?.length) delete fresh.commands
       if (!n.lanes?.length) delete fresh.lanes
       delete fresh.maxLines
-      delete fresh.timeoutSecs
+      if (typeof n.timeoutSecs !== "number") delete fresh.timeoutSecs
       return { ...prev, data: { ...prev.data, ...fresh } as BpNodeData }
     }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }

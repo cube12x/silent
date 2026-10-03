@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { mapWithLimit } from "@/engine/loadGuard"
 import { judgeLanes, laneCap } from "@/engine/blueprint/verify"
+import { checkTimeoutFor } from "@/engine/blueprint/check"
 import { useHostStore } from "@/stores/host"
 import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
@@ -655,7 +656,7 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean> {
     if (cancelled) break
     log(set, nodeId, `$ ${cmd}`)
     try {
-      const r = await backend.runCheck(cwd, cmd, node.data.timeoutSecs, node.data.maxLines)
+      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, node.data.timeoutSecs), node.data.maxLines)
       log(set, nodeId, r.tail || "(no output)", r.ok ? "stdout" : "stderr")
       log(set, nodeId, `↳ exit ${r.exitCode ?? "?"} · ${Math.round(r.elapsedMs / 1000)} s`)
       lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})`} · ${Math.round(r.elapsedMs / 1000)} s`)
