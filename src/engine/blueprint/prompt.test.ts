@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { aiTaskText, buildAiPrompt, defaultTaskForRole, effectivePurpose, extractReport, isRepoUrl, repoName, verifyLanePrompt } from "./prompt"
+import { FOREGROUND_RULE, aiTaskText, buildAiPrompt, checkBrief, defaultTaskForRole, effectivePurpose, extractReport, isRepoUrl, repoName, verifyBrief, verifyLanePrompt } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -162,5 +162,13 @@ describe("role default task", () => {
     expect(defaultTaskForRole("dikis")).toMatch(/full suite/i)
     expect(defaultTaskForRole("eylem")).toBe("")
     expect(aiTaskText({ wired: "" }) || defaultTaskForRole("dikis")).toMatch(/seam/i)
+  })
+})
+
+describe("fixer briefs tell the fixer to wait for its own commands (2026-10-03)", () => {
+  it("check and verify briefs both start with the foreground rule", () => {
+    expect(checkBrief([{ title: "Denetçi", report: "# CHECK\n- npm test: FAIL", kind: "check" }])).toContain(FOREGROUND_RULE)
+    expect(verifyBrief([{ title: "Çoklu Tarayıcı", report: "# VERIFY\n- [high] x", kind: "verify" }])).toContain(FOREGROUND_RULE)
+    expect(checkBrief([])).toBe("")
   })
 })

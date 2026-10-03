@@ -70,11 +70,15 @@ export function convertedBrief(all: Array<{ title: string; report: string; kind?
 }
 
 /** Denetçi: a failed automated check is the work order of the wired fixer AI. */
+/** 2026-10-03: two fixers in a row ended their turn with "I'll report once the background run finishes" and were
+ * marked failed while Playwright kept running behind them. Fixers wait. */
+export const FOREGROUND_RULE = "Run every command in the foreground and wait for it to finish before you answer; never start a background task, agent or watcher and end your turn while it runs — an answer that promises to report later counts as a failure."
+
 export function checkBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
   const reports = all.filter((r) => r.kind === "check")
   if (!reports.length) return ""
   const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
-  return `The automated check (Denetçi) below FAILED. Fix the cause with the smallest safe change (do not disable or weaken the checks), then re-run the same commands until they are green; finish with a short summary of what was wrong and what you changed.\n\n${body}`
+  return `${FOREGROUND_RULE}\n\nThe automated check (Denetçi) below FAILED. Fix the cause with the smallest safe change (do not disable or weaken the checks), then re-run the same commands until they are green; finish with a short summary of what was wrong and what you changed.\n\n${body}`
 }
 
 /** Çoklu Tarayıcı: the lanes' findings are the fixer's work order. */
@@ -82,7 +86,7 @@ export function verifyBrief(all: Array<{ title: string; report: string; kind?: B
   const reports = all.filter((r) => r.kind === "verify")
   if (!reports.length) return ""
   const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
-  return `Browser verification (parallel lanes, already played through — do not replay everything) found the problems below. Fix each one with the smallest safe change, verify the exact lane it came from, and finish with a short summary and a \`# FIXED\` list:\n${body}`
+  return `${FOREGROUND_RULE}\n\nBrowser verification (parallel lanes, already played through — do not replay everything) found the problems below. Fix each one with the smallest safe change, verify the exact lane it came from, and finish with a short summary and a \`# FIXED\` list:\n${body}`
 }
 
 /** One lane of a Çoklu Tarayıcı run: play exactly this flow in a real browser and report. */
