@@ -133,6 +133,23 @@ describe("SILENT_SPLIT (Faz 3)", () => {
     expect(res.summary).toBe("Implemented the player module.")
     expect(res.deviations).toEqual([])
   })
+  it("multi-line sub-briefs with blank lines between them are kept whole (2026-10-03: a paragraph-style split was cut to its first lines)", async () => {
+    class Runner implements CliRunner {
+      async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+        queueMicrotask(() => {
+          onEvent({ type: "agentMessage", data: { text: "Survey done.\n\nSILENT_SPLIT:\n1. Sub-brief A — blocks that bind to the world. Owns: src/game/anchor/**\n   Respawn anchor: registerBehavior('respawn_anchor'), lodestone compass.\n\n2. Sub-brief B — containers. Owns: src/game/containers/**\n   Hopper and dropper transfer.\n\nSILENT_DEVIATIONS: none" } } as unknown as RuntimeEvent)
+          onEvent({ type: "exited", data: { code: 0 } } as unknown as RuntimeEvent)
+        })
+        return { cancel: async () => {} }
+      }
+    }
+    const res = await new CliWorker(new Runner()).start(job(), sink).done
+    expect(res.split).toEqual([
+      "Sub-brief A — blocks that bind to the world. Owns: src/game/anchor/**\nRespawn anchor: registerBehavior('respawn_anchor'), lodestone compass.",
+      "Sub-brief B — containers. Owns: src/game/containers/**\nHopper and dropper transfer.",
+    ])
+    expect(res.summary).toBe("Survey done.")
+  })
   it("`SILENT_SPLIT: none` is not a split", async () => {
     class Runner implements CliRunner {
       async cliStart(_r: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {

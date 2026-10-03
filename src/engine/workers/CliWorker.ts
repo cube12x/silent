@@ -135,11 +135,22 @@ export class CliWorker implements Worker {
             const item = line.replace(/^\s*[-*•]+\s*/, "").replace(/\*+$/, "").trim()
             if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri|no deviations?)\.?$/i.test(item)) (isEnvironmentLimit(item) ? notes : deviations).push(item)
           }
-          const sp = text.match(/SILENT_SPLIT:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_(?:DEVIATIONS|NOTES|QUESTION):|$)/)
-          if (sp) for (const line of sp[1].split("\n")) {
-            let item = line.replace(/^\s*(?:[-•]+|\*(?!\*)|\d+[.)])\s*/, "").trim()
-            if (item.startsWith("**")) item = item.replace(/^\*+|\*+$/g, "").trim() // markdown bold, not a glob
-            if (item && !/^[\W_]*$/.test(item) && !/^(none|yok|hiçbiri)\.?$/i.test(item)) split.push(item)
+          // The split block runs until the next SILENT_ marker (not the first blank line): a bullet/number starts a
+          // sub-brief, indented or plain continuation lines belong to it (2026-10-03: paragraph-style briefs were cut).
+          const sp = text.match(/SILENT_SPLIT:\**\s*([\s\S]*?)(?:\**SILENT_(?:DEVIATIONS|NOTES|QUESTION):|$)/)
+          if (sp) {
+            const bullet = /^\s*(?:[-•]+|\*(?!\*)|\d+[.)])\s*/
+            for (const raw of sp[1].split("\n")) {
+              const line = raw.replace(/\s+$/, "")
+              if (!line.trim()) continue
+              const starts = bullet.test(line) || split.length === 0
+              let item = line.replace(bullet, "").trim()
+              if (item.startsWith("**")) item = item.replace(/^\*+|\*+$/g, "").trim() // markdown bold, not a glob
+              if (!item || /^[\W_]*$/.test(item)) continue
+              if (/^(none|yok|hiçbiri)\.?$/i.test(item)) continue
+              if (starts) split.push(item)
+              else split[split.length - 1] += `\n${item}`
+            }
           }
           messages.push(text.replace(/\**SILENT_(DEVIATIONS|NOTES|SPLIT):[\s\S]*$/, "").replace(/\**SILENT_QUESTION:.*$/m, "").trim())
           sink.state(question ? "blocked" : "reviewing", 90)
