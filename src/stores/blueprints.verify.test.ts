@@ -44,7 +44,11 @@ describe("Çoklu Tarayıcı → fixer hand-off (2026-10-03)", () => {
     expect(fix.status).toBeDefined() // the fixer was started (it fails here only because the test has no model)
     expect(fix.note).not.toBe("no prompt")
   })
-  it("inconclusive lanes stop the chain without touching the fixer", async () => {
+  it("inconclusive lanes skip the fixer but the chain walks on to the next (non-Eylem) box", async () => {
+    const g = bp()
+    g.nodes.push({ id: "next", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "", mode: "single", title: "Next" } })
+    g.edges.push({ id: "e4", from: "v", to: "next" })
+    useBlueprintsStore.setState({ blueprints: [g] })
     laneText = { play: "# VERIFY\n- OK", swim: "# VERIFY\n- INCONCLUSIVE: the machine is overloaded" }
     await useBlueprintsStore.getState().run("b1", "s")
     const st = useBlueprintsStore.getState()
@@ -52,5 +56,23 @@ describe("Çoklu Tarayıcı → fixer hand-off (2026-10-03)", () => {
     expect(v.note).toContain("inconclusive")
     expect(v.data.type === "verify" && v.data.failedLanes).toEqual(["swim"])
     expect(st.byId("b1")!.nodes.find((n) => n.id === "fix")!.status).toBeUndefined()
+    expect(st.byId("b1")!.nodes.find((n) => n.id === "next")!.status).toBeDefined()
+  })
+  it("a critically loaded host skips the lanes entirely (inconclusive, no browser, no fixer) and the chain goes on", async () => {
+    const { useHostStore } = await import("./host")
+    useHostStore.setState({ level: "critical" })
+    const g = bp()
+    g.nodes.push({ id: "next", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "", mode: "single", title: "Next" } })
+    g.edges.push({ id: "e4", from: "v", to: "next" })
+    useBlueprintsStore.setState({ blueprints: [g] })
+    laneText = { play: "# VERIFY\n- [high] should never run", swim: "# VERIFY\n- [high] should never run" }
+    await useBlueprintsStore.getState().run("b1", "s")
+    const st = useBlueprintsStore.getState()
+    const v = st.byId("b1")!.nodes.find((n) => n.id === "v")!
+    expect(v.note).toMatch(/host|yük|busy/i)
+    expect(v.data.type === "verify" && v.data.failedLanes).toEqual(["play", "swim"])
+    expect(st.byId("b1")!.nodes.find((n) => n.id === "fix")!.status).toBeUndefined()
+    expect(st.byId("b1")!.nodes.find((n) => n.id === "next")!.status).toBeDefined()
+    useHostStore.setState({ level: "ok" })
   })
 })

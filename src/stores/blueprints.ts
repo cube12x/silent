@@ -396,8 +396,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         // check runs ONCE more: green → the chain continues (self-healing, 2026-10-01); still red → the chain stops.
         const exec = step.kind === "check" ? execCheck : execVerify
         let ok = await exec(id, step.node.id)
-        // Inconclusive lanes (host overloaded, app did not start) are nothing to fix: stop here, replay later.
-        if (ok === "inconclusive") break
+        // Inconclusive lanes (host overloaded, app did not start) are nothing to fix: skip the fixer, keep walking
+        // (2026-10-04: a side-branch verify used to stop the Deploy/Denetçi steps queued behind it).
+        if (ok === "inconclusive") {
+          log(set, step.node.id, "→ inconclusive, nothing to fix — the chain goes on; replay the lanes when the host is idle")
+          continue
+        }
         if (ok === "warn") ok = true
         if (!ok) {
           // Fixers are the Eylem (or Tamirci) boxes behind the gate; any other AI behind it is the continuation.
@@ -841,6 +845,14 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
   if (!cwd || !lanes.length || !data.modelRef) {
     store.updateNode(bpId, nodeId, { status: "failed", note: !cwd ? "no folder" : !lanes.length ? "no lanes" : "no model" })
     return false
+  }
+  // Host policy (2026-10-04): on a critically loaded host the lanes only burn tokens and report "could not be driven".
+  // Skip them as inconclusive now; `failedLanes` keeps them for a replay when the host is idle.
+  if (useHostStore.getState().level === "critical") {
+    const report = ["# VERIFY", ...lanes.map((l) => `## ${l}\n- [inconclusive] skipped: host load critical — replay when idle`), ...(skipped.length ? [`## skipped (OK on the previous pass)\n${skipped.map((l) => `- ${l}`).join("\n")}`] : [])].join("\n\n")
+    store.updateNode(bpId, nodeId, { status: "failed", note: `${lanes.length}/${lanes.length} lanes inconclusive (host busy) — re-run when idle`, data: { ...data, report, lastOk: true, failedLanes: lanes } })
+    log(set, nodeId, `⚠ host load critical — ${lanes.length} lane(s) skipped as inconclusive (no browser started); replay later`)
+    return "inconclusive"
   }
   const backend = await getBackend()
   const cancels: Array<() => Promise<void>> = []
