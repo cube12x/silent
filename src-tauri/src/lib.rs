@@ -83,6 +83,7 @@ pub fn run() {
             let argv: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().ok();
             commands::autostart::queue_from_argv(app.handle(), &argv, cwd.as_deref());
+            commands::launcher::refresh_launcher_if_stale();
             // A crash or `kill -9` leaves CLI workers running: kill what the previous instance recorded.
             commands::cli::reap_orphans(app.handle());
             Ok(())

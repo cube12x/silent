@@ -99,6 +99,21 @@ pub fn cli_launcher_status() -> LauncherStatus {
     status()
 }
 
+/// Rewrite an installed launcher whose body is stale (an older template): called at app start so a new
+/// verb (`status`, `wait`, `update`…) works without a trip to Settings (2026-10-04).
+pub fn refresh_launcher_if_stale() {
+    let path = launcher_path();
+    let Ok(current) = std::fs::read_to_string(&path) else { return };
+    let app = app_path();
+    let expected = launcher_script(launcher_kind(&app), &app);
+    if current != expected {
+        match std::fs::write(&path, &expected) {
+            Ok(()) => log::info!("launcher refreshed at {}", path.display()),
+            Err(e) => log::warn!("launcher refresh failed at {}: {e}", path.display()),
+        }
+    }
+}
+
 #[tauri::command]
 pub fn install_cli_launcher() -> Result<LauncherStatus, String> {
     let path = launcher_path();
