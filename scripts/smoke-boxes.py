@@ -51,10 +51,14 @@ async def main() -> int:
         await pg.get_by_role("button", name="Yeni blueprint").first.click()
         await pg.wait_for_timeout(600)
         pane = pg.locator(".react-flow__pane").first
+        await pane.wait_for(state="visible", timeout=20000)  # a loaded host renders the canvas late
         box = await pane.bounding_box()
         added = 0
         for i, (label, header, runnable) in enumerate(MENU):
             box = await pane.bounding_box()  # the side panel narrows the canvas once a node is selected
+            if box is None:
+                await pane.wait_for(state="visible", timeout=10000)
+                box = await pane.bounding_box()
             x = box["x"] + 40 + (i % 4) * min(200, (box["width"] - 80) / 4)
             y = box["y"] + 40 + (i // 4) * min(140, (box["height"] - 80) / 6)
             await pg.mouse.click(x, y, button="right")
