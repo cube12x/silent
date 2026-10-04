@@ -27,6 +27,23 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 
 **Sorun giderme:** günlükler macOS `~/Library/Logs/com.silent.workstation/`, Linux `~/.local/share/com.silent.workstation/logs/`, Windows `%LOCALAPPDATA%\com.silent.workstation\logs\`. `npm install -g` "EACCES" verirse Kurulum ekranındaki **~/.npm-global kullan ve tekrar dene** düğmesi. nvm ile kurulu Node'u Silent otomatik bulur (`~/.nvm/versions/node/*/bin`). Windows'ta Codex'in yerel sandbox'ı deneysel: planlayıcı olarak Claude Code'u tercih et. `curl | bash` kurulumları Windows'ta yok; npm paketi olan CLI'lar kurulur, diğerleri (Antigravity, Cursor) belgelerinden elle.
 
+## Terminal komutları (`silent`)
+
+| Komut | Ne yapar |
+|---|---|
+| `silent run <klasör> "<istek>"` | Silent Code koşusu başlatır (planla, onayla, koş). |
+| `silent bp "<blueprint>" ["<kutu>"] [only]` | Blueprint'i (ya da bir kutudan itibaren zinciri) koşturur; `only` yalnız o kutu. |
+| `silent bp auto "<amaç>"` / `silent bp edit "<blueprint>" "<değişiklik>"` | Tasarımcı AI ile blueprint oluşturur / mevcut grafiği yerinde düzenler. |
+| `silent bp answer "<blueprint>" "<kutu>" "<cevap>"` | Bloke bir SILENT_QUESTION'a cevap verir. |
+| `silent bp fix "<blueprint>" "<sorun>" [--file yol]… [--run]` | Tamirci: diyalogu doldurur; `--run` ile hemen koşturur. |
+| `silent status` | Uygulamanın durum aynasını (`status.json`: kutular, koşular, yük, bekleyen güncelleme) yazdırır; pencere açmaz. |
+| `silent wait "<blueprint>" "<kutu>" [--timeout dk]` | Kutu done (0) / failed (1) olana dek bekler; betikler için. |
+| `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). |
+| `silent cancel` | Koşan tüm kutuları ve koşuları durdurur. |
+| `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
+
+Denetçi kutusu (2026-10-04): `softCommands` (ör. `npm run e2e`) kırmızı olsa da yalnız uyarı yazar, düzeltici çağrılmaz ve zincir devam eder; `continueOnFail` kırmızıda bile devam ettirir. Denetçi'den sonra bağlanan **Eylem** düzelticidir (yalnız kırmızıda koşar); **başka bir kutu** (ör. sonraki Bölücü ya da bir Deploy Denetçisi) zincirin devamıdır ve yeşilde koşar.
+
 ## Desteklenen CLI'lar
 
 | CLI | Binary | Kur | Ayrıştırıcı |

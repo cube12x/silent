@@ -70,9 +70,11 @@ async def main() -> int:
             await pg.wait_for_timeout(350)
             nodes = pg.locator(".react-flow__node")
             n = await nodes.count()
-            if n != added + 1:
+            if n < added + 1:
                 failures.append(f"'{label}' did not add a node ({n} vs {added + 1})")
                 continue
+            if n > added + 1:
+                print(f"note: '{label}' — {n - added - 1} extra node(s) appeared (a run created a Build box); tolerated")
             added = n
             node = nodes.nth(n - 1)
             await node.click()
@@ -90,6 +92,19 @@ async def main() -> int:
                         await pg.wait_for_timeout(700)
                     except Exception as e:  # noqa: BLE001
                         failures.append(f"'{label}': run click failed: {e}")
+            if label == "Denetçi":
+                # 2026-10-04: soft commands + continueOnFail fields must exist and keep what is typed
+                panel = pg.locator("aside.w-\\[340px\\]").first
+                soft = panel.get_by_placeholder("npm run e2e")
+                cont = panel.get_by_label("Kırmızıysa da devam et")
+                if await soft.count() == 0 or await cont.count() == 0:
+                    failures.append("'Denetçi': soft commands / continueOnFail fields missing")
+                else:
+                    await soft.first.fill("npm run e2e")
+                    await cont.first.check()
+                    await pg.wait_for_timeout(300)
+                    if (await soft.first.input_value()) != "npm run e2e" or not await cont.first.is_checked():
+                        failures.append("'Denetçi': soft/continueOnFail edits did not stick")
             if errors:
                 failures.append(f"'{label}': page errors {errors[:2]}")
                 errors.clear()

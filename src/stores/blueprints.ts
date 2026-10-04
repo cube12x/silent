@@ -880,7 +880,7 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
     note: cancelled ? "cancelled" : allOk ? undefined : onlyInconclusive ? `${inconclusive.length}/${lanes.length} lanes inconclusive (host overloaded) — re-run later` : `${findings.length}/${lanes.length} lanes with findings${inconclusive.length ? `, ${inconclusive.length} inconclusive` : ""}`,
     // lastOk is the fixer's work-order switch (execAi reads verify reports only when it is false); inconclusive-only
     // passes have nothing to fix, so they stay "ok" for the fixer while the box itself shows the replay list.
-    data: { ...data, report, lastOk: findings.length === 0 && !cancelled, failedLanes: allOk ? [] : replay },
+    data: { ...data, report, lastOk: findings.length === 0 && !cancelled, failedLanes: allOk ? [] : replay, tokens: (data.tokens ?? 0) + tokens },
   })
   log(set, nodeId, `${allOk ? "✓ all lanes OK" : onlyInconclusive ? `⚠ ${inconclusive.length} lane(s) inconclusive — host overloaded; no fixer, re-run when idle` : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report${inconclusive.length ? ` (${inconclusive.length} inconclusive, replayed later)` : ""}`} · ${formatTokens(tokens)} tokens`)
   if (onlyInconclusive) return "inconclusive"

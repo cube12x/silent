@@ -704,7 +704,7 @@ export function BlueprintScreen() {
   const bp = blueprints.find((b) => b.id === id)
   // Σ tokens: persisted per AI node + live subtask tokens of orchestration runs in flight (number selector).
   const liveTokens = useRunsStore((s) => (bp ? bp.nodes.reduce((acc, n) => acc + (n.status === "running" && n.executionId && !n.executionId.startsWith("session:") ? (s.byId(n.executionId)?.plan ?? []).reduce((a, st) => a + (st.tokens ?? 0), 0) : 0), 0) : 0))
-  const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
+  const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" || n.data.type === "verify" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
   const newBlueprint = async () => {
     const created = await create(t("bp.newName", { n: blueprints.length + 1 }))
     navigate(`/blueprint/${created.id}`)

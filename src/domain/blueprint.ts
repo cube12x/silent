@@ -108,6 +108,8 @@ export interface BpVerifyData {
   lastOk?: boolean
   /** Lanes that had findings in the last pass: a re-check after the fixer replays only these. */
   failedLanes?: string[]
+  /** Tokens the lanes consumed (all passes), counted in the blueprint Σ since 2026-10-04. */
+  tokens?: number
 }
 /** Bütçe (Faz 4): the wired AI's run is cancelled once its tokens pass `maxTokens`. */
 export interface BpBudgetData {
