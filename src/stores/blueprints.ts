@@ -48,7 +48,8 @@ interface BlueprintsState {
   setActive(id: string | undefined): void
   byId(id: string | undefined): Blueprint | undefined
   /** Immutable graph update + persist (debounced). `history: false` for run-state changes (status, execution ids). */
-  update(id: string, mutate: (bp: Blueprint) => Blueprint, opts?: { history?: boolean }): void
+  /** `touch: false` keeps `updatedAt` (derived-from-disk refreshes are not edits; they used to bump every blueprint at boot). */
+  update(id: string, mutate: (bp: Blueprint) => Blueprint, opts?: { history?: boolean; touch?: boolean }): void
   addNode(id: string, type: BpNodeType, x: number, y: number, data?: Record<string, unknown>): BpNode | undefined
   /** `data` is merged into the node's data (fields of the node's own type). */
   updateNode(id: string, nodeId: string, patch: Partial<Omit<BpNode, "data">> & { data?: Record<string, unknown> }): void
@@ -303,7 +304,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   update(id, mutate, opts) {
     const current = get().byId(id)
     if (!current) return
-    const next = { ...mutate(current), updatedAt: Date.now() }
+    const next = { ...mutate(current), updatedAt: opts?.touch === false ? current.updatedAt : Date.now() }
     if (opts?.history !== false) {
       const stack = get().history[id] ?? []
       const last = stack[stack.length - 1]
@@ -633,7 +634,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       get().update(
         id,
         (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && (n.data.type === "build" || n.data.type === "buildPhoto") ? { ...n, data: { ...n.data, folderPath: next, fileCount: stats.fileCount } } : n)) }),
-        { history: false },
+        { history: false, touch: false },
       )
     }
     if (imported) log(set, nodeId, `${imported} image(s) collected`)
