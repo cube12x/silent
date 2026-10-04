@@ -26,6 +26,19 @@ export class TestBackend implements Backend {
   async hostLoad(): Promise<HostLoad> {
     return this.load
   }
+  statusJson = ""
+  async statusWrite(json: string): Promise<void> {
+    this.statusJson = json
+  }
+  pendingUpdate: string | null = null
+  applied: string[] = []
+  async updatePending(): Promise<string | null> {
+    return this.pendingUpdate
+  }
+  async updateApply(path: string): Promise<void> {
+    this.applied.push(path)
+    this.pendingUpdate = null
+  }
   swept: string[] = []
   async projectSweep(folder: string): Promise<number> {
     this.swept.push(folder)

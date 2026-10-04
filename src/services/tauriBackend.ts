@@ -42,6 +42,15 @@ export class TauriBackend implements Backend {
   hostLoad(): Promise<HostLoad> {
     return invoke<HostLoad>("host_load")
   }
+  statusWrite(json: string): Promise<void> {
+    return invoke<void>("status_write", { json })
+  }
+  async updatePending(): Promise<string | null> {
+    return (await invoke<string | null>("update_pending")) ?? null
+  }
+  updateApply(path: string): Promise<void> {
+    return invoke<void>("update_apply", { src: path })
+  }
   cliCancelOrphans(): Promise<number> {
     return invoke<number>("cli_cancel_orphans")
   }

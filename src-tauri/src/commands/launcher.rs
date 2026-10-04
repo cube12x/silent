@@ -54,7 +54,7 @@ pub enum LauncherKind {
 pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
     let t = target.display();
     match kind {
-        LauncherKind::MacApp => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload).\nexec open -n -a \"{t}\" --args --cwd \"$PWD\" \"$@\"\n"),
+        LauncherKind::MacApp => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload | silent cancel).\n# status / wait / update are answered by the app binary itself, without a window.\ncase \"$1\" in status|wait|update) exec \"{t}/Contents/MacOS/silent\" \"$@\";; esac\nexec open -n -a \"{t}\" --args --cwd \"$PWD\" \"$@\"\n"),
         LauncherKind::UnixExe => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload).\nnohup \"{t}\" --cwd \"$PWD\" \"$@\" >/dev/null 2>&1 &\n"),
         LauncherKind::WindowsCmd => format!("@echo off\r\nrem Silent - opens the desktop app with your arguments (silent run ... | silent bp ... | silent reload).\r\nstart \"\" \"{t}\" --cwd \"%CD%\" %*\r\n"),
     }
@@ -125,6 +125,7 @@ mod tests {
         let mac = launcher_script(LauncherKind::MacApp, Path::new("/Applications/Silent.app"));
         assert!(mac.starts_with("#!/bin/sh\n"));
         assert!(mac.contains("exec open -n -a \"/Applications/Silent.app\" --args --cwd \"$PWD\" \"$@\""));
+        assert!(mac.contains("status|wait|update) exec \"/Applications/Silent.app/Contents/MacOS/silent\" \"$@\""));
         let unix = launcher_script(LauncherKind::UnixExe, Path::new("/home/a/Silent.AppImage"));
         assert!(unix.contains("nohup \"/home/a/Silent.AppImage\" --cwd \"$PWD\" \"$@\""));
         let win = launcher_script(LauncherKind::WindowsCmd, Path::new("C:\\Program Files\\Silent\\silent.exe"));

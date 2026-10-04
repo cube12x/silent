@@ -43,3 +43,4 @@ pub fn app_info() -> AppInfo {
         platform: std::env::consts::OS,
     }
 }
+pub mod status;

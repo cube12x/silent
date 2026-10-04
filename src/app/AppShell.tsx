@@ -13,6 +13,9 @@ import { useUiStore } from "@/stores/ui"
 import { useProvidersStore } from "@/stores/providers"
 import { useSettingsStore } from "@/stores/settings"
 import { useHostStore } from "@/stores/host"
+import { useUpdatesStore } from "@/stores/updates"
+import { buildStatusSnapshot } from "@/engine/status"
+import { useT } from "@/i18n"
 import { PROVIDER_IDS } from "@/domain"
 import { shouldOpenSetup } from "@/providers/setup"
 
@@ -33,7 +36,25 @@ export function AppShell() {
   // Load guard poll (Faz 3): the executor and the Paralel fan-out read the host cap from this store.
   React.useEffect(() => {
     useHostStore.getState().start()
+    useUpdatesStore.getState().start()
   }, [])
+  // `silent status` / `silent wait` read a mirror of the app state (2026-10-04): write it every 5 s.
+  React.useEffect(() => {
+    const write = async () => {
+      try {
+        const host = useHostStore.getState()
+        const snap = buildStatusSnapshot({ blueprints: useBlueprintsStore.getState().blueprints, runs: useRunsStore.getState().runs, host: host.load ? { load: host.load, level: host.level } : undefined, pendingUpdate: useUpdatesStore.getState().pending })
+        await (await getBackend()).statusWrite(JSON.stringify(snap))
+      } catch {
+        /* dev backend or a transient fs error: the next tick retries */
+      }
+    }
+    void write()
+    const t = setInterval(() => void write(), 5000)
+    return () => clearInterval(t)
+  }, [])
+  const pendingUpdate = useUpdatesStore((s) => s.pending)
+  const t = useT()
 
   // External links open in the system browser. Left to the webview, a click on a worker's `http://localhost:5173`
   // link navigated Silent's own window to the dev server page with no way back (2026-10-01).
@@ -132,6 +153,11 @@ export function AppShell() {
       <main key={location.pathname.split("/")[1]} className="relative row-start-2 min-h-0 min-w-0 overflow-hidden">
         <div className="pointer-events-none absolute inset-0  opacity-[0.3]" />
         <div className="pointer-events-none absolute inset-x-0 top-0 h-40 " />
+        {pendingUpdate && (
+          <div className="relative z-10 border-b border-amber-500/40 bg-amber-500/10 px-4 py-1 text-[11px] text-amber-200" data-testid="update-banner">
+            ⏸ {t("app.updatePending")}
+          </div>
+        )}
         <div className="relative h-full min-h-0 overflow-auto"><Outlet /></div>
       </main>
       <CommandPalette />

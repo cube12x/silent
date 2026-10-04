@@ -10,6 +10,7 @@ import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraProm
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
 import { useRunsStore } from "./runs"
+import { useUpdatesStore } from "./updates"
 import { useSettingsStore } from "./settings"
 import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
@@ -366,6 +367,11 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   async run(id, nodeId, opts) {
     const bp = get().byId(id)
     if (!bp) return
+    // Drain: a queued `silent update` installs itself once nothing runs — do not start new work meanwhile.
+    if (useUpdatesStore.getState().pending) {
+      log(set, nodeId, "⏸ an app update is queued (silent update) — new runs are refused until it is installed")
+      return
+    }
     let plan = walkPlan(bp, nodeId)
     if (opts?.only) plan = plan.slice(0, 1)
     if (!plan.length) {

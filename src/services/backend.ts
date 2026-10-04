@@ -76,6 +76,12 @@ export interface Backend {
   appInfo(): Promise<AppInfo>
   /** Current host load (1-min load average, CPU count, swap %). */
   hostLoad(): Promise<HostLoad>
+  /** `silent status`: mirror the app state into <data dir>/status.json (atomic). */
+  statusWrite(json: string): Promise<void>
+  /** `silent update`: the queued bundle path, if any. */
+  updatePending(): Promise<string | null>
+  /** Replace the running bundle with `path` and relaunch (only when nothing runs). */
+  updateApply(path: string): Promise<void>
   /** Webview (re)start: cancel every CLI child the host still runs for the previous page; returns the count. */
   cliCancelOrphans(): Promise<number>
   /** Kill dev servers and Playwright browsers a worker left running for this project folder; returns the count. */

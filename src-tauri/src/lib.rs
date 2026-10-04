@@ -45,6 +45,13 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `silent status|wait|update` never open a window: answered here from status.json and we exit.
+    let args: Vec<String> = std::env::args().collect();
+    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    let identifier = context.config().identifier.clone();
+    if let Some(code) = commands::status::cli_mode(&args, &identifier) {
+        std::process::exit(code);
+    }
     tauri::Builder::default()
         // Must be the first plugin: a second `Silent --bp …` process hands its argv to this one and exits.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
@@ -54,6 +61,9 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                // 2026-10-04: the single rotating file lost a whole night of evidence; keep rotated files.
+                .max_file_size(8_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
@@ -105,6 +115,9 @@ pub fn run() {
             commands::files::read_project_blob,
             commands::refs::refs_sync,
             commands::autostart::autostart_take,
+            commands::status::status_write,
+            commands::status::update_pending,
+            commands::status::update_apply,
             commands::blueprint::blueprint_build_dir,
             commands::blueprint::blueprint_build_stats,
             commands::blueprint::blueprint_build_import,
@@ -128,7 +141,7 @@ pub fn run() {
                 let _ = (window, event);
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Silent")
         .run(|app, event| {
             match event {
