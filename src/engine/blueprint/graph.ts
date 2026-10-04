@@ -221,7 +221,7 @@ export interface AutorunRef {
   /** `silent bp auto "<goal>"`: let a planner-capable CLI design a new blueprint from this description. */
   auto?: string
   /** `silent bp fix <bp> "<problem>" [--file …]`: open the Dosyalar tab's Tamirci dialog prefilled. */
-  fix?: { problem: string; files: string[] }
+  fix?: { problem: string; files: string[]; run?: boolean }
   /** `silent bp edit "<blueprint>" "<change>"`: let the designer modify that blueprint in place. */
   edit?: string
 }

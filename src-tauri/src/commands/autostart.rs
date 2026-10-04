@@ -61,9 +61,14 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let mut problem: Vec<String> = Vec::new();
             let mut files: Vec<String> = Vec::new();
+            let mut run = false;
             let mut j = i + 2;
             while j < rest.len() {
-                if rest[j] == "--file" {
+                if rest[j] == "--run" {
+                    // 2026-10-04: start the repair at once instead of prefilling the dialog (nobody at the screen).
+                    run = true;
+                    j += 1;
+                } else if rest[j] == "--file" {
                     if let Some(f) = rest.get(j + 1) {
                         files.push(f.clone());
                     }
@@ -77,7 +82,7 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
             if bpref.is_empty() || problem.trim().is_empty() {
                 return Err("usage: silent bp fix <blueprint name|id> <problem…> [--file path]…".into());
             }
-            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "fix": { "problem": problem, "files": files } } }));
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "fix": { "problem": problem, "files": files, "run": run } } }));
         }
         Some("answer") => {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
@@ -260,6 +265,16 @@ mod tests {
         assert_eq!(v["pool"], json!([]));
         assert!(parse_argv(&argv("run demo"), Some(&base)).is_err());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn parses_fix_with_run_flag() {
+        let v = parse_argv(&argv("bp fix Alien the door is broken --file src/door.ts --run"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["fix"]["problem"], "the door is broken");
+        assert_eq!(v["blueprint"]["fix"]["files"][0], "src/door.ts");
+        assert_eq!(v["blueprint"]["fix"]["run"], true);
+        let v = parse_argv(&argv("bp fix Alien the door is broken"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["fix"]["run"], false);
     }
 
     #[test]

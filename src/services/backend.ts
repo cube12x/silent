@@ -64,7 +64,7 @@ export interface AutostartRequest {
   /** Expert (template) agent name or id whose run defaults apply (flags given explicitly win). */
   agent?: string
   /** `silent bp "<blueprint name|id>" ["<node title|id>"]`: trigger a Blueprint node instead of a Silent Code run. */
-  blueprint?: { ref: string; node?: string; answer?: string; only?: boolean; auto?: string; edit?: string; fix?: { problem: string; files: string[] } }
+  blueprint?: { ref: string; node?: string; answer?: string; only?: boolean; auto?: string; edit?: string; fix?: { problem: string; files: string[]; run?: boolean } }
   /** `silent reload`: reload the webview page (recovers a blank/black window; running orchestrations are lost). */
   reload?: boolean
   /** `silent cancel`: stop every running blueprint box and Silent Code run (the UI's cancel buttons, from the terminal). */

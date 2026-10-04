@@ -650,6 +650,15 @@ export function BlueprintScreen() {
         if (!target) return console.warn("[autostart] blueprint not found for fix", autorun.ref)
         navigate(`/blueprint/${target.id}`)
         setView("files")
+        if (autorun.fix!.run) {
+          // `silent bp fix … --run`: start the repair now, with the saved Tamirci preset (or Sonnet), on the first Build box.
+          const build = target.nodes.find((n) => n.data.type === "build" && n.data.folderPath)
+          if (!build) return console.warn("[autostart] fix --run: no build box with a folder", target.id)
+          const preset = target.meta?.tamirci ?? { modelRef: "claude:sonnet" }
+          console.warn("[autostart] fix --run", target.id, build.id)
+          await useBlueprintsStore.getState().callTamirci(target.id, build.id, { problem: autorun.fix!.problem, files: autorun.fix!.files, bilinc: false, preset })
+          return
+        }
         setPendingFix(autorun.fix!)
       })().catch((err: unknown) => console.warn("[autostart] blueprint fix failed", err instanceof Error ? err.message : String(err)))
       return
