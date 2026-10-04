@@ -33,3 +33,17 @@ describe("status snapshot for `silent status` / `silent wait` (2026-10-04)", () 
     expect(isIdle({ running: {}, runs: [{ ...run, status: "completed" } as Run] })).toBe(true)
   })
 })
+
+describe("blocked questions are visible in `silent status` (2026-10-04)", () => {
+  it("lists every blocked subtask with its question, run and title", () => {
+    const blocked = {
+      id: "r2",
+      status: "running",
+      createdAt: 5,
+      plan: [{ id: "t1", title: "Portal", state: "blocked", question: "Which dimension id?" }, { id: "t2", title: "Jump", state: "running" }],
+    } as unknown as Run
+    const s = buildStatusSnapshot({ blueprints: [], runs: [blocked], pendingUpdate: null, now: 99 })
+    expect(s.blocked).toEqual([{ runId: "r2", subtaskId: "t1", title: "Portal", question: "Which dimension id?" }])
+    expect(buildStatusSnapshot({ blueprints: [], runs: [run], pendingUpdate: null }).blocked).toEqual([])
+  })
+})

@@ -67,14 +67,47 @@ pub fn running_bundle() -> Option<PathBuf> {
 /// Replace the running bundle with `src` and relaunch. Only called by the webview once nothing runs.
 #[tauri::command]
 pub fn update_apply(app: AppHandle, src: String) -> Result<(), String> {
-    let src = PathBuf::from(src);
-    let target = running_bundle().ok_or("not running from an .app bundle")?;
+    let dir = crate::app_paths::data_dir(&app);
+    match swap_bundle(&PathBuf::from(&src)) {
+        Ok(target) => {
+            if let Some(dir) = &dir {
+                clear_pending(dir);
+            }
+            relaunch(app, &target);
+            Ok(())
+        }
+        Err(e) => {
+            // A queued update that cannot be applied must not stay queued: the app would retry it every two idle
+            // minutes and refuse every new run meanwhile (2026-10-04). The user re-queues with `silent update`.
+            if let Some(dir) = &dir {
+                clear_pending(dir);
+            }
+            log::warn!("update from {src} dropped: {e}");
+            Err(e)
+        }
+    }
+}
+
+/// Removes the queue file written by `silent update`; a missing file is fine.
+pub fn clear_pending(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(PENDING_UPDATE_FILE));
+}
+
+/// The source must be an app bundle other than the running one.
+pub fn validate_source(src: &Path, target: &Path) -> Result<(), String> {
     if !src.join("Contents").join("MacOS").is_dir() {
         return Err(format!("{} is not an app bundle", src.display()));
     }
     if src.canonicalize().ok() == target.canonicalize().ok() {
         return Err("source is the running bundle".into());
     }
+    Ok(())
+}
+
+/// Copies `src` over the running bundle (staging copy, then two renames). Returns the bundle path.
+fn swap_bundle(src: &Path) -> Result<PathBuf, String> {
+    let target = running_bundle().ok_or("not running from an .app bundle")?;
+    validate_source(src, &target)?;
     let staging = target.with_extension("app.staging");
     let _ = std::fs::remove_dir_all(&staging);
     let out = std::process::Command::new("ditto").arg(&src).arg(&staging).output().map_err(|e| e.to_string())?;
@@ -86,18 +119,18 @@ pub fn update_apply(app: AppHandle, src: String) -> Result<(), String> {
     std::fs::rename(&target, &old).map_err(|e| format!("move old bundle: {e}"))?;
     std::fs::rename(&staging, &target).map_err(|e| format!("move new bundle: {e}"))?;
     let _ = std::fs::remove_dir_all(&old);
-    if let Some(dir) = crate::app_paths::data_dir(&app) {
-        let _ = std::fs::remove_file(dir.join(PENDING_UPDATE_FILE));
-    }
     log::info!("update applied from {} → relaunching", src.display());
-    // Relaunch after this process has exited; `open` starts the new bundle detached from us.
+    Ok(target)
+}
+
+/// Relaunch after this process has exited; `open` starts the new bundle detached from us.
+fn relaunch(app: AppHandle, target: &Path) {
     let t = target.display().to_string();
     let _ = std::process::Command::new("sh").arg("-c").arg(format!("sleep 1.5; open -a \"{t}\"")).spawn();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(400));
         app.exit(0);
     });
-    Ok(())
 }
 
 /// CLI mode entry: returns `Some(exit code)` when argv was a status/wait/update verb, `None` otherwise.
@@ -110,15 +143,27 @@ pub fn cli_mode(args: &[String], identifier: &str) -> Option<i32> {
     let verb = it.next()?;
     let rest: Vec<String> = it.cloned().collect();
     let dir = data_dir_for(identifier)?;
-    match verb.as_str() {
+    run_verb(&dir, verb, &rest)
+}
+
+fn run_verb(dir: &Path, verb: &str, rest: &[String]) -> Option<i32> {
+    match verb {
         "status" => {
+            let json = rest.iter().any(|a| a == "--json");
             match std::fs::read_to_string(dir.join(STATUS_FILE)) {
-                Ok(text) => println!("{text}"),
-                Err(_) => println!("{{\"error\":\"no status yet — is Silent running?\"}}"),
+                Ok(text) if json => println!("{text}"),
+                Ok(text) => println!("{}", render_status(&text)),
+                Err(_) if json => println!("{{\"error\":\"no status yet — is Silent running?\"}}"),
+                Err(_) => println!("no status yet — is Silent running?"),
             }
             Some(0)
         }
-        "wait" => Some(wait_for(&dir, &rest, Instant::now())),
+        "wait" => Some(wait_for(dir, rest, Instant::now())),
+        "update" if rest.iter().any(|a| a == "--cancel") => {
+            clear_pending(dir);
+            println!("update queue cleared — Silent accepts new runs again");
+            Some(0)
+        }
         "update" => {
             let src = rest.first().cloned().unwrap_or_else(|| default_update_source());
             let json = format!("{{\"path\":{},\"queuedAt\":{}}}", serde_json::to_string(&src).unwrap_or_default(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
@@ -135,6 +180,69 @@ pub fn cli_mode(args: &[String], identifier: &str) -> Option<i32> {
         }
         _ => None,
     }
+}
+
+/// Human-readable `silent status`: what runs, what failed, who is waiting for an answer (`--json` gives the raw file).
+pub fn render_status(text: &str) -> String {
+    let v: serde_json::Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(_) => return text.to_string(),
+    };
+    let mut out = String::new();
+    let at = v.get("at").and_then(|a| a.as_i64()).unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let age = if at > 0 && now > at { (now - at) / 1000 } else { 0 };
+    out.push_str(&format!("snapshot {age}s old"));
+    if let Some(h) = v.get("host") {
+        out.push_str(&format!(
+            " · host {} (load {:.1}/{} cpus, swap {:.0}%)",
+            h.get("level").and_then(|x| x.as_str()).unwrap_or("?"),
+            h.get("load1").and_then(|x| x.as_f64()).unwrap_or(0.0),
+            h.get("cpus").and_then(|x| x.as_i64()).unwrap_or(0),
+            h.get("swapUsedPct").and_then(|x| x.as_f64()).unwrap_or(0.0)
+        ));
+    }
+    out.push('\n');
+    if let Some(p) = v.get("pendingUpdate").and_then(|p| p.as_str()) {
+        out.push_str(&format!("⏸ update queued: {p} (installs when idle; new runs are refused)\n"));
+    }
+    let empty = vec![];
+    let blocked = v.get("blocked").and_then(|b| b.as_array()).unwrap_or(&empty);
+    for b in blocked {
+        out.push_str(&format!(
+            "❓ BLOCKED {} — {}\n   answer: silent bp answer {} \"…\"\n",
+            b.get("title").and_then(|x| x.as_str()).unwrap_or("?"),
+            b.get("question").and_then(|x| x.as_str()).unwrap_or("").lines().next().unwrap_or(""),
+            b.get("subtaskId").and_then(|x| x.as_str()).unwrap_or("?")
+        ));
+    }
+    for bp in v.get("blueprints").and_then(|b| b.as_array()).unwrap_or(&empty) {
+        let nodes = bp.get("nodes").and_then(|n| n.as_array()).unwrap_or(&empty);
+        let live: Vec<&serde_json::Value> = nodes.iter().filter(|n| matches!(n.get("status").and_then(|s| s.as_str()), Some("running") | Some("failed"))).collect();
+        if live.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("{}\n", bp.get("name").and_then(|x| x.as_str()).unwrap_or("?")));
+        for n in live {
+            let status = n.get("status").and_then(|s| s.as_str()).unwrap_or("");
+            let mark = if status == "running" { "▶" } else { "✗" };
+            let note = n.get("note").and_then(|s| s.as_str()).map(|s| format!(" — {s}")).unwrap_or_default();
+            out.push_str(&format!("  {mark} {} [{}]{}\n", n.get("title").and_then(|x| x.as_str()).unwrap_or("?"), n.get("type").and_then(|x| x.as_str()).unwrap_or(""), note));
+        }
+    }
+    for r in v.get("runs").and_then(|b| b.as_array()).unwrap_or(&empty).iter().filter(|r| r.get("status").and_then(|s| s.as_str()) == Some("running")) {
+        out.push_str(&format!(
+            "run {} {}/{} tasks, {} tokens\n",
+            r.get("id").and_then(|x| x.as_str()).unwrap_or("?"),
+            r.get("done").and_then(|x| x.as_i64()).unwrap_or(0),
+            r.get("total").and_then(|x| x.as_i64()).unwrap_or(0),
+            r.get("tokens").and_then(|x| x.as_i64()).unwrap_or(0)
+        ));
+    }
+    if out.lines().count() <= 1 {
+        out.push_str("idle — nothing running\n");
+    }
+    out.trim_end().to_string()
 }
 
 fn default_update_source() -> String {
@@ -211,6 +319,46 @@ mod tests {
         assert_eq!(node_status_in(STATUS, "bp1", "n2").as_deref(), Some("running"));
         assert_eq!(node_status_in(STATUS, "bp1", "nope"), None);
         assert_eq!(node_status_in("garbage", "bp1", "n1"), None);
+    }
+
+    #[test]
+    fn render_status_shows_running_failed_blocked_and_the_update_queue() {
+        let text = r#"{"at":1,"host":{"load1":7.2,"cpus":6,"swapUsedPct":91,"level":"high"},"pendingUpdate":"/tmp/New.app","blocked":[{"runId":"r1","subtaskId":"t9","title":"Portal","question":"Which id?\nmore"}],"blueprints":[{"id":"b","name":"Minecraft","nodes":[{"id":"n1","title":"Dikiş 9","type":"ai","status":"done"},{"id":"n2","title":"Bölücü 4B","type":"ai","status":"running"},{"id":"n3","title":"Denetçi","type":"check","status":"failed","note":"npm test red"}]}],"runs":[{"id":"r1","status":"running","done":1,"total":9,"tokens":12}]}"#;
+        let out = render_status(text);
+        assert!(out.contains("host high"));
+        assert!(out.contains("update queued: /tmp/New.app"));
+        assert!(out.contains("❓ BLOCKED Portal — Which id?"));
+        assert!(out.contains("silent bp answer t9"));
+        assert!(out.contains("▶ Bölücü 4B [ai]"));
+        assert!(out.contains("✗ Denetçi [check] — npm test red"));
+        assert!(!out.contains("Dikiş 9"));
+        assert!(out.contains("run r1 1/9 tasks, 12 tokens"));
+        assert_eq!(render_status("{\"at\":1,\"blueprints\":[],\"runs\":[]}").lines().last().unwrap(), "idle — nothing running");
+        assert_eq!(render_status("garbage"), "garbage");
+    }
+
+    #[test]
+    fn a_bad_update_source_is_rejected_and_the_queue_file_is_dropped() {
+        let tmp = std::env::temp_dir().join(format!("silent-update-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("Not.app")).unwrap();
+        let target = tmp.join("Silent.app");
+        std::fs::create_dir_all(target.join("Contents/MacOS")).unwrap();
+        assert!(validate_source(&tmp.join("Not.app"), &target).unwrap_err().contains("not an app bundle"));
+        assert!(validate_source(&tmp.join("Missing.app"), &target).is_err());
+        assert_eq!(validate_source(&target, &target).unwrap_err(), "source is the running bundle");
+        let good = tmp.join("New.app");
+        std::fs::create_dir_all(good.join("Contents/MacOS")).unwrap();
+        assert!(validate_source(&good, &target).is_ok());
+        write_atomic(&tmp.join(PENDING_UPDATE_FILE), "{\"path\":\"x\"}").unwrap();
+        assert_eq!(read_pending(&tmp).unwrap().as_deref(), Some("x"));
+        clear_pending(&tmp);
+        assert_eq!(read_pending(&tmp).unwrap(), None);
+        clear_pending(&tmp); // idempotent
+        write_atomic(&tmp.join(PENDING_UPDATE_FILE), "{\"path\":\"x\"}").unwrap();
+        assert_eq!(run_verb(&tmp, "update", &["--cancel".into()]), Some(0));
+        assert_eq!(read_pending(&tmp).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

@@ -36,13 +36,14 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 | `silent bp auto "<amaç>"` / `silent bp edit "<blueprint>" "<değişiklik>"` | Tasarımcı AI ile blueprint oluşturur / mevcut grafiği yerinde düzenler. |
 | `silent bp answer "<blueprint>" "<kutu>" "<cevap>"` | Bloke bir SILENT_QUESTION'a cevap verir. |
 | `silent bp fix "<blueprint>" "<sorun>" [--file yol]… [--run]` | Tamirci: diyalogu doldurur; `--run` ile hemen koşturur. |
-| `silent status` | Uygulamanın durum aynasını (`status.json`: kutular, koşular, yük, bekleyen güncelleme) yazdırır; pencere açmaz. |
+| `silent status [--json]` | Okunur özet: koşan/kırmızı kutular, koşular, **cevap bekleyen sorular** (`silent bp answer …` komutuyla), yük, bekleyen güncelleme. `--json` ham `status.json` verir. Pencere açmaz. |
 | `silent wait "<blueprint>" "<kutu>" [--timeout dk]` | Kutu done (0) / failed (1) olana dek bekler; betikler için. |
-| `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). |
+| `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). Kurulamayan paket kuyruktan düşer (sonsuz deneme yok); `silent update --cancel` kuyruğu boşaltır. |
 | `silent cancel` | Koşan tüm kutuları ve koşuları durdurur. |
 | `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
 
 Denetçi kutusu (2026-10-04): `softCommands` (ör. `npm run e2e`) kırmızı olsa da yalnız uyarı yazar, düzeltici çağrılmaz ve zincir devam eder; `continueOnFail` kırmızıda bile devam ettirir. Denetçi'den sonra bağlanan **Eylem** düzelticidir (yalnız kırmızıda koşar); **başka bir kutu** (ör. sonraki Bölücü ya da bir Deploy Denetçisi) zincirin devamıdır ve yeşilde koşar.
+Koşan kutu (2026-10-04): bir tetikleme yalnız **ilk** kutusu zaten koşuyorsa reddedilir; yürüyüşün ilerisinde koşan bir kutu (ör. hub'daki Tamirci) beklenir, yeşil bitince atlanıp zincir sürer, kırmızı bitince zincir durur.
 
 ## Desteklenen CLI'lar
 

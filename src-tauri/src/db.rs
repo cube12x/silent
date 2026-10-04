@@ -46,5 +46,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0007_blueprints.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "clip stored terminal lines",
+            sql: include_str!("../migrations/0008_clip_terminal_lines.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

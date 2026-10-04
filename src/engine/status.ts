@@ -9,6 +9,8 @@ export interface StatusSnapshot {
   pendingUpdate: string | null
   blueprints: Array<{ id: string; name: string; nodes: Array<{ id: string; title: string; type: string; status: string; note?: string; tokens?: number }> }>
   runs: Array<{ id: string; status: string; done: number; total: number; tokens: number; createdAt: number }>
+  /** Subtasks waiting on a SILENT_QUESTION answer (`silent bp answer …`), so a stalled chain is visible from the shell. */
+  blocked: Array<{ runId: string; subtaskId: string; title: string; question: string }>
 }
 
 export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; host?: { load: HostLoad; level: LoadLevel }; pendingUpdate: string | null; now?: number }): StatusSnapshot {
@@ -38,6 +40,9 @@ export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; h
         tokens: r.plan.reduce((a, s) => a + (s.tokens ?? 0), 0),
         createdAt: r.createdAt,
       })),
+    blocked: i.runs
+      .filter((r) => r.status === "running")
+      .flatMap((r) => r.plan.filter((s) => s.state === "blocked").map((s) => ({ runId: r.id, subtaskId: s.id, title: s.title, question: s.question ?? "" }))),
   }
 }
 

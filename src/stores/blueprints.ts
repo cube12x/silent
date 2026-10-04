@@ -104,6 +104,24 @@ const pendingLogs = new Map<string, TerminalLine[]>()
 let logFlushTimer: ReturnType<typeof setTimeout> | undefined
 
 /** Append one terminal line to a node's log; lines are batched (100 ms) so a chatty CLI never re-renders the canvas per line. */
+/**
+ * A box that is already running (another chain started it) is not started twice: the walk waits for it and treats a
+ * green end as its own step done. Returns "free" when nothing was running.
+ */
+async function awaitBusy(bpId: string, nodeId: string, set: (fn: (s: BlueprintsState) => Partial<BlueprintsState>) => void): Promise<"free" | "done" | "failed"> {
+  if (!useBlueprintsStore.getState().running[nodeId]) return "free"
+  const bp = useBlueprintsStore.getState().byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  const title = node && "title" in node.data && node.data.title ? node.data.title : nodeId
+  log(set, nodeId, `⏳ ${title} is already running in another chain — waiting for it instead of starting it twice`)
+  while (useBlueprintsStore.getState().running[nodeId]) await new Promise((r) => setTimeout(r, 500))
+  const after = useBlueprintsStore.getState().byId(bpId)
+  const n = after && nodeById(after, nodeId)
+  const ok = n?.status === "done"
+  log(set, nodeId, ok ? "→ it finished green — the chain goes on" : "✗ it did not finish green — the chain stops here")
+  return ok ? "done" : "failed"
+}
+
 function log(set: (fn: (s: BlueprintsState) => Partial<BlueprintsState>) => void, nodeId: string, line: string, stream: TerminalLine["stream"] = "system") {
   const queue = pendingLogs.get(nodeId) ?? []
   queue.push({ ts: Date.now(), stream, text: line })
@@ -380,14 +398,26 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     // Double-trigger guard: Enter pressed twice or `silent bp` repeated must not start a second run of the same node
     // (three concurrent orchestrations on one folder happened on 2026-09-26).
-    const ais = plan.flatMap((st) => (st.kind === "ai" ? [st.node] : st.kind === "parallel" ? st.heads : []))
-    const busy = ais.find((ai) => get().running[ai.id])
-    if (busy) {
-      log(set, nodeId, `⚠ ${busy.data.type === "ai" && busy.data.title ? busy.data.title : busy.id} is already running — wait or cancel it first`)
+    // Only the FIRST step counts: a box running further down the walk belongs to another chain and is awaited when
+    // the walk reaches it (2026-10-04: a Tamirci running on the hub refused the whole next stage for hours).
+    const head = plan[0]!
+    const headIds = head.kind === "parallel" ? head.heads.map((h) => h.id) : [head.node.id]
+    const busyId = headIds.find((x) => get().running[x])
+    if (busyId) {
+      const busy = nodeById(bp, busyId)
+      log(set, nodeId, `⚠ ${busy && "title" in busy.data && busy.data.title ? busy.data.title : busyId} is already running — wait or cancel it first`)
       return
     }
-    for (const step of plan) {
+    for (let step of plan) {
       try {
+      if (step.kind !== "parallel") {
+        const waited = await awaitBusy(id, step.node.id, set)
+        if (waited === "failed") break
+        if (waited === "done") {
+          opts = undefined
+          continue
+        }
+      }
       if (step.kind === "ai") {
         const ok = await execAi(id, step.node.id, opts)
         if (!ok) break
@@ -428,6 +458,14 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         if (!(await execQueue(id, step.node.id))) break
       } else {
         // Paralel button: every head starts now; the chain continues only when all of them are done.
+        const waits = await Promise.all(step.heads.map((h) => awaitBusy(id, h.id, set)))
+        if (waits.includes("failed")) break
+        const heads = step.heads.filter((_, i) => waits[i] === "free")
+        if (!heads.length) {
+          opts = undefined
+          continue
+        }
+        step = { ...step, heads }
         const names = step.heads.map((h) => (h.data.type === "ai" && h.data.title ? h.data.title : h.id))
         log(set, step.button.id, `⇉ ${step.heads.length} AI at once: ${names.join(", ")}`)
         get().updateNode(id, step.button.id, { status: "running", note: undefined })

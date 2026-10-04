@@ -1,4 +1,5 @@
 import { graphJson } from "./blueprintJson"
+import { TERMINAL_LINE_MAX, clipText } from "@/engine/retention"
 import { Channel, invoke } from "@tauri-apps/api/core"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { open as openShell } from "@tauri-apps/plugin-shell"
@@ -367,7 +368,7 @@ export class TauriBackend implements Backend {
         for (let i = 0; i < lines.length; i += 180) {
           const chunk = lines.slice(i, i + 180)
           const placeholders = chunk.map((_, j) => `($${j * 5 + 1},$${j * 5 + 2},$${j * 5 + 3},$${j * 5 + 4},$${j * 5 + 5})`).join(",")
-          const params = chunk.flatMap((l) => [runId, subtaskId, l.ts, l.stream, l.text])
+          const params = chunk.flatMap((l) => [runId, subtaskId, l.ts, l.stream, clipText(l.text, TERMINAL_LINE_MAX)])
           await db.execute(`INSERT INTO terminal_lines (run_id, subtask_id, ts, stream, text) VALUES ${placeholders}`, params)
         }
         await db.execute("DELETE FROM terminal_lines WHERE subtask_id = $1 AND id NOT IN (SELECT id FROM terminal_lines WHERE subtask_id = $1 ORDER BY id DESC LIMIT $2)", [subtaskId, keep])

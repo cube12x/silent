@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { recordCommand } from "@/engine/retention"
 import type { SubtaskKind, CostMode, ExecutionMode, RepoAgent, RunStatus, SilentCodeRun, Subtask, TerminalLine, Effort } from "@/domain"
 import { modelRef } from "@/domain"
 import { EventBus, type RunEvent } from "@/engine/events"
@@ -131,7 +132,7 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
     case "subtask.session":
       return patch(e.subtaskId, (s) => ({ ...s, attempts: s.attempts.map((a, i) => (i === s.attempts.length - 1 ? { ...a, sessionId: e.sessionId } : a)) }))
     case "worker.command":
-      return patch(e.subtaskId, (s) => ({ ...s, commands: [...s.commands, e.command] }))
+      return patch(e.subtaskId, (s) => ({ ...s, commands: recordCommand(s.commands, e.command) }))
     case "worker.file":
       return patch(e.subtaskId, (s) => (s.files.includes(e.path) ? s : { ...s, files: [...s.files, e.path] }))
     default:

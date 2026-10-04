@@ -1,4 +1,5 @@
 import type { CliRunRequest, ProviderId, RuntimeEvent, SubtaskKind } from "@/domain"
+import { COMMAND_TEXT_MAX, clipText } from "@/engine/retention"
 import { parseModelRef } from "@/domain"
 import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./Worker"
 
@@ -104,7 +105,7 @@ export class CliWorker implements Worker {
           break
         case "commandStarted":
           sink.state(/test|vitest|jest|pytest|cargo test|go test/.test(e.data.command) ? "testing" : "coding")
-          sink.command(e.data.command)
+          sink.command(clipText(e.data.command, COMMAND_TEXT_MAX))
           for (const f of filesFromCommand(e.data.command)) sink.file(f)
           sink.log(`$ ${e.data.command}`)
           break
