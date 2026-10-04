@@ -392,8 +392,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         let ok = await exec(id, step.node.id)
         // Inconclusive lanes (host overloaded, app did not start) are nothing to fix: stop here, replay later.
         if (ok === "inconclusive") break
+        if (ok === "warn") ok = true
         if (!ok) {
-          const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai")
+          // Fixers are the Eylem (or Tamirci) boxes behind the gate; any other AI behind it is the continuation.
+          const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai" && n.data.type === "ai" && (n.data.role === "eylem" || n.data.tamirci === true))
           if (!fixers.length) break
           for (const f of fixers) {
             try {
@@ -405,7 +407,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
           log(set, step.node.id, "↻ re-checking after the fixer")
           const after = nodeById(useBlueprintsStore.getState().byId(id)!, step.node.id)
           ok = step.kind === "verify" && after?.data.type === "verify" && after.data.failedLanes?.length ? await execVerify(id, step.node.id, { onlyLanes: after.data.failedLanes }) : await exec(id, step.node.id)
-          if (ok !== true) break
+          if (ok === "warn") ok = true
+          const continueOnFail = step.node.data.type === "check" && step.node.data.continueOnFail === true
+          if (ok !== true && !continueOnFail) break
+          if (ok !== true) log(set, step.node.id, "→ still red, but continueOnFail is on — the chain goes on")
         }
       } else if (step.kind === "snapshot") {
         if (!(await execSnapshot(id, step.node.id))) break
@@ -627,7 +632,8 @@ function aiWorkingFolder(bp: Blueprint, aiId: string): string | undefined {
 }
 
 /** Denetçi: run the node's commands in the wired folder without any model; the report goes on the node. */
-async function execCheck(bpId: string, nodeId: string): Promise<boolean> {
+/** true = green, "warn" = green with red soft commands, false = red. */
+async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn"> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -649,38 +655,54 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean> {
   useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: () => void (cancelled = true) } }))
   store.updateNode(bpId, nodeId, { status: "running", note: undefined })
   log(set, nodeId, `▶ check · ${cwd}`)
+  const data = node.data
+  const soft = (data.softCommands ?? []).map((c) => c.trim()).filter(Boolean)
   const lines: string[] = ["# CHECK"]
   let ok = true
   let failingTail = ""
-  for (const cmd of list) {
-    if (cancelled) break
-    log(set, nodeId, `$ ${cmd}`)
+  const warnings: string[] = []
+  const runOne = async (cmd: string, isSoft: boolean): Promise<boolean> => {
+    log(set, nodeId, `$ ${cmd}${isSoft ? "  (soft)" : ""}`)
     try {
-      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, node.data.timeoutSecs), node.data.maxLines)
+      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, data.timeoutSecs), data.maxLines)
       log(set, nodeId, r.tail || "(no output)", r.ok ? "stdout" : "stderr")
       log(set, nodeId, `↳ exit ${r.exitCode ?? "?"} · ${Math.round(r.elapsedMs / 1000)} s`)
-      lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})`} · ${Math.round(r.elapsedMs / 1000)} s`)
-      if (!r.ok) {
-        ok = false
-        failingTail = r.tail
-        break
-      }
+      lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})${isSoft ? " · soft, not blocking" : ""}`} · ${Math.round(r.elapsedMs / 1000)} s`)
+      if (!r.ok) failingTail = r.tail
+      return r.ok
     } catch (e) {
-      ok = false
       failingTail = e instanceof Error ? e.message : String(e)
-      lines.push(`- ${cmd}: could not run (${failingTail})`)
+      lines.push(`- ${cmd}: could not run (${failingTail})${isSoft ? " · soft" : ""}`)
+      return false
+    }
+  }
+  for (const cmd of list) {
+    if (cancelled) break
+    if (!(await runOne(cmd, false))) {
+      ok = false
       break
     }
   }
-  const report = ok ? lines.join("\n") : `${lines.join("\n")}\n\nOutput of the failing command (last lines):\n${failingTail}`
+  // Soft commands (e2e on a slow host, lint-as-warning…): red ones are reported, never fixed, never block.
+  if (ok && !cancelled) for (const cmd of soft) {
+    if (cancelled) break
+    if (!(await runOne(cmd, true))) warnings.push(cmd)
+  }
+  const report = ok && !warnings.length ? lines.join("\n") : `${lines.join("\n")}\n\nOutput of the failing command (last lines):\n${failingTail}`
   useBlueprintsStore.setState((s) => {
     const running = { ...s.running }
     delete running[nodeId]
     return { running }
   })
-  store.updateNode(bpId, nodeId, { status: cancelled ? "failed" : ok ? "done" : "failed", note: cancelled ? "cancelled" : ok ? undefined : "check failed", data: { report, lastOk: ok && !cancelled } })
-  log(set, nodeId, ok ? "✓ all checks green" : "✖ check failed — wired fixer AI gets the report")
-  return ok && !cancelled
+  const warn = ok && warnings.length > 0
+  store.updateNode(bpId, nodeId, {
+    status: cancelled ? "failed" : ok ? "done" : "failed",
+    note: cancelled ? "cancelled" : !ok ? "check failed" : warn ? `⚠ soft red: ${warnings.join(", ")}` : undefined,
+    data: { report, lastOk: ok && !cancelled },
+  })
+  log(set, nodeId, !ok ? "✖ check failed — wired fixer AI gets the report" : warn ? `⚠ green with warnings — soft red: ${warnings.join(", ")} (chain goes on, no fixer)` : "✓ all checks green")
+  if (cancelled || !ok) return false
+  return warn ? "warn" : true
 }
 
 /** Bütçe: cancel `runId` once its live tokens pass `maxTokens`; returns the unsubscribe. */

@@ -506,6 +506,14 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
             <Textarea value={d.commands.join("\n")} onChange={(e) => patch({ commands: e.target.value.split("\n") })} rows={4} placeholder={"npm run typecheck\nnpm test\nnpm run build"} className="mono text-[12px]" />
             <span className="text-[10px]">{t("bp.checkCommandsHint")}</span>
           </label>
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.checkSoftCommands")}
+            <Textarea value={(d.softCommands ?? []).join("\n")} onChange={(e) => patch({ softCommands: e.target.value.split("\n") })} rows={2} placeholder={"npm run e2e"} className="mono text-[12px]" />
+            <span className="text-[10px]">{t("bp.checkSoftCommandsHint")}</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-text-3" title={t("bp.checkContinueOnFailHint")}>
+            <input type="checkbox" checked={d.continueOnFail === true} onChange={(e) => patch({ continueOnFail: e.target.checked })} />
+            {t("bp.checkContinueOnFail")}
+          </label>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <label className="flex flex-col gap-1 text-text-3">{t("bp.checkMaxLines")}<input type="number" min={5} max={400} value={d.maxLines} onChange={(e) => patch({ maxLines: Math.max(5, Number(e.target.value) || 40) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" /></label>
             <label className="flex flex-col gap-1 text-text-3">{t("bp.checkTimeout")}<input type="number" min={1} max={120} value={Math.round(d.timeoutSecs / 60)} onChange={(e) => patch({ timeoutSecs: Math.max(60, (Number(e.target.value) || 15) * 60) })} className="mono h-7 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" /></label>

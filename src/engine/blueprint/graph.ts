@@ -81,15 +81,14 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
       plan.push({ kind: "ai", node })
       started.add(id)
     } else if (node.type === "check" && !started.has(id)) {
-      // Denetçi: its own step; the AIs wired after it are fixers that run only when the check is red, so the walk stops here.
+      // Denetçi: its own step. Eylem boxes wired after it are fixers (run only when red); anything else wired after it
+      // is the continuation and runs when the check passes (2026-10-04: Dikiş → Denetçi → next stage, no scripts).
       plan.push({ kind: "check", node })
       started.add(id)
-      continue
     } else if (node.type === "verify" && !started.has(id)) {
-      // Çoklu Tarayıcı: same shape as Denetçi — the AIs after it fix only what the lanes found.
+      // Çoklu Tarayıcı: same shape as Denetçi.
       plan.push({ kind: "verify", node })
       started.add(id)
-      continue
     } else if ((node.type === "queue" || node.type === "snapshot") && !started.has(id)) {
       plan.push({ kind: node.type, node })
       started.add(id)
@@ -106,7 +105,9 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     // not leave it into stages that already ran: Build → prompt → done AI, Build → done snapshot…
     // 2026-10-02: Bölücü → Build → every stage's entry prompt re-ran the whole blueprint (Büyük Güncelleme, Online, El…).
     const fromHub = node.type === "build" || node.type === "buildPhoto"
-    const next = outgoing(bp, id).filter((n) => n.type !== "stub" && !contextOnly(node, n) && !(cycleGuard && fromHub && n.id !== startId && alreadyRan(bp, n)))
+    const isFixer = (n: BpNode) => n.type === "ai" && n.data.type === "ai" && (n.data.role === "eylem" || n.data.tamirci === true)
+    const afterGate = node.type === "check" || node.type === "verify"
+    const next = outgoing(bp, id).filter((n) => n.type !== "stub" && !contextOnly(node, n) && !(afterGate && isFixer(n)) && !(cycleGuard && fromHub && n.id !== startId && alreadyRan(bp, n)))
     // Paralel buttons first: they are a barrier for everything else hanging off the same node.
     queue.push(...next.filter((n) => isParallel(n)).map((n) => n.id), ...next.filter((n) => !isParallel(n)).map((n) => n.id))
   }

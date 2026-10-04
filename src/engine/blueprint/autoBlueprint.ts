@@ -53,6 +53,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           folder: { type: "string", description: "stub only: placeholder folder relative to the build" },
           commands: { type: "array", items: { type: "string" }, description: "check only: shell commands run in the wired folder without a model (empty = typecheck, test, build)" },
           timeoutSecs: { type: "number", description: "check only: seconds allowed per command (default 900; browser suites always get at least 2400)" },
+          softCommands: { type: "array", items: { type: "string" }, description: "check only: commands that may fail without stopping the chain or calling the fixer (e.g. npm run e2e on a slow host); reported as warnings" },
+          continueOnFail: { type: "boolean", description: "check only: walk on to the next boxes even when the check stays red after the fixer" },
           lanes: { type: "array", items: { type: "string" }, description: "verify only: one browser lane (screen/flow to play through) per item; lanes run in parallel" },
           maxTokens: { type: "number", description: "budget only: the wired AI's run is cancelled past this many tokens" },
         },
@@ -83,6 +85,8 @@ export interface AutoBlueprintNode {
   kinds?: string[]
   folder?: string
   commands?: string[]
+  softCommands?: string[]
+  continueOnFail?: boolean
   timeoutSecs?: number
   lanes?: string[]
   maxTokens?: number
@@ -129,6 +133,8 @@ export function describeExisting(bp: Blueprint): string {
       folder: pick("folder"),
       commands: pick("commands"),
       timeoutSecs: typeof d.timeoutSecs === "number" ? (d.timeoutSecs as number) : undefined,
+      softCommands: pick("softCommands"),
+      continueOnFail: typeof d.continueOnFail === "boolean" ? (d.continueOnFail as boolean) : undefined,
       instructions: typeof d.instructions === "string" ? (d.instructions as string).slice(0, 200) : undefined,
       repos: Array.isArray(d.repos) ? (d.repos as Array<{ url: string }>).map((r) => r.url) : undefined,
     }
@@ -148,7 +154,7 @@ const RULES = `Node types and what they do:
 - button start: runs the chain forward, one AI after another. button parallel ("Paralel"): every prompt/AI wired after it starts AT THE SAME TIME and the chain continues only when all are done — wire Build → parallel → the independent role prompts (audio, models, textures, text) so they do not queue. button reload: re-runs the wired AI with its purpose (e.g. regenerate broken art). button send: copies files between builds.
 - variable: watches a build/photo folder (glob filter) and fires the wired wizard/ai when files change.
 - wizard: a small AI that turns a variable event into a short instruction for the wired AI.
-- check ("Denetçi", zero tokens): runs the project's own commands (typecheck, tests, build; field commands, empty = defaults) in the wired folder WITHOUT a model; when green the chain simply ends there, when red its report becomes the work order of the ai wired after it (a cheap single-mode fixer, role eylem). Wire ai → check → ai after every build stage instead of asking a model to verify.
+- check ("Denetçi", zero tokens): runs the project's own commands (typecheck, tests, build; field commands, empty = defaults) in the wired folder WITHOUT a model. Red → its report becomes the work order of the Eylem (role eylem) wired after it, which fixes and the check runs once more. Green → the chain WALKS ON into any non-Eylem box wired after the check (so "Dikiş → check → Bölücü 2" chains stages). softCommands (e.g. "npm run e2e" on a slow host) may fail without blocking or calling the fixer; continueOnFail walks on even when red. Wire ai → check → ai after every build stage instead of asking a model to verify.
 - ai role kesifci ("Keşifçi", cost saver): a cheap read-only scout (fast model, single mode) that writes a RECON report of exactly which files/lines the next AI must touch; wire prompt → kesifci ai → expensive ai so the expensive model edits instead of re-scanning the repository.
 - ai field turbo (speed): set turbo: true on orchestration boxes when the user wants the fastest run (no polish round, effort ≤ medium, lean plan); field keepSession: true on a single-mode box that is re-run many times on the same project (its CLI session is resumed, files stay in context).
 - ai mode lite ("Bölücü", speed): an orchestration that plans ONLY disjoint build tasks (one per area, Turbo, no review/tests/integration) — the fastest way to build several independent systems; ALWAYS wire its Build into a single-mode ai with role dikis ("Dikiş": full suite + cross-area seams, no features).
@@ -306,7 +312,7 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
         data = { type: "variable", filter: n.filter || "*.png" }
         break
       case "check":
-        data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), maxLines: 40, timeoutSecs: typeof n.timeoutSecs === "number" && n.timeoutSecs > 0 ? Math.round(n.timeoutSecs) : 900 }
+        data = { type: "check", title: n.title, commands: (n.commands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), softCommands: (n.softCommands ?? []).filter((c): c is string => typeof c === "string" && c.trim().length > 0), continueOnFail: n.continueOnFail === true ? true : undefined, maxLines: 40, timeoutSecs: typeof n.timeoutSecs === "number" && n.timeoutSecs > 0 ? Math.round(n.timeoutSecs) : 900 }
         break
       case "queue":
         data = { type: "queue", title: n.title, modelRef: fixRef(n.modelRef, n.key) }
@@ -334,6 +340,8 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
       // reset a 1.5M Bütçe to the 200k default and would have emptied a Denetçi's commands).
       if (typeof n.maxTokens !== "number") delete fresh.maxTokens
       if (!n.commands?.length) delete fresh.commands
+      if (!n.softCommands?.length) delete fresh.softCommands
+      if (typeof n.continueOnFail !== "boolean") delete fresh.continueOnFail
       if (!n.lanes?.length) delete fresh.lanes
       delete fresh.maxLines
       if (typeof n.timeoutSecs !== "number") delete fresh.timeoutSecs

@@ -74,6 +74,10 @@ export interface BpCheckData {
   /** Lines of output kept from a failing command for the report. */
   maxLines: number
   timeoutSecs: number
+  /** Commands that may fail without stopping the chain or calling the fixer (2026-10-04: e2e on a slow host); red ones are reported as warnings. */
+  softCommands?: string[]
+  /** Walk on to the non-Eylem boxes after this check even when it stays red after the fixer. */
+  continueOnFail?: boolean
   /** `# CHECK` report of the last run (fed to the wired fixer AI when red). */
   report?: string
   lastOk?: boolean

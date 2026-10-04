@@ -406,3 +406,30 @@ describe("a walk through a shared Build hub skips the stages that already ran", 
     expect(aiChainFrom(bp(), "a").map((n) => n.id)).toEqual(["a", "a2"])
   })
 })
+
+describe("a check's downstream splits into fixers and continuation (2026-10-04)", () => {
+  function chain(): Blueprint {
+    return {
+      id: "bp3",
+      name: "chain",
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [
+        { id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } },
+        { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "game", folderPath: "/tmp/game", kind: "code" } },
+        { id: "chk", type: "check", x: 0, y: 0, data: { type: "check", commands: ["npm test"], maxLines: 40, timeoutSecs: 60 } },
+        { id: "fix", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", role: "eylem" } },
+        { id: "next", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "lite", title: "Bölücü 2" } },
+      ],
+      edges: [
+        { id: "e1", from: "s", to: "b" },
+        { id: "e2", from: "b", to: "chk" },
+        { id: "e3", from: "chk", to: "fix" },
+        { id: "e4", from: "chk", to: "next" },
+      ],
+    } as Blueprint
+  }
+  it("walks on from a Denetçi into a non-Eylem AI (the next stage) but never into its Eylem fixer", () => {
+    expect(walkPlan(chain(), "s").map((st) => (st.kind === "ai" ? `ai:${st.node.id}` : st.kind))).toEqual(["check", "ai:next"])
+  })
+})
