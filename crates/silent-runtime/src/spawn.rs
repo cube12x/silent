@@ -23,7 +23,7 @@ pub struct SpawnConfig {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: Option<PathBuf>,
-    /// Soft wall-clock limit: once exceeded, the process is stopped at the next quiet moment (no output for 90 s).
+    /// Soft wall-clock limit: once exceeded, the process is stopped at the next quiet moment (no output for 180 s).
     pub timeout: Duration,
     /// Kill regardless of activity when no output arrived for this long (hung CLI / stuck command).
     pub idle_timeout: Duration,
@@ -322,7 +322,10 @@ where
     });
 
     let hard = config.timeout.saturating_mul(config.hard_factor.max(1));
-    let quiet = Duration::from_secs(90).min(config.timeout / 2);
+    // 2026-10-04: a worker waiting on a silent test run (vitest/Playwright print nothing for minutes) looked "quiet"
+    // after 90 s and was stopped 17× in one project, each time resuming its session. Three minutes tells a pause
+    // from a test run; the hard limit still bounds a worker that never goes quiet.
+    let quiet = Duration::from_secs(180).min(config.timeout / 2);
     let tick = Duration::from_secs(5)
         .min(config.timeout / 4)
         .max(Duration::from_millis(50));
