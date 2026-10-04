@@ -288,7 +288,12 @@ where
     let raw_out = Arc::clone(&raw);
     let stdout_task = tokio::spawn(async move {
         pump_lines(stdout, max_line, |line| {
-            out_last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            // Heartbeats of a long tool call ("tool_progress" every 30 s) are not progress: a worker sitting in a
+            // 30-minute test run must still look quiet after the soft limit (2026-10-04: one task ran 2 h 42 min
+            // because heartbeats kept resetting the clock; only the hard limit could end it).
+            if !is_heartbeat(&line) {
+                out_last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            }
             raw_append(&raw_out, &line, "");
             for event in parser(&line) {
                 if matches!(event, RuntimeEvent::Failed { .. }) {
@@ -431,9 +436,45 @@ async fn wait_for_cancel(cancel: &mut watch::Receiver<bool>) {
     }
 }
 
+/// A CLI heartbeat line (`"heartbeat":true` on a `tool_progress` event): keeps the pipe alive, says nothing new.
+pub fn is_heartbeat(line: &str) -> bool {
+    line.contains("\"heartbeat\":true") || line.contains("\"heartbeat\": true")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heartbeat_lines_are_recognised() {
+        assert!(is_heartbeat(r#"{"type":"tool_progress","elapsed_time_seconds":150,"heartbeat":true}"#));
+        assert!(!is_heartbeat(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"heartbeat"}]}}"#));
+        assert!(!is_heartbeat("tick"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn heartbeats_do_not_keep_a_process_alive_past_the_soft_limit() {
+        let (events, sink) = collector();
+        let (_handle, rx) = RunHandle::new();
+        // Prints only heartbeats every 50 ms: looks quiet, so the soft limit (400 ms) + quiet (200 ms) must end it well
+        // before the hard limit (1600 ms).
+        let mut config = SpawnConfig::new(
+            "/bin/sh",
+            vec!["-c".into(), "while true; do echo '{\"type\":\"tool_progress\",\"heartbeat\":true}'; sleep 0.05; done".into()],
+        );
+        config.timeout = Duration::from_millis(400);
+        config.hard_factor = 4;
+        config.idle_timeout = Duration::from_secs(60);
+        config.shutdown_grace = Duration::from_secs(2);
+        let started = Instant::now();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx).await.unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(exit, RunExit::TimedOut);
+        assert!(elapsed < Duration::from_millis(1400), "ran to the hard limit: {elapsed:?}");
+        let events = events.lock().unwrap().clone();
+        assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, .. } if code == "timeout" && message.contains("quiet moment"))), "{events:?}");
+    }
     use crate::cli::{line_parser, ProviderId};
     use std::time::Instant;
 
