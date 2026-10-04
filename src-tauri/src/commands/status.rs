@@ -76,6 +76,11 @@ pub fn update_apply(app: AppHandle, src: String) -> Result<(), String> {
             relaunch(app, &target);
             Ok(())
         }
+        Err(e) if e.starts_with(RETRY_PREFIX) => {
+            // Transient: the bundle is still being written by `tauri build`; the queue stays and the next idle tick retries.
+            log::info!("update from {src} postponed: {e}");
+            Err(e)
+        }
         Err(e) => {
             // A queued update that cannot be applied must not stay queued: the app would retry it every two idle
             // minutes and refuse every new run meanwhile (2026-10-04). The user re-queues with `silent update`.
@@ -93,13 +98,31 @@ pub fn clear_pending(dir: &Path) {
     let _ = std::fs::remove_file(dir.join(PENDING_UPDATE_FILE));
 }
 
-/// The source must be an app bundle other than the running one.
+const RETRY_PREFIX: &str = "retry: ";
+/// A bundle whose binary changed this recently is probably still being built/signed (`tauri build` takes ~20 s there).
+const SETTLE_SECS: u64 = 60;
+
+/// The source must be a complete app bundle other than the running one, and not mid-write.
 pub fn validate_source(src: &Path, target: &Path) -> Result<(), String> {
-    if !src.join("Contents").join("MacOS").is_dir() {
+    validate_source_at(src, target, std::time::SystemTime::now())
+}
+
+fn validate_source_at(src: &Path, target: &Path, now: std::time::SystemTime) -> Result<(), String> {
+    let macos = src.join("Contents").join("MacOS");
+    if !macos.is_dir() {
         return Err(format!("{} is not an app bundle", src.display()));
     }
     if src.canonicalize().ok() == target.canonicalize().ok() {
         return Err("source is the running bundle".into());
+    }
+    let newest = std::fs::read_dir(&macos)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter_map(|e| e.metadata().ok()?.modified().ok())
+        .max()
+        .ok_or_else(|| format!("{} has no executable", macos.display()))?;
+    if now.duration_since(newest).map(|d| d.as_secs() < SETTLE_SECS).unwrap_or(true) {
+        return Err(format!("{RETRY_PREFIX}{} was written less than {SETTLE_SECS} s ago — still being built? retrying later", src.display()));
     }
     Ok(())
 }
@@ -349,7 +372,13 @@ mod tests {
         assert_eq!(validate_source(&target, &target).unwrap_err(), "source is the running bundle");
         let good = tmp.join("New.app");
         std::fs::create_dir_all(good.join("Contents/MacOS")).unwrap();
-        assert!(validate_source(&good, &target).is_ok());
+        assert!(validate_source(&good, &target).unwrap_err().contains("no executable"));
+        std::fs::write(good.join("Contents/MacOS/silent"), b"bin").unwrap();
+        // just written → transient (the queue must stay); settled → ok
+        let fresh = validate_source(&good, &target).unwrap_err();
+        assert!(fresh.starts_with(RETRY_PREFIX), "{fresh}");
+        let later = std::time::SystemTime::now() + Duration::from_secs(SETTLE_SECS + 5);
+        assert!(validate_source_at(&good, &target, later).is_ok());
         write_atomic(&tmp.join(PENDING_UPDATE_FILE), "{\"path\":\"x\"}").unwrap();
         assert_eq!(read_pending(&tmp).unwrap().as_deref(), Some("x"));
         clear_pending(&tmp);

@@ -38,7 +38,7 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 | `silent bp fix "<blueprint>" "<sorun>" [--file yol]… [--run]` | Tamirci: diyalogu doldurur; `--run` ile hemen koşturur. |
 | `silent status [--json]` | Okunur özet: koşan/kırmızı kutular, koşular, **cevap bekleyen sorular** (`silent bp answer …` komutuyla), yük, bekleyen güncelleme. `--json` ham `status.json` verir. Pencere açmaz. |
 | `silent wait "<blueprint>" "<kutu>" [--timeout dk]` | Kutu done (0) / failed (1) olana dek bekler; betikler için. |
-| `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). Kurulamayan paket kuyruktan düşer (sonsuz deneme yok); `silent update --cancel` kuyruğu boşaltır. |
+| `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). Kurulamayan paket kuyruktan düşer (sonsuz deneme yok); son 60 sn içinde yazılmış paket (derleme sürüyor) bir sonraki boş anda yeniden denenir; `silent update --cancel` kuyruğu boşaltır. |
 | `silent cancel` | Koşan tüm kutuları ve koşuları durdurur. |
 | `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
 
