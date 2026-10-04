@@ -100,7 +100,9 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     // Context-only wires: a Build → AI wire into a fixer (an AI fed by a check/verify) or into an AI that sits behind a
     // snapshot/queue only gives that AI its folder — it must not START it. 2026-10-01: one Build hub fanned every
     // trigger out into every stage's fixers and stitchers (Eylem boxes failed with "no prompt", stages re-ran).
-    const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue")
+    // A Tamirci box (repair request) is started only by the Dosyalar tab / `silent bp fix`: its Build wire is context.
+    // 2026-10-04: a running Tamirci sat on the hub and the "already running" guard refused the next stage's trigger.
+    const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && (to.data.type === "ai" && to.data.tamirci === true || incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue"))
     // Stages meet at a shared Build hub. A walk that passes through or starts at the hub (anything but Start) must
     // not leave it into stages that already ran: Build → prompt → done AI, Build → done snapshot…
     // 2026-10-02: Bölücü → Build → every stage's entry prompt re-ran the whole blueprint (Büyük Güncelleme, Online, El…).

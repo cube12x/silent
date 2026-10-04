@@ -433,3 +433,28 @@ describe("a check's downstream splits into fixers and continuation (2026-10-04)"
     expect(walkPlan(chain(), "s").map((st) => (st.kind === "ai" ? `ai:${st.node.id}` : st.kind))).toEqual(["check", "ai:next"])
   })
 })
+
+describe("Tamirci boxes are never walked from a Build (2026-10-04)", () => {
+  it("a stage AI writing into the hub does not start (or get blocked by) the Tamirci wired from that Build", () => {
+    const g: Blueprint = {
+      id: "bp4",
+      name: "t",
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [
+        { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "game", folderPath: "/tmp/game", kind: "code" } },
+        { id: "tam", type: "ai", x: 0, y: 0, status: "running", data: { type: "ai", modelRef: "claude:sonnet", mode: "single", title: "Tamirci AI", tamirci: true } },
+        { id: "p", type: "prompt", x: 0, y: 0, data: { type: "prompt", title: "Stage", text: "x" } },
+        { id: "split", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "lite" } },
+      ],
+      edges: [
+        { id: "e1", from: "b", to: "tam" },
+        { id: "e2", from: "b", to: "p" },
+        { id: "e3", from: "p", to: "split" },
+        { id: "e4", from: "split", to: "b" },
+      ],
+    } as Blueprint
+    expect(walkPlan(g, "split").map((st) => (st.kind === "ai" ? st.node.id : st.kind))).toEqual(["split"])
+    expect(aiChainFrom(g, "b").map((n) => n.id)).toEqual(["split"])
+  })
+})
