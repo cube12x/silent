@@ -54,7 +54,20 @@ pub enum LauncherKind {
 pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
     let t = target.display();
     match kind {
-        LauncherKind::MacApp => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload | silent cancel).\n# status / wait / update are answered by the app binary itself, without a window.\ncase \"$1\" in status|wait|update) exec \"{t}/Contents/MacOS/silent\" \"$@\";; esac\nexec open -n -a \"{t}\" --args --cwd \"$PWD\" \"$@\"\n"),
+        LauncherKind::MacApp => format!(concat!(
+            "#!/bin/sh\n",
+            "# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload | silent cancel).\n",
+            "# status / wait / update are answered by the app binary itself, without a window. `wait` loops here in the shell:\n",
+            "# a long-lived GUI-bundle process gets App-Napped and its sleeps stretch.\n",
+            "B=\"{t}/Contents/MacOS/silent\"\n",
+            "case \"$1\" in\n",
+            "  status|update) exec \"$B\" \"$@\";;\n",
+            "  wait)\n",
+            "    m=600; p=\"\"; for a in \"$@\"; do [ \"$p\" = \"--timeout\" ] && m=\"$a\"; p=\"$a\"; done\n",
+            "    end=$(( $(date +%s) + m * 60 ))\n",
+            "    while :; do \"$B\" \"$@\" --once; rc=$?; [ $rc -ne 3 ] && exit $rc; [ $(date +%s) -ge $end ] && {{ echo \"timeout after $m min\" >&2; exit 2; }}; sleep 10; done;;\n",
+            "esac\n",
+            "exec open -n -a \"{t}\" --args --cwd \"$PWD\" \"$@\"\n"), t = t),
         LauncherKind::UnixExe => format!("#!/bin/sh\n# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload).\nnohup \"{t}\" --cwd \"$PWD\" \"$@\" >/dev/null 2>&1 &\n"),
         LauncherKind::WindowsCmd => format!("@echo off\r\nrem Silent - opens the desktop app with your arguments (silent run ... | silent bp ... | silent reload).\r\nstart \"\" \"{t}\" --cwd \"%CD%\" %*\r\n"),
     }
@@ -140,7 +153,9 @@ mod tests {
         let mac = launcher_script(LauncherKind::MacApp, Path::new("/Applications/Silent.app"));
         assert!(mac.starts_with("#!/bin/sh\n"));
         assert!(mac.contains("exec open -n -a \"/Applications/Silent.app\" --args --cwd \"$PWD\" \"$@\""));
-        assert!(mac.contains("status|wait|update) exec \"/Applications/Silent.app/Contents/MacOS/silent\" \"$@\""));
+        assert!(mac.contains("status|update) exec \"$B\" \"$@\""));
+        assert!(mac.contains("B=\"/Applications/Silent.app/Contents/MacOS/silent\""));
+        assert!(mac.contains("--once; rc=$?; [ $rc -ne 3 ] && exit $rc"));
         let unix = launcher_script(LauncherKind::UnixExe, Path::new("/home/a/Silent.AppImage"));
         assert!(unix.contains("nohup \"/home/a/Silent.AppImage\" --cwd \"$PWD\" \"$@\""));
         let win = launcher_script(LauncherKind::WindowsCmd, Path::new("C:\\Program Files\\Silent\\silent.exe"));

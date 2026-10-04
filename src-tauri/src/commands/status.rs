@@ -142,10 +142,14 @@ fn default_update_source() -> String {
     format!("{home}/CubeCode/silent/target/release/bundle/macos/Silent.app")
 }
 
-/// `silent wait <blueprint> <node> [--timeout minutes]`: 0 = done, 1 = failed, 2 = timeout/unknown.
+/// `silent wait <blueprint> <node> [--timeout minutes] [--once]`: 0 = done, 1 = failed, 2 = timeout/unknown,
+/// 3 = still running (only with `--once`, which checks a single time — the launcher loops in the shell because a
+/// long-lived GUI-bundle process gets App-Napped and its sleeps stretch; 2026-10-04: a 58-minute wait never woke).
 pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
-    let bp = rest.first().cloned().unwrap_or_default();
-    let node = rest.get(1).cloned().unwrap_or_default();
+    let positional: Vec<&String> = rest.iter().filter(|a| !a.starts_with("--") && !rest.iter().zip(rest.iter().skip(1)).any(|(f, v)| f == "--timeout" && v == *a)).collect();
+    let bp = positional.first().map(|s| s.to_string()).unwrap_or_default();
+    let node = positional.get(1).map(|s| s.to_string()).unwrap_or_default();
+    let once = rest.iter().any(|a| a == "--once");
     let mut timeout_min: u64 = 600;
     if let Some(i) = rest.iter().position(|a| a == "--timeout") {
         if let Some(v) = rest.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
@@ -153,7 +157,7 @@ pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
         }
     }
     if bp.is_empty() || node.is_empty() {
-        eprintln!("usage: silent wait <blueprint name|id> <node title|id> [--timeout minutes]");
+        eprintln!("usage: silent wait <blueprint name|id> <node title|id> [--timeout minutes] [--once]");
         return 2;
     }
     loop {
@@ -169,6 +173,9 @@ pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
                 }
                 _ => {}
             }
+        }
+        if once {
+            return 3;
         }
         if started.elapsed() > Duration::from_secs(timeout_min * 60) {
             eprintln!("{node}: timeout after {timeout_min} min");
@@ -217,6 +224,9 @@ mod tests {
         let failed = STATUS.replace("\"done\"", "\"failed\"");
         write_atomic(&tmp.join(STATUS_FILE), &failed).unwrap();
         assert_eq!(wait_for(&tmp, &["bp1".into(), "n1".into()], Instant::now()), 1);
+        // --once: a running box answers 3 immediately instead of sleeping
+        assert_eq!(wait_for(&tmp, &["bp1".into(), "n2".into(), "--once".into(), "--timeout".into(), "5".into()], Instant::now()), 3);
+        assert_eq!(wait_for(&tmp, &["--once".into(), "bp1".into(), "n1".into()], Instant::now()), 1);
         // update queues a pending file that read_pending returns
         assert!(cli_mode(&["silent".into(), "update".into(), "/tmp/New.app".into()], "x").is_none() || true);
         write_atomic(&tmp.join(PENDING_UPDATE_FILE), r#"{"path":"/tmp/New.app","queuedAt":5}"#).unwrap();
