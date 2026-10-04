@@ -7,7 +7,7 @@ export interface StatusSnapshot {
   at: number
   host?: { load1: number; cpus: number; swapUsedPct?: number; level: LoadLevel }
   pendingUpdate: string | null
-  blueprints: Array<{ id: string; name: string; nodes: Array<{ id: string; title: string; type: string; status: string; note?: string; tokens?: number }> }>
+  blueprints: Array<{ id: string; name: string; updatedAt: number; nodes: Array<{ id: string; title: string; type: string; status: string; note?: string; tokens?: number }> }>
   runs: Array<{ id: string; status: string; done: number; total: number; tokens: number; createdAt: number }>
   /** Subtasks waiting on a SILENT_QUESTION answer (`silent bp answer …`), so a stalled chain is visible from the shell. */
   blocked: Array<{ runId: string; subtaskId: string; title: string; question: string }>
@@ -21,6 +21,7 @@ export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; h
     blueprints: i.blueprints.map((b) => ({
       id: b.id,
       name: b.name,
+      updatedAt: b.updatedAt,
       nodes: b.nodes.map((n) => ({
         id: n.id,
         title: ("title" in n.data && typeof n.data.title === "string" && n.data.title) || n.type,

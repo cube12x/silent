@@ -20,6 +20,7 @@ describe("status snapshot for `silent status` / `silent wait` (2026-10-04)", () 
     const s = buildStatusSnapshot({ blueprints: [bp], runs: [run], pendingUpdate: "/tmp/New.app", now: 99 })
     expect(s.at).toBe(99)
     expect(s.pendingUpdate).toBe("/tmp/New.app")
+    expect(s.blueprints[0]!.updatedAt).toBe(0)
     expect(s.blueprints[0]!.nodes).toEqual([
       { id: "a", title: "Bölücü 9", type: "ai", status: "done", note: undefined, tokens: 12 },
       { id: "c", title: "check", type: "check", status: "idle", note: undefined, tokens: undefined },

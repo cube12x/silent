@@ -99,6 +99,8 @@ pub fn clear_pending(dir: &Path) {
 }
 
 const RETRY_PREFIX: &str = "retry: ";
+/// Red boxes listed per blueprint in `silent status` (the rest are counted; old stages pile up red Denetçi boxes).
+const FAILED_SHOWN: usize = 3;
 /// A bundle whose binary changed this recently is probably still being built/signed (`tauri build` takes ~20 s there).
 const SETTLE_SECS: u64 = 60;
 
@@ -241,16 +243,27 @@ pub fn render_status(text: &str) -> String {
     }
     for bp in v.get("blueprints").and_then(|b| b.as_array()).unwrap_or(&empty) {
         let nodes = bp.get("nodes").and_then(|n| n.as_array()).unwrap_or(&empty);
-        let live: Vec<&serde_json::Value> = nodes.iter().filter(|n| matches!(n.get("status").and_then(|s| s.as_str()), Some("running") | Some("failed"))).collect();
-        if live.is_empty() {
+        let status_of = |n: &serde_json::Value| n.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
+        let running: Vec<&serde_json::Value> = nodes.iter().filter(|n| status_of(n) == "running").collect();
+        let failed: Vec<&serde_json::Value> = nodes.iter().filter(|n| status_of(n) == "failed").collect();
+        // Blueprints nobody touched for 6 h only add old red boxes to the list: skip them unless something runs.
+        let updated = bp.get("updatedAt").and_then(|x| x.as_i64()).unwrap_or(0);
+        let stale = now > 0 && updated > 0 && now - updated > 6 * 3600 * 1000;
+        if running.is_empty() && (failed.is_empty() || stale) {
             continue;
         }
         out.push_str(&format!("{}\n", bp.get("name").and_then(|x| x.as_str()).unwrap_or("?")));
+        let shown_failed = failed.iter().take(FAILED_SHOWN).copied();
+        let live: Vec<&serde_json::Value> = running.iter().copied().chain(shown_failed).collect();
+        let hidden = failed.len().saturating_sub(FAILED_SHOWN);
         for n in live {
             let status = n.get("status").and_then(|s| s.as_str()).unwrap_or("");
             let mark = if status == "running" { "▶" } else { "✗" };
             let note = n.get("note").and_then(|s| s.as_str()).map(|s| format!(" — {s}")).unwrap_or_default();
             out.push_str(&format!("  {mark} {} [{}]{}\n", n.get("title").and_then(|x| x.as_str()).unwrap_or("?"), n.get("type").and_then(|x| x.as_str()).unwrap_or(""), note));
+        }
+        if hidden > 0 {
+            out.push_str(&format!("  … +{hidden} more red boxes (older stages; --json lists them)\n"));
         }
     }
     for r in v.get("runs").and_then(|b| b.as_array()).unwrap_or(&empty).iter().filter(|r| r.get("status").and_then(|s| s.as_str()) == Some("running")) {
@@ -357,6 +370,19 @@ mod tests {
         assert!(!out.contains("Dikiş 9"));
         assert!(out.contains("run r1 1/9 tasks, 12 tokens"));
         assert_eq!(render_status("{\"at\":1,\"blueprints\":[],\"runs\":[]}").lines().last().unwrap(), "idle — nothing running");
+        // old blueprints with only red boxes are skipped; many red boxes collapse to a count
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let old = now - 7 * 3600 * 1000;
+        let reds: Vec<String> = (1..=5).map(|i| format!("{{\"id\":\"f{i}\",\"title\":\"Denetçi {i}\",\"type\":\"check\",\"status\":\"failed\"}}")).collect();
+        let text = format!(
+            "{{\"at\":{now},\"blueprints\":[{{\"id\":\"o\",\"name\":\"Old\",\"updatedAt\":{old},\"nodes\":[{}]}},{{\"id\":\"n\",\"name\":\"Fresh\",\"updatedAt\":{now},\"nodes\":[{}]}}],\"runs\":[]}}",
+            reds[0], reds.join(",")
+        );
+        let out = render_status(&text);
+        assert!(!out.contains("Old"), "{out}");
+        assert!(out.contains("Fresh"));
+        assert_eq!(out.matches("✗ Denetçi").count(), 3, "{out}");
+        assert!(out.contains("+2 more red boxes"));
         assert_eq!(render_status("garbage"), "garbage");
     }
 
