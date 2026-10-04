@@ -150,12 +150,29 @@ fn swap_bundle(src: &Path) -> Result<PathBuf, String> {
 
 /// Relaunch after this process has exited; `open` starts the new bundle detached from us.
 fn relaunch(app: AppHandle, target: &Path) {
-    let t = target.display().to_string();
-    let _ = std::process::Command::new("sh").arg("-c").arg(format!("sleep 1.5; open -a \"{t}\"")).spawn();
+    spawn_relauncher(target);
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(400));
         app.exit(0);
     });
+}
+
+/// The shell that reopens the bundle. It runs in its own process group (so our exit does not take it down) and
+/// retries `open` until a Silent process exists (2026-10-04 23:37: one single `open` after `sleep 1.5` was lost on
+/// a loaded host and Silent stayed closed until the user opened it).
+pub fn relaunch_script(target: &Path) -> String {
+    let t = target.display().to_string();
+    format!("sleep 1.5; for i in 1 2 3 4 5 6 7 8 9 10; do open -a \"{t}\"; sleep 3; pgrep -x silent >/dev/null && exit 0; done")
+}
+
+fn spawn_relauncher(target: &Path) {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new("sh");
+    cmd.arg("-c").arg(relaunch_script(target)).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.process_group(0);
+    if let Err(e) = cmd.spawn() {
+        log::error!("could not spawn the relauncher: {e}");
+    }
 }
 
 /// CLI mode entry: returns `Some(exit code)` when argv was a status/wait/update verb, `None` otherwise.
@@ -355,6 +372,14 @@ mod tests {
         assert_eq!(node_status_in(STATUS, "bp1", "n2").as_deref(), Some("running"));
         assert_eq!(node_status_in(STATUS, "bp1", "nope"), None);
         assert_eq!(node_status_in("garbage", "bp1", "n1"), None);
+    }
+
+    #[test]
+    fn relaunch_script_retries_open_until_a_silent_process_exists() {
+        let s = relaunch_script(Path::new("/Applications/Silent.app"));
+        assert!(s.contains("open -a \"/Applications/Silent.app\""));
+        assert!(s.contains("pgrep -x silent"));
+        assert!(s.matches("sleep").count() >= 2, "{s}");
     }
 
     #[test]
