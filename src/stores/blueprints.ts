@@ -104,6 +104,12 @@ const pendingLogs = new Map<string, TerminalLine[]>()
 let logFlushTimer: ReturnType<typeof setTimeout> | undefined
 
 /** Append one terminal line to a node's log; lines are batched (100 ms) so a chatty CLI never re-renders the canvas per line. */
+/** Resolves once the box has no cancel handle any more (or after `maxMs`). */
+async function untilFree(nodeId: string, maxMs: number): Promise<void> {
+  const until = Date.now() + maxMs
+  while (useBlueprintsStore.getState().running[nodeId] && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
+}
+
 /**
  * A box that is already running (another chain started it) is not started twice: the walk waits for it and treats a
  * green end as its own step done. Returns "free" when nothing was running.
@@ -510,7 +516,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const from = node.data.modelRef
     const tail = (get().logs[nodeId] ?? []).filter((l) => l.stream === "stdout").slice(-12).map((l) => l.text).join("\n").slice(-1500)
     const stop = get().running[nodeId]
-    if (stop) await stop()
+    if (stop) {
+      await stop()
+      // The cancelled step still awaits its process and a sweep before it releases the box; starting the new run
+      // before that hit the "already running" guard and the handover silently did nothing (2026-10-04).
+      await untilFree(nodeId, 15_000)
+    }
     log(set, nodeId, `↪ handover ${from} → ${toRef} (requested by the user)`)
     const extra = handoverBlock({ fromModel: from, reason: "handed over by the user", lastMessage: tail || undefined })
     await get().run(id, nodeId, { only: true, modelRef: toRef, extraPrompt: extra })

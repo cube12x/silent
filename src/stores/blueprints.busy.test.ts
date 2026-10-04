@@ -59,4 +59,15 @@ describe("a busy box downstream no longer refuses the whole trigger (2026-10-04:
     await new Promise((r) => setTimeout(r, 400))
     expect(allLogs()).toMatch(/waiting/i)
   })
+  it("handover waits for the stopped box to release its handle instead of hitting the guard", async () => {
+    const g = bp()
+    g.nodes = g.nodes.map((n) => (n.id === "next" ? { ...n, data: { ...n.data, modelRef: "claude:sonnet" } } : n))
+    useBlueprintsStore.setState({ blueprints: [g] })
+    // like execAi: the cancel resolves first, the handle disappears a moment later
+    useBlueprintsStore.setState({ running: { next: async () => { setTimeout(() => useBlueprintsStore.setState({ running: {} }), 150) } } })
+    await useBlueprintsStore.getState().handover("b1", "next", "codex:gpt-6-astra")
+    await new Promise((r) => setTimeout(r, 400))
+    expect(allLogs()).not.toMatch(/already running/)
+    expect(allLogs()).toMatch(/handover claude:sonnet → codex:gpt-6-astra/)
+  })
 })
