@@ -117,11 +117,28 @@ export class TestBackend implements Backend {
   async confirm(message: string) {
     return typeof window !== "undefined" && typeof window.confirm === "function" ? window.confirm(message) : true
   }
-  checks: Array<{ cwd: string; command: string }> = []
+  checks: Array<{ cwd: string; command: string; token?: string }> = []
+  checkCancels: string[] = []
   checkResult = { ok: true, exitCode: 0, tail: "", elapsedMs: 1 }
-  async runCheck(cwd: string, command: string) {
-    this.checks.push({ cwd, command })
+  async runCheck(cwd: string, command: string, _timeoutSecs?: number, _maxLines?: number, token?: string) {
+    this.checks.push({ cwd, command, token })
     return this.checkResult
+  }
+  async checkCancel(token: string) {
+    this.checkCancels.push(token)
+  }
+  importedNames = new Set<string>()
+  /** Returns basenames; a basename seen before in this session comes back as `<stem>-2.<ext>` (the real backend renames duplicates). */
+  async blueprintBuildImportPaths(_folder: string, paths: string[]) {
+    return paths.map((p) => {
+      const base = p.split("/").pop() ?? p
+      if (!this.importedNames.has(base)) {
+        this.importedNames.add(base)
+        return base
+      }
+      const dot = base.lastIndexOf(".")
+      return dot > 0 ? `${base.slice(0, dot)}-2${base.slice(dot)}` : `${base}-2`
+    })
   }
   snapshots: Array<{ cwd: string; ref: string }> = []
   restored: Array<{ cwd: string; ref: string }> = []

@@ -202,10 +202,10 @@ fn parse_run(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
 /// Parse launcher argv and queue it for the webview. Errors and non-commands are logged, never fatal.
 pub fn queue_from_argv(app: &AppHandle, argv: &[String], cwd: Option<&Path>) {
     match parse_argv(argv, cwd) {
-        Ok(Some(value)) => match crate::app_paths::autostart_path(app) {
-            Some(path) => match std::fs::write(&path, value.to_string()) {
-                Ok(()) => log::info!("autostart queued from argv: {}", value.to_string().chars().take(160).collect::<String>()),
-                Err(e) => log::error!("autostart.json write failed: {e}"),
+        Ok(Some(value)) => match crate::app_paths::data_dir(app) {
+            Some(dir) => match queue_request(&dir.join(AUTOSTART_DIR), &value) {
+                Ok(path) => log::info!("autostart queued {}: {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), value.to_string().chars().take(160).collect::<String>()),
+                Err(e) => log::error!("autostart queue write failed: {e}"),
             },
             None => log::error!("autostart: app data dir unavailable"),
         },
@@ -214,21 +214,54 @@ pub fn queue_from_argv(app: &AppHandle, argv: &[String], cwd: Option<&Path>) {
     }
 }
 
-/// Returns and removes the pending request, if any.
-#[tauri::command]
-pub fn autostart_take(app: AppHandle) -> Result<Option<Value>, String> {
-    let Some(path) = crate::app_paths::autostart_path(&app) else {
+/// Queue folder: one file per request, taken oldest-first (2026-10-05: a single autostart.json lost every
+/// command that arrived within the same 3 s poll — `silent bp A; silent bp B` kept only B).
+pub const AUTOSTART_DIR: &str = "autostart";
+static QUEUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Writes `<dir>/<millis>-<counter>.json` atomically (tmp + rename). Returns the final path.
+pub fn queue_request(dir: &Path, value: &Value) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let n = QUEUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let name = format!("{millis:020}-{:06}-{}.json", n, std::process::id());
+    let tmp = dir.join(format!("{name}.tmp"));
+    let path = dir.join(&name);
+    std::fs::write(&tmp, value.to_string()).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Oldest queued request, removed from the queue; a legacy single `autostart.json` next to the folder is consumed first.
+pub fn take_request(dir: &Path, legacy: Option<&Path>) -> Result<Option<Value>, String> {
+    if let Some(legacy) = legacy.filter(|p| p.is_file()) {
+        let text = std::fs::read_to_string(legacy).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(legacy);
+        return serde_json::from_str(&text).map(Some).map_err(|e| format!("autostart.json: {e}"));
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return Ok(None);
     };
-    if !path.is_file() {
+    let mut names: Vec<String> = entries.flatten().filter_map(|e| e.file_name().to_str().map(str::to_string)).filter(|n| n.ends_with(".json")).collect();
+    names.sort();
+    let Some(name) = names.into_iter().next() else {
         return Ok(None);
-    }
+    };
+    let path = dir.join(&name);
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&path);
-    // Rust-side evidence (independent of the webview log bridge): a request was taken.
-    log::info!("autostart taken ({} bytes): {}", text.len(), text.chars().take(160).collect::<String>());
-    let value: Value = serde_json::from_str(&text).map_err(|e| format!("autostart.json: {e}"))?;
-    Ok(Some(value))
+    log::info!("autostart taken {name} ({} bytes): {}", text.len(), text.chars().take(160).collect::<String>());
+    serde_json::from_str(&text).map(Some).map_err(|e| format!("{name}: {e}"))
+}
+
+/// Returns and removes the oldest pending request, if any.
+#[tauri::command]
+pub fn autostart_take(app: AppHandle) -> Result<Option<Value>, String> {
+    let Some(dir) = crate::app_paths::data_dir(&app) else {
+        return Ok(None);
+    };
+    let legacy = crate::app_paths::autostart_path(&app);
+    take_request(&dir.join(AUTOSTART_DIR), legacy.as_deref())
 }
 
 #[cfg(test)]
@@ -320,6 +353,28 @@ mod tests {
         assert_eq!(v["blueprint"]["deliver"]["for"], "mario");
         assert!(parse_argv(&argv("bp deliver Mario Model"), Some(&base)).is_err());
         assert!(parse_argv(&argv("bp deliver Mario Model missing.png"), Some(&base)).unwrap_err().contains("not a file"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn queue_keeps_every_request_and_takes_them_oldest_first() {
+        let base = std::env::temp_dir().join(format!("silent-queue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("autostart");
+        let legacy = base.join("autostart.json");
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), None);
+        queue_request(&dir, &json!({"n": 1})).unwrap();
+        queue_request(&dir, &json!({"n": 2})).unwrap();
+        queue_request(&dir, &json!({"n": 3})).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3, "no tmp files left behind");
+        // a legacy single file is consumed before the queue
+        std::fs::write(&legacy, r#"{"n":0}"#).unwrap();
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 0})));
+        assert!(!legacy.exists());
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 1})));
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 2})));
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 3})));
+        assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), None);
         let _ = std::fs::remove_dir_all(&base);
     }
 

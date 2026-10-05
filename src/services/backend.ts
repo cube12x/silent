@@ -105,6 +105,8 @@ export interface Backend {
   blueprintBuildStats(folder: string): Promise<{ fileCount: number; images: string[]; newestMs: number }>
   /** `skipExisting`: mirror semantics — a file with the same name and size is not copied again. */
   blueprintBuildImport(folder: string, paths: string[], sub?: string, skipExisting?: boolean): Promise<number>
+  /** Same copy into `folder`, but returns the STORED names relative to `folder` (duplicates renamed `x-2.ext`), input order. */
+  blueprintBuildImportPaths(folder: string, paths: string[]): Promise<string[]>
   blueprintBuildSend(from: string, to: string, sub?: string): Promise<number>
   /** Write a helper script under `<folder>/.silent/tools/<name>` (Uydurma placeholder tool). Returns the path. */
   blueprintWriteTool(folder: string, name: string, content: string): Promise<string>
@@ -117,7 +119,9 @@ export interface Backend {
   /** Native yes/no dialog (browser confirm() is not available inside the desktop webview). */
   confirm(message: string, title?: string): Promise<boolean>
   /** Denetçi: run one shell command in a project folder without a model; returns success, exit code and the output tail. */
-  runCheck(cwd: string, command: string, timeoutSecs?: number, maxLines?: number): Promise<CheckResult>
+  runCheck(cwd: string, command: string, timeoutSecs?: number, maxLines?: number, token?: string): Promise<CheckResult>
+  /** Kill the process group of the check started with `token` (no-op when unknown); its result reports "cancelled". */
+  checkCancel(token: string): Promise<void>
   /** Anlık Görüntü (Faz 4): git snapshot of the folder (hidden ref, working tree untouched); returns the ref. */
   gitSnapshot(cwd: string): Promise<string>
   /** Restore the working tree to a snapshot ref taken by gitSnapshot. */

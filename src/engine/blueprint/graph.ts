@@ -129,6 +129,21 @@ function alreadyRan(bp: Blueprint, n: BpNode): boolean {
   return n.status === "done" || n.status === "failed"
 }
 
+/** Every node reachable forward from `id` through wires (stubs excluded), not including `id` itself. */
+export function downstreamOf(bp: Blueprint, id: string): Set<string> {
+  const out = new Set<string>()
+  const queue = [id]
+  while (queue.length) {
+    const cur = queue.shift()!
+    for (const n of outgoing(bp, cur)) {
+      if (n.type === "stub" || out.has(n.id) || n.id === id) continue
+      out.add(n.id)
+      queue.push(n.id)
+    }
+  }
+  return out
+}
+
 /** Every AI node `walkPlan` would run from `startId`, flattened in start order. */
 export function aiChainFrom(bp: Blueprint, startId: string): BpNode[] {
   return walkPlan(bp, startId).flatMap((s) => (s.kind === "ai" ? [s.node] : s.kind === "parallel" ? s.heads : []))

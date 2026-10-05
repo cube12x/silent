@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ModelRequest } from "@/domain"
-import { artDirectorBrief, buildSheetPrompt, converterBrief, expectedFiles, matchDelivery, modelManifest, parseModelRequests, probePng, slugName, totalFrames, validateDelivery } from "./model"
+import { artDirectorBrief, buildSheetPrompt, converterBrief, expectedFiles, matchDelivery, modelManifest, parseModelRequests, probePng, safeTarget, slugName, totalFrames, validateDelivery } from "./model"
 
 const reply = `Rationale: the player and the coin need real art.
 # MODEL_REQUESTS
@@ -54,7 +54,8 @@ describe("Model Plus: expected files, briefs and manifest", () => {
     const c = converterBrief({ req: mario, deliveredRel: "assets/model-plus/inbox/mario.png", build: "/tmp/x", expected: expectedFiles(mario) })
     expect(c).toContain("--out assets/model-plus/mario")
     expect(c).toContain("--force")
-    expect(c).toContain("mario_walk_00,mario_walk_01,mario_jump_00")
+    expect(c).toContain("--names mario_walk_00,mario_walk_01 --out")
+    expect(c).toContain("--names mario_jump_00 --out")
     expect(c).toContain("# MODEL_DELIVERY")
     expect(c).toContain("- assets/model-plus/mario/mario.json")
   })
@@ -104,7 +105,7 @@ describe("Model Plus: delivery matching and the deterministic validator", () => 
     return { files, atlas, png: pngs }
   }
   it("accepts a complete, correctly sized, transparent delivery", () => {
-    expect(validateDelivery(mario, good())).toEqual({ ok: true, reasons: [], warnings: [] })
+    expect(validateDelivery(mario, good())).toMatchObject({ ok: true, reasons: [], warnings: [] })
   })
   it("rejects with precise reasons: missing frame, short animation, wrong size, no alpha", () => {
     const io = good()
@@ -120,5 +121,53 @@ describe("Model Plus: delivery matching and the deterministic validator", () => 
     const coin = reqs[2]!
     expect(validateDelivery(coin, { files: new Set(["assets/model-plus/mario/coin.ogg"]), atlas: null, png: new Map() }).ok).toBe(true)
     expect(validateDelivery(coin, { files: new Set(), atlas: null, png: new Map() }).reasons[0]).toBe("missing: assets/model-plus/mario/coin.(wav|ogg|mp3)")
+  })
+})
+
+describe("Model Plus bug hunt (2026-10-05): parser brackets, target sanitising, per-row grid, tilesets, stale outputs, real extensions", () => {
+  it("M12: prose with brackets after the JSON does not break the parse", () => {
+    const text = `# MODEL_REQUESTS\n[{"name":"hero","kind":"image","subject":"hero [player]"}]\n\nNote: see [docs] and the list [a, b].`
+    expect(parseModelRequests(text, { folder: "assets/model-plus" }).map((r) => r.name)).toEqual(["hero"])
+  })
+  it("M9: targets outside the build fall back to <folder>/<name>", () => {
+    expect(safeTarget("../../etc", "assets/model-plus", "x")).toBe("assets/model-plus/x")
+    expect(safeTarget("/Users/me/art", "assets/model-plus", "x")).toBe("assets/model-plus/x")
+    expect(safeTarget("res://assets/x", "assets/model-plus", "x")).toBe("assets/model-plus/x")
+    expect(safeTarget("./assets/art/x/", "assets/model-plus", "x")).toBe("assets/art/x")
+    const reqs = parseModelRequests(`# MODEL_REQUESTS\n[{"name":"a","kind":"image","subject":"a","target":"../out"}]`, { folder: "assets/model-plus" })
+    expect(reqs[0]!.target).toBe("assets/model-plus/a")
+  })
+  it("M5: the converter cuts one row per animation with that row's frame names only", () => {
+    const req: ModelRequest = { ...mario, animations: [{ name: "idle", frames: 2 }, { name: "walk", frames: 8 }] }
+    const c = converterBrief({ req, deliveredRel: "assets/model-plus/inbox/mario.png", build: "/tmp/x", expected: expectedFiles(req) })
+    expect(c).toContain("grid --cols 2 --rows 1 --cell WxH --origin 0,<y of row 0: row*(cell+gap)+label> [--gap g] --names mario_idle_00,mario_idle_01")
+    expect(c).toContain("grid --cols 8 --rows 1 --cell WxH --origin 0,<y of row 1: row*(cell+gap)+label> [--gap g] --names mario_walk_00,mario_walk_01,mario_walk_02,mario_walk_03,mario_walk_04,mario_walk_05,mario_walk_06,mario_walk_07")
+    expect(c).toMatch(/never name an empty cell/)
+  })
+  it("M6: a tileset is a multiple of the tile size and needs no alpha", () => {
+    const tiles: ModelRequest = { ...mario, id: "mr_t", name: "tiles", kind: "tileset", animations: undefined, frameSize: "16x16", target: "assets/model-plus/tiles" }
+    const io = (w: number, h: number, ct = 2) => ({ files: new Set(["assets/model-plus/tiles/tiles.png"]), atlas: null, png: new Map([["assets/model-plus/tiles/tiles.png", probePng(png(w, h, ct))]]) })
+    expect(validateDelivery(tiles, io(256, 64)).ok).toBe(true)
+    expect(validateDelivery(tiles, io(250, 64)).reasons[0]).toMatch(/not a multiple of the 16x16 tile/)
+  })
+  it("M7: outputs older than the delivery are stale, not accepted", () => {
+    const io = {
+      files: new Set(expectedFiles(mario)),
+      atlas: { frameW: 4, frameH: 4, columns: 2, frames: [{ name: "mario_walk_00", x: 0, y: 0, w: 4, h: 4 }, { name: "mario_walk_01", x: 4, y: 0, w: 4, h: 4 }, { name: "mario_jump_00", x: 0, y: 4, w: 4, h: 4 }] },
+      png: new Map<string, ReturnType<typeof probePng>>([["assets/model-plus/mario/mario.png", probePng(png(8, 8, 6))], ["assets/model-plus/mario/mario_walk_00.png", probePng(png(4, 4, 6))], ["assets/model-plus/mario/mario_jump_00.png", probePng(png(4, 4, 6))]]),
+      mtimes: new Map(expectedFiles(mario).map((f) => [f, 1_000_000])),
+      deliveredAt: 2_000_000,
+    }
+    const r = validateDelivery(mario, io)
+    expect(r.ok).toBe(false)
+    expect(r.reasons[0]).toMatch(/stale output: assets\/model-plus\/mario\/mario_walk_00\.png/)
+    expect(validateDelivery(mario, { ...io, mtimes: new Map(expectedFiles(mario).map((f) => [f, 2_100_000])) }).ok).toBe(true)
+  })
+  it("M8: the validator reports the real files and the manifest names them", () => {
+    const coin: ModelRequest = { ...mario, id: "mr_c", name: "coin", kind: "audio", animations: undefined, target: "assets/model-plus/coin" }
+    const v = validateDelivery(coin, { files: new Set(["assets/model-plus/coin/coin.ogg"]), atlas: null, png: new Map() })
+    expect(v.found).toEqual(["assets/model-plus/coin/coin.ogg"])
+    const m = modelManifest([{ ...coin, status: "accepted", outputs: v.found }])
+    expect(m).toContain("coin (audio) → assets/model-plus/coin/coin.ogg")
   })
 })

@@ -9,6 +9,9 @@ let converterPrompt = ""
 let disk: string[] = []
 let atlasFrames: string[] = []
 const imports: Array<{ folder: string; paths: string[] }> = []
+const storedNames = new Map<string, number>()
+let importGate: Promise<void> | null = null
+let capturedPrompts: string[] = []
 const PNG = (size: number) => {
   const b = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, size, 0, 0, 0, size, 8, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 73, 68, 65, 84, 0, 0, 0, 0]
   return btoa(String.fromCharCode(...b))
@@ -22,12 +25,20 @@ vi.mock("@/services", () => ({
     writeProjectFile: async (_root: string, rel: string, content: string) => {
       writes[rel] = content
     },
-    listProjectFiles: async () => disk.map((rel) => ({ rel, size: 1, mtimeMs: 1 })),
+    // outputs are "just written": newer than any delivery in these tests
+    listProjectFiles: async () => disk.map((rel) => ({ rel, size: 1, mtimeMs: Date.now() + 60_000 })),
     readProjectBlob: async (_r: string, rel: string) => ({ mime: "image/png", base64: rel.endsWith("/mario.png") ? PNG(8) : PNG(4) }),
-    blueprintBuildImport: async (folder: string, paths: string[]) => {
+    blueprintBuildImportPaths: async (folder: string, paths: string[]) => {
+      if (importGate) await importGate
       imports.push({ folder, paths })
-      return paths.length
+      return paths.map((p) => {
+        const base = p.split("/").pop() ?? p
+        const n = (storedNames.get(base) ?? 0) + 1
+        storedNames.set(base, n)
+        return n === 1 ? base : base.replace(/(\.[a-z0-9]+)$/i, `-${n}$1`)
+      })
     },
+    blueprintBuildStats: async () => ({ fileCount: 0, images: [], newestMs: 0 }),
     blueprintWriteTool: async () => "",
     cliStart: async () => { throw new Error("no cli in this test") },
   }),
@@ -36,6 +47,7 @@ vi.mock("@/engine/blueprint/single", () => ({
   runSingle: (_backend: unknown, req: { prompt: string }) => {
     singleCalls += 1
     converterPrompt = req.prompt
+    capturedPrompts.push(req.prompt)
     return { cancel: async () => undefined, done: Promise.resolve({ ok: true, text: reply, tokens: 11, sessionId: "s" }) }
   },
 }))
@@ -47,7 +59,7 @@ const bp = (): Blueprint => ({
     { id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } },
     { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "x", folderPath: "/tmp/x", kind: "code" } },
     { id: "m", type: "model", x: 0, y: 0, data: { type: "model", title: "Model Plus", modelRef: "claude:sonnet", folder: "assets/model-plus", requests: [], strict: true } },
-    { id: "next", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "", mode: "single", title: "Entegrasyon" } },
+    { id: "next", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", title: "Entegrasyon" } },
   ],
   edges: [{ id: "e1", from: "s", to: "b" }, { id: "e2", from: "b", to: "m" }, { id: "e3", from: "m", to: "next" }],
   createdAt: 1,
@@ -61,6 +73,9 @@ const CONTRACT = `Two assets.
 describe("Model Plus: spec → waiting stops the walk (2026-10-05)", () => {
   beforeEach(() => {
     singleCalls = 0
+    capturedPrompts = []
+    storedNames.clear()
+    importGate = null
     for (const k of Object.keys(writes)) delete writes[k]
     useBlueprintsStore.setState({ logs: {}, blueprints: [bp()], running: {} })
   })
@@ -98,8 +113,10 @@ describe("Model Plus: spec → waiting stops the walk (2026-10-05)", () => {
     const m = st.byId("b1")!.nodes.find((n) => n.id === "m")!
     expect(m.status).toBe("done")
     expect(m.data.type === "model" && m.data.report).toContain("# MODEL")
-    expect(st.byId("b1")!.nodes.find((n) => n.id === "next")!.status).toBeDefined()
-    expect(singleCalls).toBe(0)
+    expect(st.byId("b1")!.nodes.find((n) => n.id === "next")!.status).toBe("done")
+    expect(singleCalls).toBe(1)
+    expect(capturedPrompts[0]).toContain("# MODEL")
+    expect(capturedPrompts[0]).toMatch(/do NOT redraw/)
   })
 })
 
@@ -113,6 +130,9 @@ describe("Model Plus: deliver → convert → validate → resume (2026-10-05)",
     singleCalls = 0
     imports.length = 0
     converterPrompt = ""
+    capturedPrompts = []
+    storedNames.clear()
+    importGate = null
     for (const k of Object.keys(writes)) delete writes[k]
     disk = ["assets/model-plus/mario/mario.png", "assets/model-plus/mario/mario.json", "assets/model-plus/mario/mario_walk_00.png", "assets/model-plus/mario/mario_walk_01.png"]
     atlasFrames = ["mario_walk_00", "mario_walk_01"]
@@ -133,7 +153,82 @@ describe("Model Plus: deliver → convert → validate → resume (2026-10-05)",
     expect(m.data.type === "model" && m.data.lastOk).toBe(true)
     expect(m.data.type === "model" && m.data.report).toContain("# MODEL\n- mario (sprite-sheet)")
     expect(writes["MODEL-PLUS.md"]).toContain("mario")
-    expect(st.byId("b1")!.nodes.find((x) => x.id === "next")!.status).toBeDefined()
+    expect(st.byId("b1")!.nodes.find((x) => x.id === "next")!.status).toBe("done")
+    expect(m.data.type === "model" && m.data.requests[0]!.outputs).toContain("assets/model-plus/mario/mario.json")
+  })
+  it("M2: re-delivering the same file name converts the NEW (renamed) file", async () => {
+    reply = "# MODEL_DELIVERY\n- x"
+    atlasFrames = ["mario_walk_00"]
+    disk = disk.filter((f) => !f.endsWith("mario_walk_01.png"))
+    await useBlueprintsStore.getState().modelDeliver("b1", "m", ["/Users/x/mario.png"])
+    const first = useBlueprintsStore.getState().byId("b1")!.nodes.find((x) => x.id === "m")!
+    expect(first.data.type === "model" && first.data.requests[0]!.status).toBe("rejected")
+    atlasFrames = ["mario_walk_00", "mario_walk_01"]
+    disk.push("assets/model-plus/mario/mario_walk_01.png")
+    await useBlueprintsStore.getState().modelDeliver("b1", "m", ["/Users/x/mario.png"])
+    const m = useBlueprintsStore.getState().byId("b1")!.nodes.find((x) => x.id === "m")!
+    const req = m.data.type === "model" ? m.data.requests[0]! : undefined
+    expect(req?.delivered?.path).toBe("assets/model-plus/inbox/mario-2.png")
+    expect(converterPrompt).toContain("assets/model-plus/inbox/mario-2.png")
+    expect(req?.status).toBe("accepted")
+  })
+  it("M4: two deliveries in flight are serialised — neither is lost", async () => {
+    reply = "# MODEL_DELIVERY\n- x"
+    const g = bp()
+    g.nodes = g.nodes.map((n) => (n.id === "m" && n.data.type === "model" ? { ...n, status: "waiting" as const, data: { ...n.data, requests: [
+      { id: "mr_mario", name: "mario", kind: "sprite-sheet" as const, subject: "Mario", animations: [{ name: "walk", frames: 2 }], frameSize: "4x4", sheetPrompt: "p", target: "assets/model-plus/mario", status: "pending" as const },
+      { id: "mr_coin", name: "coin", kind: "audio" as const, subject: "coin", sheetPrompt: "p", target: "assets/model-plus/coin", status: "pending" as const },
+    ] } } : n))
+    useBlueprintsStore.setState({ blueprints: [g] })
+    disk.push("assets/model-plus/coin/coin.wav")
+    let open!: () => void
+    importGate = new Promise<void>((r) => { open = r })
+    const a = useBlueprintsStore.getState().modelDeliver("b1", "m", ["/x/mario.png"])
+    const b = useBlueprintsStore.getState().modelDeliver("b1", "m", ["/x/coin.wav"])
+    await new Promise((r) => setTimeout(r, 10))
+    open()
+    await Promise.all([a, b])
+    await new Promise((r) => setTimeout(r, 50))
+    const m = useBlueprintsStore.getState().byId("b1")!.nodes.find((x) => x.id === "m")!
+    const statuses = m.data.type === "model" ? m.data.requests.map((r) => [r.name, r.status]) : []
+    expect(statuses).toEqual([["mario", "accepted"], ["coin", "accepted"]])
+    expect(m.status).toBe("done")
+  })
+  it("M10: a validator crash rejects the request and releases the box", async () => {
+    reply = "# MODEL_DELIVERY\n- x"
+    atlasFrames = ["mario_walk_00", null as unknown as string]
+    await useBlueprintsStore.getState().modelDeliver("b1", "m", ["/x/mario.png"])
+    const m = useBlueprintsStore.getState().byId("b1")!.nodes.find((x) => x.id === "m")!
+    const req = m.data.type === "model" ? m.data.requests[0]! : undefined
+    expect(req?.status).toBe("rejected")
+    expect(useBlueprintsStore.getState().running).toEqual({})
+    expect(m.status).toBe("waiting")
+  })
+  it("M11: undo after a delivery does not revert the contract", async () => {
+    reply = "# MODEL_DELIVERY\n- x"
+    useBlueprintsStore.setState({ history: {}, future: {} })
+    await useBlueprintsStore.getState().modelDeliver("b1", "m", ["/x/mario.png"])
+    await new Promise((r) => setTimeout(r, 50))
+    useBlueprintsStore.getState().undo("b1")
+    const m = useBlueprintsStore.getState().byId("b1")!.nodes.find((x) => x.id === "m")!
+    expect(m.data.type === "model" && m.data.requests[0]!.status).toBe("accepted")
+  })
+  it("M1: strict off + Continue resumes the chain with a partial contract", async () => {
+    reply = "done"
+    const g = bp()
+    g.nodes = g.nodes.map((n) => (n.id === "m" && n.data.type === "model" ? { ...n, status: "waiting" as const, data: { ...n.data, strict: false, requests: [
+      { id: "mr_coin", name: "coin", kind: "audio" as const, subject: "coin", sheetPrompt: "p", target: "assets/model-plus/coin", status: "accepted" as const, outputs: ["assets/model-plus/coin/coin.wav"] },
+      { id: "mr_mario", name: "mario", kind: "sprite-sheet" as const, subject: "Mario", animations: [{ name: "walk", frames: 2 }], frameSize: "4x4", sheetPrompt: "p", target: "assets/model-plus/mario", status: "pending" as const },
+    ] } } : n))
+    useBlueprintsStore.setState({ blueprints: [g] })
+    await useBlueprintsStore.getState().modelContinue("b1", "m")
+    await new Promise((r) => setTimeout(r, 80))
+    const st = useBlueprintsStore.getState()
+    const m = st.byId("b1")!.nodes.find((x) => x.id === "m")!
+    expect(m.status).toBe("done")
+    expect(m.data.type === "model" && m.data.report).toContain("# UNRESOLVED\n- mario")
+    expect(st.byId("b1")!.nodes.find((x) => x.id === "next")!.status).toBe("done")
+    expect(capturedPrompts.some((p) => p.includes("# UNRESOLVED"))).toBe(true)
   })
   it("a short atlas is rejected with reasons; the box stays waiting and the next AI is untouched; force-accept resumes", async () => {
     atlasFrames = ["mario_walk_00"]

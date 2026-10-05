@@ -302,7 +302,7 @@ export class Executor {
       const warm = cause === "initial" ? this.takeWarm(modelId) : undefined
       let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm, undefined, cause === "handover" && handoverFrom ? this.handoverBrief(subtask, modelId, handoverFrom) : undefined)
       // A warm session that could not be resumed (expired, CLI refused) costs one fresh attempt, never a model change.
-      if (warm && !result.ok && !result.blocked && !result.timedOut) {
+      if (warm && !result.ok && !result.blocked && !result.timedOut && !this.cancelled) {
         attemptNo += 1
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: "warm session failed → fresh session", at: this.now() })
         result = await this.attempt(subtask, modelId, attemptNo, "retry")
@@ -535,7 +535,9 @@ export class Executor {
     return w.sessionId
   }
 
-  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string, briefOverride?: string) {
+  private attempt(subtask: Subtask, modelId: string, n: number, cause: Attempt["cause"], resumeSessionId?: string, answer?: string, briefOverride?: string): Promise<WorkerResult> {
+    // A cancelled run starts nothing new (2026-10-05: a warm-session retry after cancel started a worker nobody could stop).
+    if (this.cancelled) return Promise.resolve({ ok: false, summary: "cancelled", error: "cancelled", retryable: false })
     const attempt: Attempt = { n, modelId, startedAt: this.now(), outcome: "running", cause, sessionId: resumeSessionId }
     subtask.attempts.push(attempt)
     this.attemptCommandStart.set(subtask.id, subtask.commands.length)

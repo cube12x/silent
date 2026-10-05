@@ -219,6 +219,28 @@ pub fn blueprint_build_import(
     Ok(total)
 }
 
+/// Like `blueprint_build_import` into `folder` itself, but returns the STORED names (relative to `folder`, in
+/// input order) so a caller can point at the real file after a duplicate was renamed (`mario-2.png`; 2026-10-05).
+#[tauri::command]
+pub fn blueprint_build_import_paths(folder: String, paths: Vec<String>) -> Result<Vec<String>, String> {
+    let dir = PathBuf::from(&folder);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut stored = Vec::new();
+    for p in paths {
+        let src = PathBuf::from(&p);
+        let Some(name) = src.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        if !src.exists() {
+            continue;
+        }
+        let dst = unique_target(&dir, &name);
+        copy_recursive(&src, &dst).map_err(|e| format!("{p}: {e}"))?;
+        stored.push(dst.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name));
+    }
+    Ok(stored)
+}
+
 /// Copy the contents of one build folder into another (Send button). Returns files copied.
 #[tauri::command]
 pub fn blueprint_build_send(
@@ -253,6 +275,21 @@ pub fn blueprint_write_tool(folder: String, name: String, content: String) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn import_paths_returns_the_stored_names_after_renaming_duplicates() {
+        let base = std::env::temp_dir().join(format!("silent-import-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/a.png"), b"1").unwrap();
+        let target = base.join("inbox");
+        let first = blueprint_build_import_paths(target.to_string_lossy().into_owned(), vec![base.join("src/a.png").to_string_lossy().into_owned()]).unwrap();
+        let second = blueprint_build_import_paths(target.to_string_lossy().into_owned(), vec![base.join("src/a.png").to_string_lossy().into_owned(), base.join("src/missing.png").to_string_lossy().into_owned()]).unwrap();
+        assert_eq!(first, vec!["a.png"]);
+        assert_eq!(second, vec!["a-2.png"]);
+        assert!(target.join("a-2.png").is_file());
+        let _ = std::fs::remove_dir_all(&base);
+    }
     #[test]
     fn slug_handles_turkish_and_spaces() {
         assert_eq!(slug("Loki 2 — Mimarî"), "loki-2-mimari");

@@ -207,7 +207,7 @@ export function extractReport(text: string): string {
   const t = text.trim()
   const upper = t.toUpperCase()
   // `# MODEL` is matched as a whole line so `# MODEL_REQUESTS` / `# MODEL_DELIVERY` (Model Plus internals) do not count.
-  const modelAt = (() => { let last = -1; const re = /^# MODEL[ \t]*$/gim; let m: RegExpExecArray | null; while ((m = re.exec(t))) last = m.index; return last })()
+  const modelAt = (() => { let last = -1; const re = /^# MODEL[ \t]*$/gm; let m: RegExpExecArray | null; while ((m = re.exec(t))) last = m.index; return last })()
   const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"), upper.lastIndexOf("# VERIFY"), modelAt)
   return idx >= 0 ? t.slice(idx).trim() : t
 }

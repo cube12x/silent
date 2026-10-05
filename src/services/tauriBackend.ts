@@ -151,8 +151,14 @@ export class TauriBackend implements Backend {
     return invoke<string[]>("repo_changed_files", { root, sinceMs: Math.floor(sinceMs) })
   }
 
-  runCheck(cwd: string, command: string, timeoutSecs = 900, maxLines = 40): Promise<CheckResult> {
-    return invoke<CheckResult>("project_run_check", { cwd, command, timeoutSecs, maxLines })
+  runCheck(cwd: string, command: string, timeoutSecs = 900, maxLines = 40, token?: string): Promise<CheckResult> {
+    return invoke<CheckResult>("project_run_check", { cwd, command, timeoutSecs, maxLines, token: token ?? null })
+  }
+  async checkCancel(token: string): Promise<void> {
+    await invoke<boolean>("project_check_cancel", { token })
+  }
+  blueprintBuildImportPaths(folder: string, paths: string[]): Promise<string[]> {
+    return invoke<string[]>("blueprint_build_import_paths", { folder, paths })
   }
   gitSnapshot(cwd: string): Promise<string> {
     return invoke<string>("git_snapshot", { cwd })

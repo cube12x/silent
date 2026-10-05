@@ -186,5 +186,7 @@ describe("Model Plus manifest brief (2026-10-05)", () => {
   it("extractReport keeps a `# MODEL` report but is not fooled by `# MODEL_REQUESTS`", () => {
     expect(extractReport("rationale\n# MODEL_REQUESTS\n[]\nmore")).toBe("rationale\n# MODEL_REQUESTS\n[]\nmore")
     expect(extractReport("chatter\n# MODEL\n- a → b")).toBe("# MODEL\n- a → b")
+    // a lowercase "# Model" heading in some other reply is prose, not the manifest
+    expect(extractReport("# FINDINGS\n- x\n# Model\n- notes")).toBe("# FINDINGS\n- x\n# Model\n- notes")
   })
 })

@@ -47,6 +47,19 @@ export function isKilled(message: string): boolean {
   return /\bcode (143|137)\b/.test(message)
 }
 
+/**
+ * The question a message asks with `SILENT_QUESTION:`, or null when it asks none: markers inside code fences or
+ * backticks are quoted, not asked; "none" / "no questions" / "N/A" are not questions.
+ */
+export function questionIn(text: string): string | null {
+  const withoutCode = text.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "")
+  const q = withoutCode.match(/SILENT_QUESTION:\**\s*(.+)/)
+  if (!q) return null
+  const body = q[1].trim().replace(/\*+$/, "").trim()
+  if (!body || /^(none|yok|hiçbiri|-|no|nothing|n\/?a|no questions?|none needed)[.!]?$/i.test(body)) return null
+  return body
+}
+
 export class CliWorker implements Worker {
   readonly id = "cli"
   private readonly runner: CliRunner
@@ -123,9 +136,11 @@ export class CliWorker implements Worker {
         case "agentMessage": {
           const text = e.data.text
           if (!text.trim()) break
-          // Markers may arrive wrapped in markdown bold (**SILENT_QUESTION:** …); "none" is not a question.
-          const q = text.match(/SILENT_QUESTION:\**\s*(.+)/)
-          if (q && !/^(none|yok|hiçbiri|-)\.?\**$/i.test(q[1].trim())) question = q[1].trim().replace(/\*+$/, "").trim()
+          // Markers may arrive wrapped in markdown bold (**SILENT_QUESTION:** …); "none" is not a question. A marker
+          // quoted in backticks or a code fence is the agent talking ABOUT the marker, and a later message without a
+          // question means the agent answered it itself (2026-10-05: both used to block a finished attempt).
+          const q = questionIn(text)
+          question = q ?? undefined
           const notesBlock = text.match(/SILENT_NOTES:\**\s*([\s\S]*?)(?:\n\s*\n|\**SILENT_DEVIATIONS:|$)/)
           if (notesBlock) for (const line of notesBlock[1].split("\n")) {
             const item = line.replace(/^\s*[-*•]+\s*/, "").replace(/\*+$/, "").trim()
@@ -144,7 +159,10 @@ export class CliWorker implements Worker {
             for (const raw of sp[1].split("\n")) {
               const line = raw.replace(/\s+$/, "")
               if (!line.trim()) continue
-              const starts = bullet.test(line) || split.length === 0
+              // Only a bullet starts a part; prose before the first bullet ("Remaining work, as three parts:") is dropped
+              // (2026-10-05: it became a bogus first task and the real third part fell off the 3-item cap).
+              const starts = bullet.test(line)
+              if (!starts && split.length === 0) continue
               let item = line.replace(bullet, "").trim()
               if (item.startsWith("**")) item = item.replace(/^\*+|\*+$/g, "").trim() // markdown bold, not a glob
               if (!item || /^[\W_]*$/.test(item)) continue
@@ -187,6 +205,8 @@ export class CliWorker implements Worker {
           if (question) return resolveDone({ ok: false, blocked: true, question, summary: question, retryable: false, deviations, notes })
           if (failure) return resolveDone({ ok: false, summary: failure.message, error: failure.message, retryable: failure.retryable, timedOut: failure.timedOut, deviations, notes, lastMessage })
           if (e.data.code !== 0 && e.data.code !== null) return resolveDone({ ok: false, summary: `${providerId} exited ${e.data.code}`, error: `${providerId} exited with code ${e.data.code}`, retryable: true, timedOut: e.data.code === 143 || e.data.code === 137, lastMessage })
+          // No exit code = killed by a signal (OOM, `pkill -9`, the OS): never a success (2026-10-05: half-done work was marked completed).
+          if (e.data.code === null) return resolveDone({ ok: false, summary: `${providerId} killed by signal`, error: `${providerId} killed by signal`, retryable: true, lastMessage })
           const summary = messages.filter(Boolean).at(-1)?.trim() || `${providerId} completed the task.`
           resolveDone({ ok: true, summary, deviations, notes, split: split.length ? split : undefined })
         }

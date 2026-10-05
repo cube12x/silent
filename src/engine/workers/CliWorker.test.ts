@@ -208,3 +208,50 @@ describe("killed from outside (SIGTERM/SIGKILL)", () => {
     expect(isKilled("exited with code 1")).toBe(false)
   })
 })
+
+/** Feeds a scripted event list to the worker. */
+class ScriptRunner implements CliRunner {
+  private readonly events: RuntimeEvent[]
+  constructor(events: RuntimeEvent[]) {
+    this.events = events
+  }
+  async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void) {
+    queueMicrotask(() => {
+      for (const e of this.events) onEvent(e)
+    })
+    return { cancel: async () => {} }
+  }
+}
+const ev = (type: string, data: Record<string, unknown>) => ({ type, data }) as unknown as RuntimeEvent
+
+describe("signal death, split intro lines and question false positives (2026-10-05)", () => {
+  it("an exit without a code (killed by a signal) is a retryable failure, not a success", async () => {
+    const res = await new CliWorker(new ScriptRunner([ev("agentMessage", { text: "halfway there" }), ev("exited", { code: null })])).start(job(), sink).done
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/killed by signal/)
+    expect(res.retryable).toBe(true)
+    expect(res.timedOut).toBeFalsy()
+  })
+  it("a SILENT_SPLIT intro line is not a sub-task: only bullets start parts", async () => {
+    const text = "SILENT_SPLIT:\nRemaining work, as three parts:\n- Enemies: spawn and AI\n  with patrol routes\n- Bosses: three phases\n- HUD: health and score\n\nSILENT_DEVIATIONS: none"
+    const res = await new CliWorker(new ScriptRunner([ev("agentMessage", { text }), ev("exited", { code: 0 })])).start(job(), sink).done
+    expect(res.split).toEqual(["Enemies: spawn and AI\nwith patrol routes", "Bosses: three phases", "HUD: health and score"])
+  })
+  it("a SILENT_QUESTION inside backticks, or answered with none/no questions, does not block", async () => {
+    for (const text of [
+      "I will write `SILENT_QUESTION: <q>` if I get blocked. Done.\n\nSILENT_DEVIATIONS: none",
+      "Done.\n\nSILENT_QUESTION: No questions.\nSILENT_DEVIATIONS: none",
+      "Done.\n\nSILENT_QUESTION: N/A",
+      "```\nSILENT_QUESTION: should I?\n```\nAll good.",
+    ]) {
+      const res = await new CliWorker(new ScriptRunner([ev("agentMessage", { text }), ev("exited", { code: 0 })])).start(job(), sink).done
+      expect(res.blocked, text).toBeFalsy()
+      expect(res.ok, text).toBe(true)
+    }
+  })
+  it("a later message without a question clears an earlier one (the agent answered it itself)", async () => {
+    const res = await new CliWorker(new ScriptRunner([ev("agentMessage", { text: "SILENT_QUESTION: which port?" }), ev("agentMessage", { text: "Using 3000. Done.\n\nSILENT_DEVIATIONS: none" }), ev("exited", { code: 0 })])).start(job(), sink).done
+    expect(res.blocked).toBeFalsy()
+    expect(res.ok).toBe(true)
+  })
+})

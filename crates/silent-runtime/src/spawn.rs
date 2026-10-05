@@ -357,7 +357,18 @@ where
     };
     let exit = tokio::select! {
         status = child.wait() => match status {
-            Ok(status) => RunExit::Exited(status.code()),
+            Ok(status) => {
+                // No exit code = killed by a signal (OOM killer, `pkill -9`, the OS). That is never a success
+                // (2026-10-05: the frontend treated `code: null` as a clean exit and marked half-done work completed).
+                #[cfg(unix)]
+                if status.code().is_none() {
+                    use std::os::unix::process::ExitStatusExt;
+                    let sig = status.signal().unwrap_or(0);
+                    failed_emitted.store(true, Ordering::Relaxed);
+                    sink(RuntimeEvent::Failed { code: "killed".into(), message: format!("process killed by signal {sig}"), retryable: true });
+                }
+                RunExit::Exited(status.code())
+            }
             Err(error) => {
                 sink(RuntimeEvent::Failed { code: "wait_failed".into(), message: error.to_string(), retryable: false });
                 RunExit::Exited(None)
@@ -485,6 +496,19 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let writer = Arc::clone(&events);
         (events, move |event| writer.lock().unwrap().push(event))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_process_killed_by_a_signal_is_reported_as_failed() {
+        let (events, sink) = collector();
+        let (_handle, rx) = RunHandle::new();
+        let config = SpawnConfig::new("/bin/sh", vec!["-c".into(), "kill -9 $$".into()]);
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx).await.unwrap();
+        assert_eq!(exit, RunExit::Exited(None));
+        let events = events.lock().unwrap().clone();
+        assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, retryable } if code == "killed" && message.contains("killed by signal 9") && *retryable)), "{events:?}");
+        assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
     }
 
     #[cfg(unix)]

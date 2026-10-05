@@ -656,3 +656,33 @@ describe("task handover (quota/limit → another model continues)", () => {
     expect(jobs[1].brief).toMatch(/# HANDOVER/)
   })
 })
+
+describe("cancel during a warm attempt (2026-10-05)", () => {
+  it("does not start a fresh retry after the run was cancelled", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    const execRef: { current?: Executor } = {}
+    class CancellingWorker implements Worker {
+      readonly id = "c"
+      jobs: WorkerJob[] = []
+      supports() {
+        return true
+      }
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        this.jobs.push(job)
+        sink.session(job.resumeSessionId ?? `sess-${this.jobs.length}`)
+        if (job.resumeSessionId) {
+          // the warm attempt: the user cancels while it runs; the CLI reports a plain (non-timeout) failure
+          execRef.current!.cancel()
+          return { done: Promise.resolve({ ok: false, summary: "cancelled", error: "cancelled", retryable: false }), cancel: async () => {} }
+        }
+        return { done: Promise.resolve({ ok: true, summary: "done" }), cancel: async () => {} }
+      }
+    }
+    const worker = new CancellingWorker()
+    execRef.current = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, warmSessions: true })
+    await execRef.current!.start()
+    expect(worker.jobs.filter((j) => j.resumeSessionId).length).toBe(1)
+    expect(worker.jobs.length).toBe(2)
+  })
+})

@@ -58,7 +58,7 @@ pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
             "#!/bin/sh\n",
             "# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload | silent cancel).\n",
             "# status / wait / update are answered by the app binary itself, without a window. `wait` loops here in the shell:\n",
-            "# a long-lived GUI-bundle process gets App-Napped and its sleeps stretch.\n",
+            "# a long-lived GUI-bundle process gets App-Napped and its sleeps stretch. Exit codes: 0 done, 1 failed, 2 unknown/timeout, 4 waiting for assets, 5 app not writing status.\n",
             "B=\"{t}/Contents/MacOS/silent\"\n",
             "case \"$1\" in\n",
             "  status|update) exec \"$B\" \"$@\";;\n",

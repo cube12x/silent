@@ -356,8 +356,9 @@ pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
         return 2;
     }
     loop {
-        if let Some(status) = node_status(dir, &bp, &node) {
-            match status.as_str() {
+        let text = std::fs::read_to_string(dir.join(STATUS_FILE)).unwrap_or_default();
+        match node_status_in(&text, &bp, &node) {
+            Some(status) => match status.as_str() {
                 "done" => {
                     println!("{node}: done");
                     return 0;
@@ -366,7 +367,23 @@ pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
                     println!("{node}: failed");
                     return 1;
                 }
-                _ => {}
+                // Model Plus: the box waits for the user's assets — nothing to wait for here (2026-10-05).
+                "waiting" => {
+                    println!("{node}: waiting for assets — see `silent status`");
+                    return 4;
+                }
+                _ => {
+                    // Still running — but is anyone writing status? A dead app must not look like a long run.
+                    if snapshot_age_secs(&text).is_some_and(|age| age > STALE_SNAPSHOT_SECS) {
+                        eprintln!("{node}: Silent is not writing status (app closed?)");
+                        return 5;
+                    }
+                }
+            },
+            None => {
+                // 2026-10-05: a typo used to loop for the full timeout with exit 3.
+                eprintln!("unknown blueprint/box: {bp} / {node}");
+                return 2;
             }
         }
         if once {
@@ -380,11 +397,15 @@ pub fn wait_for(dir: &Path, rest: &[String], started: Instant) -> i32 {
     }
 }
 
-/// Status of `node` (title or id) in blueprint `bp` (name or id) from status.json; None when unknown.
-pub fn node_status(dir: &Path, bp: &str, node: &str) -> Option<String> {
-    let text = std::fs::read_to_string(dir.join(STATUS_FILE)).ok()?;
-    node_status_in(&text, bp, node)
+/// Seconds since the snapshot's `at` (ms epoch); None when the file carries no usable `at`.
+pub fn snapshot_age_secs(status_json: &str) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_str(status_json).ok()?;
+    let at = v.get("at")?.as_i64()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
+    Some(((now - at).max(0) / 1000) as u64)
 }
+/// A running box whose snapshot is older than this means the app stopped writing status.
+pub const STALE_SNAPSHOT_SECS: u64 = 120;
 
 pub fn node_status_in(status_json: &str, bp: &str, node: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(status_json).ok()?;
@@ -497,8 +518,22 @@ mod tests {
         let failed = STATUS.replace("\"done\"", "\"failed\"");
         write_atomic(&tmp.join(STATUS_FILE), &failed).unwrap();
         assert_eq!(wait_for(&tmp, &["bp1".into(), "n1".into()], Instant::now()), 1);
-        // --once: a running box answers 3 immediately instead of sleeping
+        // --once: a running box answers 3 immediately instead of sleeping (fresh snapshot)
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+        let fresh = STATUS.replace("\"at\":1", &format!("\"at\":{now}"));
+        write_atomic(&tmp.join(STATUS_FILE), &fresh).unwrap();
         assert_eq!(wait_for(&tmp, &["bp1".into(), "n2".into(), "--once".into(), "--timeout".into(), "5".into()], Instant::now()), 3);
+        // a running box in a STALE snapshot (app not writing status) → 5, not an endless wait
+        write_atomic(&tmp.join(STATUS_FILE), STATUS).unwrap();
+        assert_eq!(wait_for(&tmp, &["bp1".into(), "n2".into(), "--once".into()], Instant::now()), 5);
+        // unknown blueprint / box → 2 at once (2026-10-05: used to loop until the timeout with 3)
+        assert_eq!(wait_for(&tmp, &["bp1".into(), "nope".into(), "--once".into()], Instant::now()), 2);
+        assert_eq!(wait_for(&tmp, &["nope".into(), "n1".into()], Instant::now()), 2);
+        // a Model Plus box waiting for assets → 4
+        let waiting = fresh.replace("\"running\"", "\"waiting\"");
+        write_atomic(&tmp.join(STATUS_FILE), &waiting).unwrap();
+        assert_eq!(wait_for(&tmp, &["bp1".into(), "n2".into(), "--once".into()], Instant::now()), 4);
+        write_atomic(&tmp.join(STATUS_FILE), &failed).unwrap();
         assert_eq!(wait_for(&tmp, &["--once".into(), "bp1".into(), "n1".into()], Instant::now()), 1);
         // update queues a pending file that read_pending returns
         assert!(cli_mode(&["silent".into(), "update".into(), "/tmp/New.app".into()], "x").is_none() || true);

@@ -141,6 +141,8 @@ export interface ModelRequest {
   codeHook?: string
   status: ModelRequestStatus
   delivered?: { path: string; at: number }
+  /** Files the validator found on acceptance (real extensions; the manifest names these). */
+  outputs?: string[]
   /** Why the last validation rejected it (or, on a forced accept, what was overridden). */
   reasons?: string[]
 }
@@ -159,6 +161,8 @@ export interface BpModelData {
   lastOk?: boolean
   /** Default true: the chain waits until EVERY request is accepted. */
   strict?: boolean
+  /** Strict off: the user pressed "Continue" with a partial contract (cleared by a new delivery or a relist). */
+  continued?: boolean
   /** Tokens the director/converter sessions consumed (counted in the blueprint Σ). */
   tokens?: number
 }

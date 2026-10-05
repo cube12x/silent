@@ -63,6 +63,13 @@ function parseFrameSize(v: unknown): string | undefined {
   return undefined
 }
 
+/** A target stays inside the build: relative, no `..`, no scheme or drive; anything else falls back to `<folder>/<name>`. */
+export function safeTarget(raw: string, folder: string, name: string): string {
+  const t = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")
+  const bad = !t || t.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(t) || t.split("/").some((seg) => seg === ".." || seg === "") || t.startsWith(".")
+  return bad ? `${folder.replace(/\/+$/, "")}/${name}` : t
+}
+
 export function frameSizeOf(req: Pick<ModelRequest, "frameSize">): { w: number; h: number } | undefined {
   const m = req.frameSize?.match(/^(\d+)x(\d+)$/)
   return m ? { w: Number(m[1]), h: Number(m[2]) } : undefined
@@ -78,13 +85,34 @@ export function parseModelRequests(text: string, opts: { folder: string; style?:
   if (!text) return []
   const upper = text.toUpperCase()
   const at = upper.lastIndexOf(MODEL_REQUESTS_HEADING)
-  const tail = at >= 0 ? text.slice(at + MODEL_REQUESTS_HEADING.length) : text
+  const tail = (at >= 0 ? text.slice(at + MODEL_REQUESTS_HEADING.length) : text).replace(/```(?:json)?/gi, "")
   const start = tail.indexOf("[")
-  const end = tail.lastIndexOf("]")
-  if (start < 0 || end <= start) return []
+  if (start < 0) return []
+  // Match the closing bracket by depth (strings respected): prose after the JSON may contain "[notes]".
+  let depth = 0
+  let inStr = false
+  let end = -1
+  for (let i = start; i < tail.length; i++) {
+    const ch = tail[i]!
+    if (inStr) {
+      if (ch === "\\") i++
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === "[" || ch === "{") depth++
+    else if (ch === "]" || ch === "}") {
+      depth--
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
+  }
+  if (end < 0) return []
   let raw: unknown
   try {
-    raw = JSON.parse(tail.slice(start, end + 1).replace(/```(?:json)?/gi, ""))
+    raw = JSON.parse(tail.slice(start, end + 1))
   } catch {
     return []
   }
@@ -122,7 +150,7 @@ export function parseModelRequests(text: string, opts: { folder: string; style?:
       view: typeof o.view === "string" && o.view.trim() ? o.view.trim() : undefined,
       notes: typeof o.notes === "string" && o.notes.trim() ? o.notes.trim() : undefined,
       sheetPrompt: "",
-      target: typeof o.target === "string" && o.target.trim() ? o.target.trim().replace(/^\.?\//, "").replace(/\/$/, "") : `${opts.folder}/${name}`,
+      target: safeTarget(typeof o.target === "string" ? o.target : "", opts.folder, name),
       codeHook: typeof o.codeHook === "string" && o.codeHook.trim() ? o.codeHook.trim() : undefined,
       status: "pending",
     }
@@ -242,24 +270,43 @@ export interface ValidateIo {
   atlas: AtlasJson | null
   /** PNG probes keyed by relative path (only the paths the store pre-read). */
   png: Map<string, PngProbe | null>
+  /** Modification times (ms) per relative path, when known: outputs older than the delivery are stale leftovers. */
+  mtimes?: Map<string, number>
+  /** When the user delivered the file (ms); with `mtimes` it rejects outputs the converter did not (re)write. */
+  deliveredAt?: number
 }
 
-/** The deterministic gate: the spec is the contract, the disk is the evidence. */
-export function validateDelivery(req: ModelRequest, io: ValidateIo): { ok: boolean; reasons: string[]; warnings: string[] } {
+/** The deterministic gate: the spec is the contract, the disk is the evidence. `found` lists the files that exist. */
+export function validateDelivery(req: ModelRequest, io: ValidateIo): { ok: boolean; reasons: string[]; warnings: string[]; found: string[] } {
   const reasons: string[] = []
   const warnings: string[] = []
   const base = req.target.replace(/\/$/, "")
   const anims = req.animations ?? []
   const animated = req.kind === "sprite-sheet" || (req.kind === "tileset" && anims.length > 0)
   const expected = expectedFiles(req)
+  const stale = (rel: string) => {
+    if (!io.mtimes || !io.deliveredAt) return false
+    const m = io.mtimes.get(rel)
+    return typeof m === "number" && m < io.deliveredAt - 5_000
+  }
   if (req.kind === "audio" || req.kind === "model3d") {
     const stem = expected[0]!.replace(/\.[a-z0-9]+$/i, "")
-    const found = (ALT_EXT[req.kind] ?? []).some((ext) => io.files.has(`${stem}.${ext}`))
-    if (!found) reasons.push(`missing: ${stem}.(${(ALT_EXT[req.kind] ?? []).join("|")})`)
-    return { ok: !reasons.length, reasons, warnings }
+    const found = (ALT_EXT[req.kind] ?? []).map((ext) => `${stem}.${ext}`).filter((f) => io.files.has(f))
+    if (!found.length) reasons.push(`missing: ${stem}.(${(ALT_EXT[req.kind] ?? []).join("|")})`)
+    for (const f of found) if (stale(f)) reasons.push(`stale output: ${f} (older than the delivery — the converter wrote nothing new)`)
+    return { ok: !reasons.length, reasons, warnings, found }
   }
+  const found = expected.filter((f) => io.files.has(f))
   for (const f of expected) if (!io.files.has(f)) reasons.push(`missing: ${f}`)
+  for (const f of found) if (stale(f)) reasons.push(`stale output: ${f} (older than the delivery — the converter wrote nothing new)`)
   const fs = frameSizeOf(req)
+  if (!animated && req.kind === "tileset") {
+    // A tileset is a grid of tiles: the sheet must be a whole multiple of the tile size; opaque ground tiles are fine.
+    const png = io.png.get(`${base}/${req.name}.png`)
+    if (png === null) reasons.push(`not a PNG: ${base}/${req.name}.png`)
+    else if (png && fs && (png.width % fs.w !== 0 || png.height % fs.h !== 0 || png.width < fs.w || png.height < fs.h)) reasons.push(`${req.name}.png is ${png.width}x${png.height}, not a multiple of the ${req.frameSize} tile`)
+    return { ok: !reasons.length, reasons, warnings, found }
+  }
   if (animated) {
     const atlas = io.atlas
     if (!atlas || !Array.isArray(atlas.frames)) reasons.push(`atlas unreadable: ${base}/${req.name}.json`)
@@ -299,11 +346,11 @@ export function validateDelivery(req: ModelRequest, io: ValidateIo): { ok: boole
     if (png === null) reasons.push(`not a PNG: ${base}/${req.name}.png`)
     else if (png) {
       if (fs && (png.width !== fs.w || png.height !== fs.h)) reasons.push(`${req.name}.png is ${png.width}x${png.height}, expected ${req.frameSize}`)
-      const needsAlpha = req.kind === "tileset" || /transparen|alpha|cutout/i.test(req.notes ?? "")
+      const needsAlpha = /transparen|alpha|cutout/i.test(req.notes ?? "")
       if (needsAlpha && !png.hasAlpha) reasons.push(`${req.name}.png has no alpha channel`)
     }
   }
-  return { ok: !reasons.length, reasons, warnings }
+  return { ok: !reasons.length, reasons, warnings, found }
 }
 
 export function pendingSummary(requests: ModelRequest[]): Array<{ name: string; kind: ModelRequestKind; frames: number; frameSize?: string; status: ModelRequest["status"] }> {
@@ -318,7 +365,8 @@ export function modelManifest(requests: ModelRequest[]): string {
   for (const r of accepted) {
     const files = expectedFiles(r)
     const anims = (r.animations ?? []).map((a) => `${a.name}×${a.frames}`).join(", ")
-    const main = r.kind === "sprite-sheet" || (r.kind === "tileset" && r.animations?.length) ? `${r.target}/${r.name}.png + ${r.name}.json` : files[0]!
+    const single = r.outputs?.find((f) => !/_\d\d\.png$/.test(f) && !f.endsWith(".json")) ?? files[0]!
+    const main = r.kind === "sprite-sheet" || (r.kind === "tileset" && r.animations?.length) ? `${r.target}/${r.name}.png + ${r.name}.json` : single
     lines.push(`- ${r.name} (${r.kind}) → ${main}${anims ? ` · frames: ${anims}` : ""}${r.frameSize ? ` · ${r.frameSize}` : ""} · load: ${r.codeHook ?? "wire it where the placeholder was loaded"}${r.reasons?.length ? ` · ⚠ forced accept: ${r.reasons.join("; ")}` : ""}`)
   }
   lines.push("")
@@ -383,7 +431,7 @@ export function converterBrief(i: { req: ModelRequest; deliveredRel: string; bui
       ? [
           `Recipe (sprite sheet, ${anims.length} animation row(s)):`,
           `1. python3 .silent/tools/donusturucu.py inspect ${i.deliveredRel} — then LOOK at the image: count rows and columns, measure the cell size, origin, gap and any caption strip. Rows are, in order: ${anims.map((a) => `${a.name} (${a.frames} frames)`).join(", ")}. An animation longer than the row wraps to the next row.`,
-          `2. grid --cols C --rows R --cell WxH [--origin x,y] [--gap g] [--label h] --names ${anims.flatMap((a) => Array.from({ length: a.frames }, (_, k) => frameName(r.name, a.name, k))).join(",")} --out ${r.target} (cut exactly these ${totalFrames(r)} cells, in reading order; skip empty trailing cells).`,
+          `2. Cut ONE ROW AT A TIME (a shorter animation leaves empty cells at the end of its row — never name an empty cell):\n${anims.map((a, row) => `   grid --cols ${a.frames} --rows 1 --cell WxH --origin 0,<y of row ${row}: row*(cell+gap)+label> [--gap g] --names ${Array.from({ length: a.frames }, (_, k) => frameName(r.name, a.name, k)).join(",")} --out ${r.target}`).join("\n")}\n   (an animation longer than the sheet's columns wraps to the next row: cut that row with the remaining names). Verify every cut frame contains the subject (not blank).`,
           `3. removebg on every cut frame (flat background or magenta key: --key #ff00ff if that is the background).`,
           fs ? `4. resize --size ${r.frameSize} (nearest-neighbour; keep the subject centred, do not stretch — pad transparent if the aspect differs).` : "4. keep the native frame size (no frameSize given).",
           `5. pack --name ${r.name}${fs ? ` --frame ${r.frameSize}` : ""} --columns ${Math.min(8, Math.max(1, ...anims.map((a) => a.frames)))} --out ${r.target} → ${r.target}/${r.name}.png + ${r.name}.json (frame names must be the ones above).`,

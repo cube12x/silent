@@ -15,7 +15,7 @@ import { useUpdatesStore } from "./updates"
 import { useSettingsStore } from "./settings"
 import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
-import { composeAiInput, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
+import { composeAiInput, downstreamOf, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
@@ -116,6 +116,19 @@ const pendingLogs = new Map<string, TerminalLine[]>()
 let logFlushTimer: ReturnType<typeof setTimeout> | undefined
 
 /** Append one terminal line to a node's log; lines are batched (100 ms) so a chatty CLI never re-renders the canvas per line. */
+/** Longest a chain waits for a box another chain is running (2026-10-05: a leaked handle used to hang chains forever). */
+const AWAIT_BUSY_MAX_MS = 30 * 60_000
+
+/** Drop a box's cancel handle. Every executor releases through here (finally), so a crash or an early return can never leave a box "running". */
+function releaseRunning(nodeId: string): void {
+  useBlueprintsStore.setState((s) => {
+    if (!(nodeId in s.running)) return {}
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+}
+
 /** Resolves once the box has no cancel handle any more (or after `maxMs`). */
 async function untilFree(nodeId: string, maxMs: number): Promise<void> {
   const until = Date.now() + maxMs
@@ -132,7 +145,14 @@ async function awaitBusy(bpId: string, nodeId: string, set: (fn: (s: BlueprintsS
   const node = bp && nodeById(bp, nodeId)
   const title = node && "title" in node.data && node.data.title ? node.data.title : nodeId
   log(set, nodeId, `⏳ ${title} is already running in another chain — waiting for it instead of starting it twice`)
-  while (useBlueprintsStore.getState().running[nodeId]) await new Promise((r) => setTimeout(r, 500))
+  const deadline = Date.now() + AWAIT_BUSY_MAX_MS
+  while (useBlueprintsStore.getState().running[nodeId]) {
+    if (Date.now() > deadline) {
+      log(set, nodeId, `✗ still busy after ${Math.round(AWAIT_BUSY_MAX_MS / 60000)} min — giving up on this chain (cancel the box if it is stuck)`)
+      return "failed"
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
   const after = useBlueprintsStore.getState().byId(bpId)
   const n = after && nodeById(after, nodeId)
   const ok = n?.status === "done"
@@ -427,8 +447,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       log(set, nodeId, `⚠ ${busy && "title" in busy.data && busy.data.title ? busy.data.title : busyId} is already running — wait or cancel it first`)
       return
     }
+    // Boxes behind a Model Plus box that stopped to wait: skipped, while sibling branches keep walking (2026-10-05).
+    const skip = new Set<string>()
     for (let step of plan) {
       try {
+      const stepIds = step.kind === "parallel" ? step.heads.map((h) => h.id) : [step.node.id]
+      if (stepIds.length && stepIds.every((x) => skip.has(x))) continue
       if (step.kind !== "parallel") {
         const waited = await awaitBusy(id, step.node.id, set)
         if (waited === "failed") break
@@ -449,27 +473,43 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         // (2026-10-04: a side-branch verify used to stop the Deploy/Denetçi steps queued behind it).
         if (ok === "inconclusive") {
           log(set, step.node.id, "→ inconclusive, nothing to fix — the chain goes on; replay the lanes when the host is idle")
+          opts = undefined
           continue
+        }
+        // A cancelled check is not a red check: no fixer, no re-check (2026-10-05: cancelling an e2e Denetçi used to start the Eylem).
+        if (ok === "cancelled") {
+          log(set, step.node.id, "■ cancelled — the chain stops here")
+          break
         }
         if (ok === "warn") ok = true
         if (!ok) {
           // Fixers are the Eylem (or Tamirci) boxes behind the gate; any other AI behind it is the continuation.
           const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai" && n.data.type === "ai" && (n.data.role === "eylem" || n.data.tamirci === true))
-          if (!fixers.length) break
-          for (const f of fixers) {
-            try {
-              await execAi(id, f.id, { ...opts, parallel: false })
-            } catch (e) {
-              log(set, f.id, `✖ fixer crashed: ${e instanceof Error ? e.message : String(e)}`)
-            }
-          }
-          log(set, step.node.id, "↻ re-checking after the fixer")
-          const after = nodeById(useBlueprintsStore.getState().byId(id)!, step.node.id)
-          ok = step.kind === "verify" && after?.data.type === "verify" && after.data.failedLanes?.length ? await execVerify(id, step.node.id, { onlyLanes: after.data.failedLanes }) : await exec(id, step.node.id)
-          if (ok === "warn") ok = true
           const continueOnFail = step.node.data.type === "check" && step.node.data.continueOnFail === true
-          if (ok !== true && !continueOnFail) break
-          if (ok !== true) log(set, step.node.id, "→ still red, but continueOnFail is on — the chain goes on")
+          if (!fixers.length) {
+            if (!continueOnFail) break
+            log(set, step.node.id, "→ red with no fixer wired, but continueOnFail is on — the chain goes on")
+          } else {
+            for (const f of fixers) {
+              try {
+                // A fixer another chain is already running is awaited, never started twice (2026-10-05).
+                const w = await awaitBusy(id, f.id, set)
+                if (w === "free") await execAi(id, f.id, { ...opts, parallel: false })
+              } catch (e) {
+                log(set, f.id, `✖ fixer crashed: ${e instanceof Error ? e.message : String(e)}`)
+              }
+            }
+            log(set, step.node.id, "↻ re-checking after the fixer")
+            const after = nodeById(useBlueprintsStore.getState().byId(id)!, step.node.id)
+            ok = step.kind === "verify" && after?.data.type === "verify" && after.data.failedLanes?.length ? await execVerify(id, step.node.id, { onlyLanes: after.data.failedLanes }) : await exec(id, step.node.id)
+            if (ok === "cancelled") {
+              log(set, step.node.id, "■ cancelled — the chain stops here")
+              break
+            }
+            if (ok === "warn" || ok === "inconclusive") ok = true
+            if (ok !== true && !continueOnFail) break
+            if (ok !== true) log(set, step.node.id, "→ still red, but continueOnFail is on — the chain goes on")
+          }
         }
       } else if (step.kind === "snapshot") {
         if (!(await execSnapshot(id, step.node.id))) break
@@ -478,8 +518,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         // contract re-runs the walk from this box (execModel then returns true at once).
         const r = await execModel(id, step.node.id)
         if (r === "waiting") {
-          log(set, step.node.id, "⏸ waiting for the user's assets — the chain resumes from this box once every request is accepted")
-          break
+          log(set, step.node.id, "⏸ waiting for the user's assets — the boxes behind this one resume once every request is accepted; sibling branches go on")
+          for (const d of downstreamOf(bp, step.node.id)) skip.add(d)
+          opts = undefined
+          continue
         }
         if (!r) break
       } else if (step.kind === "queue") {
@@ -517,7 +559,15 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
   },
   async cancel(id, nodeId) {
     const stop = get().running[nodeId]
-    if (stop) await stop()
+    if (stop) {
+      try {
+        await stop()
+      } catch (e) {
+        log(set, nodeId, `⚠ cancel handle threw: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    // The executor normally releases the box itself; a stuck or crashed one must not keep it locked (2026-10-05).
+    releaseRunning(nodeId)
     get().updateNode(id, nodeId, { status: "failed", note: "cancelled" })
   },
   async cancelAll() {
@@ -627,48 +677,55 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     await get().refreshBuild(id, nodeId)
     return n
   },
-  async modelDeliver(id, nodeId, paths, forName) {
-    const bp = get().byId(id)
-    const node = bp && nodeById(bp, nodeId)
-    if (!bp || !node || node.data.type !== "model") return 0
-    const cwd = sourceFolder(bp, nodeId)
-    if (!cwd) {
-      log(set, nodeId, "⚠ wire a Build into this box before delivering files")
-      return 0
-    }
-    if (get().running[nodeId]) {
-      log(set, nodeId, "⚠ the box is busy (director/converter running) — deliver again when it is waiting")
-      return 0
-    }
-    if (!node.data.requests.length) {
-      log(set, nodeId, "⚠ no requests yet — run the box first so the art director writes the contract")
-      return 0
-    }
-    const backend = await getBackend()
-    const inboxRel = `${node.data.folder.replace(/\/$/, "")}/inbox`
-    const n = await backend.blueprintBuildImport(`${cwd}/${inboxRel}`, paths)
-    let requests = node.data.requests
-    const touched: string[] = []
-    for (const p of paths) {
-      const base = p.split("/").pop() ?? p
-      const req = matchDelivery(requests, base, forName)
-      if (!req) {
-        log(set, nodeId, `⚠ no open request matches "${base}" — it stays in ${inboxRel}; assign it from the panel`)
-        continue
+  modelDeliver(id, nodeId, paths, forName) {
+    return enqueueModel(nodeId, async () => {
+      const bp = get().byId(id)
+      const node = bp && nodeById(bp, nodeId)
+      if (!bp || !node || node.data.type !== "model") return 0
+      const cwd = sourceFolder(bp, nodeId)
+      if (!cwd) {
+        log(set, nodeId, "⚠ wire a Build into this box before delivering files")
+        return 0
       }
-      if (req.status === "accepted") log(set, nodeId, `⚠ ${req.name} was already accepted — the new file replaces it`)
-      requests = requests.map((r) => (r.id === req.id ? { ...r, status: "delivered" as const, delivered: { path: `${inboxRel}/${base}`, at: Date.now() }, reasons: undefined } : r))
-      touched.push(req.id)
-      log(set, nodeId, `📦 ${base} → ${req.name}`)
-    }
-    await saveModelRequests(id, nodeId, cwd, requests)
-    if (touched.length) {
-      await convertAndValidate(id, nodeId, touched)
-      await maybeResumeModel(id, nodeId)
-    }
-    return n
+      if (get().running[nodeId]) {
+        log(set, nodeId, "⚠ the box is busy (director/converter running) — deliver again when it is waiting")
+        return 0
+      }
+      if (!node.data.requests.length) {
+        log(set, nodeId, "⚠ no requests yet — run the box first so the art director writes the contract")
+        return 0
+      }
+      const backend = await getBackend()
+      const inboxRel = `${node.data.folder.replace(/\/$/, "")}/inbox`
+      // The real stored names: a clash with an earlier delivery is renamed (`mario-2.png`), and the converter must get THAT file.
+      const stored = await backend.blueprintBuildImportPaths(`${cwd}/${inboxRel}`, paths)
+      // Re-read after the await: another queued call may have changed the requests meanwhile.
+      const fresh = get().byId(id) && nodeById(get().byId(id)!, nodeId)
+      let requests = fresh && fresh.data.type === "model" ? fresh.data.requests : node.data.requests
+      const touched = new Set<string>()
+      paths.forEach((p, idx) => {
+        const base = stored[idx] ?? (p.split("/").pop() ?? p)
+        const req = matchDelivery(requests, p.split("/").pop() ?? p, forName)
+        if (!req) {
+          log(set, nodeId, `⚠ no open request matches "${base}" — it stays in ${inboxRel}; assign it from the panel`)
+          return
+        }
+        if (req.status === "accepted") log(set, nodeId, `⚠ ${req.name} was already accepted — the new file replaces it`)
+        requests = requests.map((r) => (r.id === req.id ? { ...r, status: "delivered" as const, delivered: { path: `${inboxRel}/${base}`, at: Date.now() }, reasons: undefined, outputs: undefined } : r))
+        touched.add(req.id)
+        log(set, nodeId, `📦 ${base} → ${req.name}`)
+      })
+      patchModel(id, nodeId, { continued: undefined })
+      await saveModelRequests(id, nodeId, cwd, requests)
+      if (touched.size) {
+        await convertAndValidate(id, nodeId, Array.from(touched))
+        await maybeResumeModel(id, nodeId)
+      }
+      return stored.length
+    })
   },
-  async modelReassign(id, nodeId, fromReqId, toReqId) {
+  modelReassign(id, nodeId, fromReqId, toReqId) {
+    return enqueueModel(nodeId, async () => {
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!bp || !node || node.data.type !== "model" || fromReqId === toReqId) return
@@ -681,8 +738,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     await saveModelRequests(id, nodeId, cwd, requests)
     await convertAndValidate(id, nodeId, [toReqId])
     await maybeResumeModel(id, nodeId)
+    })
   },
-  async modelForceAccept(id, nodeId, reqId) {
+  modelForceAccept(id, nodeId, reqId) {
+    return enqueueModel(nodeId, async () => {
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!bp || !node || node.data.type !== "model") return
@@ -693,6 +752,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     await saveModelRequests(id, nodeId, cwd, requests)
     if (requests.every((r) => r.status === "accepted")) await maybeResumeModel(id, nodeId)
     else markModelWaiting(id, nodeId, requests)
+    })
   },
   async modelRelist(id, nodeId) {
     const bp = get().byId(id)
@@ -704,11 +764,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     const cwd = sourceFolder(bp, nodeId)
     log(set, nodeId, "🗑 contract discarded — asking the art director again (inbox files stay on disk)")
-    get().updateNode(id, nodeId, { status: "idle", note: undefined, data: { requests: [], report: undefined, lastOk: undefined } })
+    patchModel(id, nodeId, { requests: [], report: undefined, lastOk: undefined, continued: undefined }, { status: "idle", note: undefined })
     if (cwd) await saveModelRequests(id, nodeId, cwd, [])
     await execModel(id, nodeId)
   },
-  async modelContinue(id, nodeId) {
+  modelContinue(id, nodeId) {
+    return enqueueModel(nodeId, async () => {
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!bp || !node || node.data.type !== "model") return
@@ -720,7 +781,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       log(set, nodeId, "⚠ nothing accepted yet — deliver at least one request")
       return
     }
+    patchModel(id, nodeId, { continued: true })
     await maybeResumeModel(id, nodeId, true)
+    })
   },
   async refreshBuild(id, nodeId) {
     const bp = get().byId(id)
@@ -809,7 +872,15 @@ function aiWorkingFolder(bp: Blueprint, aiId: string): string | undefined {
 
 /** Denetçi: run the node's commands in the wired folder without any model; the report goes on the node. */
 /** true = green, "warn" = green with red soft commands, false = red. */
-async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn"> {
+async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn" | "cancelled"> {
+  try {
+    return await execCheckInner(bpId, nodeId)
+  } finally {
+    releaseRunning(nodeId)
+  }
+}
+
+async function execCheckInner(bpId: string, nodeId: string): Promise<boolean | "warn" | "cancelled"> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -828,7 +899,9 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn"
   const list = commands.length ? commands : ["npm run typecheck", "npm test", "npm run build"]
   const backend = await getBackend()
   let cancelled = false
-  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: () => void (cancelled = true) } }))
+  // The token lets a cancel kill the command's whole process group (2026-10-05: `npm run e2e` used to outlive the cancel).
+  const token = `bp:check:${nodeId}:${Date.now()}`
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await backend.checkCancel(token).catch(() => undefined) } } }))
   store.updateNode(bpId, nodeId, { status: "running", note: undefined })
   log(set, nodeId, `▶ check · ${cwd}`)
   const data = node.data
@@ -840,7 +913,7 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn"
   const runOne = async (cmd: string, isSoft: boolean): Promise<boolean> => {
     log(set, nodeId, `$ ${cmd}${isSoft ? "  (soft)" : ""}`)
     try {
-      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, data.timeoutSecs), data.maxLines)
+      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, data.timeoutSecs), data.maxLines, token)
       log(set, nodeId, r.tail || "(no output)", r.ok ? "stdout" : "stderr")
       log(set, nodeId, `↳ exit ${r.exitCode ?? "?"} · ${Math.round(r.elapsedMs / 1000)} s`)
       lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})${isSoft ? " · soft, not blocking" : ""}`} · ${Math.round(r.elapsedMs / 1000)} s`)
@@ -877,7 +950,8 @@ async function execCheck(bpId: string, nodeId: string): Promise<boolean | "warn"
     data: { report, lastOk: ok && !cancelled },
   })
   log(set, nodeId, !ok ? "✖ check failed — wired fixer AI gets the report" : warn ? `⚠ green with warnings — soft red: ${warnings.join(", ")} (chain goes on, no fixer)` : "✓ all checks green")
-  if (cancelled || !ok) return false
+  if (cancelled) return "cancelled"
+  if (!ok) return false
   return warn ? "warn" : true
 }
 
@@ -915,6 +989,14 @@ function sourceFolder(bp: Blueprint, nodeId: string): string | undefined {
 
 /** Anlık Görüntü: git snapshot of the wired folder; zero tokens. */
 async function execSnapshot(bpId: string, nodeId: string): Promise<boolean> {
+  try {
+    return await execSnapshotInner(bpId, nodeId)
+  } finally {
+    releaseRunning(nodeId)
+  }
+}
+
+async function execSnapshotInner(bpId: string, nodeId: string): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -941,6 +1023,14 @@ async function execSnapshot(bpId: string, nodeId: string): Promise<boolean> {
 
 /** Sıra: the wired prompts, one after another, in ONE CLI session (each step resumes the previous). */
 async function execQueue(bpId: string, nodeId: string): Promise<boolean> {
+  try {
+    return await execQueueInner(bpId, nodeId)
+  } finally {
+    releaseRunning(nodeId)
+  }
+}
+
+async function execQueueInner(bpId: string, nodeId: string): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -996,7 +1086,15 @@ async function execQueue(bpId: string, nodeId: string): Promise<boolean> {
 /** Çoklu Tarayıcı: every lane in parallel (host load cap), findings merged into one `# VERIFY` report. */
 /** Returns true when every lane is OK, false when lanes have findings (the wired fixer runs), "inconclusive" when lanes
  * could only not be driven (host overloaded, app did not start): nothing to fix, replay later. */
-async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean | "inconclusive"> {
+async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean | "inconclusive" | "cancelled"> {
+  try {
+    return await execVerifyInner(bpId, nodeId, opts)
+  } finally {
+    releaseRunning(nodeId)
+  }
+}
+
+async function execVerifyInner(bpId: string, nodeId: string, opts?: { onlyLanes?: string[] }): Promise<boolean | "inconclusive" | "cancelled"> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -1062,6 +1160,7 @@ async function execVerify(bpId: string, nodeId: string, opts?: { onlyLanes?: str
   })
   log(set, nodeId, `${allOk ? "✓ all lanes OK" : onlyInconclusive ? `⚠ ${inconclusive.length} lane(s) inconclusive — host overloaded; no fixer, re-run when idle` : `✖ ${findings.length} lane(s) with findings — wired fixer AI gets the report${inconclusive.length ? ` (${inconclusive.length} inconclusive, replayed later)` : ""}`} · ${formatTokens(tokens)} tokens`)
   if (onlyInconclusive) return "inconclusive"
+  if (cancelled) return "cancelled"
   return allOk
 }
 
@@ -1091,8 +1190,26 @@ function addTokens(bpId: string, nodeId: string, delta: number) {
 }
 
 /** Persist a model box's requests (node data is the source of truth; the file is the restart-safe, scriptable mirror). */
+/** Patch a model box's data as run state (no undo history: Cmd+Z must never revert deliveries the disk already has). */
+function patchModel(bpId: string, nodeId: string, data: Partial<BpModelData>, rest?: { status?: BpNode["status"]; note?: string }): void {
+  useBlueprintsStore.getState().update(
+    bpId,
+    (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && n.data.type === "model" ? { ...n, ...(rest?.status !== undefined ? { status: rest.status } : {}), ...(rest && "note" in rest ? { note: rest.note } : {}), data: { ...n.data, ...data } } : n)) }),
+    { history: false },
+  )
+}
+
+/** Serialise the model box's mutations (deliver / reassign / force / continue): two quick drops used to race each other. */
+const modelQueues = new Map<string, Promise<unknown>>()
+function enqueueModel<T>(nodeId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = modelQueues.get(nodeId) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  modelQueues.set(nodeId, next.catch(() => undefined))
+  return next
+}
+
 async function saveModelRequests(bpId: string, nodeId: string, cwd: string, requests: ModelRequest[]): Promise<void> {
-  useBlueprintsStore.getState().updateNode(bpId, nodeId, { data: { requests } })
+  patchModel(bpId, nodeId, { requests })
   const backend = await getBackend()
   await backend.writeProjectFile(cwd, MODEL_STATE_REL, JSON.stringify({ version: 1, updatedAt: Date.now(), requests }, null, 2)).catch((e) => log(useBlueprintsStore.setState, nodeId, `⚠ could not write ${MODEL_STATE_REL}: ${e instanceof Error ? e.message : String(e)}`))
 }
@@ -1124,11 +1241,13 @@ async function execModel(bpId: string, nodeId: string): Promise<boolean | "waiti
     if (stale.length) await convertAndValidate(bpId, nodeId, stale)
     const now = (useBlueprintsStore.getState().byId(bpId) && nodeById(useBlueprintsStore.getState().byId(bpId)!, nodeId)?.data) as BpModelData | undefined
     const requests = now?.requests ?? data.requests
-    if (requests.every((r) => r.status === "accepted")) {
-      if (!now?.report || now.lastOk !== true) store.updateNode(bpId, nodeId, { data: { report: modelManifest(requests), lastOk: true } })
-      store.updateNode(bpId, nodeId, { status: "done", note: undefined })
+    const complete = requests.every((r) => r.status === "accepted")
+    const partialOk = now?.strict === false && now.continued === true && requests.some((r) => r.status === "accepted")
+    if (complete || partialOk) {
+      patchModel(bpId, nodeId, { report: modelManifest(requests), lastOk: true }, { status: "done", note: complete ? undefined : `${requests.filter((r) => r.status !== "accepted").length} unresolved (continued)` })
       return true
     }
+    patchModel(bpId, nodeId, { report: undefined, lastOk: undefined })
     return markModelWaiting(bpId, nodeId, requests)
   }
   // SPEC: the art director writes the contract.
@@ -1180,6 +1299,14 @@ function markModelWaiting(bpId: string, nodeId: string, requests: ModelRequest[]
  * on the disk. Accepted or rejected with reasons; the box returns to `waiting` afterwards (resume is a separate step).
  */
 async function convertAndValidate(bpId: string, nodeId: string, reqIds: string[]): Promise<void> {
+  try {
+    await convertAndValidateInner(bpId, nodeId, reqIds)
+  } finally {
+    releaseRunning(nodeId)
+  }
+}
+
+async function convertAndValidateInner(bpId: string, nodeId: string, reqIds: string[]): Promise<void> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   const bp = store.byId(bpId)
@@ -1208,6 +1335,7 @@ async function convertAndValidate(bpId: string, nodeId: string, reqIds: string[]
     log(set, nodeId, `🔧 converting ${req.delivered.path} → ${req.target}/ (${req.name})`)
     let reasons: string[] = []
     let warnings: string[] = []
+    let found: string[] = []
     try {
       const handle = runSingle(backend, { runId: `bp:model:${nodeId}:${req.id}:${Date.now()}`, modelRef: data.modelRef, prompt: converterBrief({ req, deliveredRel: req.delivered.path, build: cwd, expected }), cwd, timeoutSecs: 20 * 60, effort: clampEffort(parseModelRef(data.modelRef).providerId as ProviderId, "medium") }, (line, stream) => log(set, nodeId, line, stream))
       cancels.push(handle.cancel)
@@ -1223,7 +1351,9 @@ async function convertAndValidate(bpId: string, nodeId: string, reqIds: string[]
     }
     if (!reasons.length) {
       // The validator reads the disk, never the converter's words.
-      const files = new Set((await backend.listProjectFiles(cwd, 20000).catch(() => [])).map((f) => f.rel.replace(/\\/g, "/")))
+      const listing = await backend.listProjectFiles(cwd, 20000).catch(() => [])
+      const files = new Set(listing.map((f) => f.rel.replace(/\\/g, "/")))
+      const mtimes = new Map(listing.map((f) => [f.rel.replace(/\\/g, "/"), f.mtimeMs]))
       const base = req.target.replace(/\/$/, "")
       let atlas: AtlasJson | null
       try {
@@ -1240,15 +1370,20 @@ async function convertAndValidate(bpId: string, nodeId: string, reqIds: string[]
       }
       await probe(`${base}/${req.name}.png`)
       for (const a of req.animations ?? []) await probe(`${base}/${frameName(req.name, a.name, 0)}.png`)
-      const v = validateDelivery(req, { files, atlas, png })
-      reasons = v.reasons
-      warnings = v.warnings
+      try {
+        const v = validateDelivery(req, { files, atlas, png, mtimes, deliveredAt: req.delivered.at })
+        reasons = v.reasons
+        warnings = v.warnings
+        found = v.found
+      } catch (e) {
+        reasons = [`validator crashed: ${e instanceof Error ? e.message : String(e)}`]
+      }
     }
     const ok = !reasons.length
     for (const r of reasons) log(set, nodeId, `  ✗ ${r}`, "stderr")
     for (const w of warnings) log(set, nodeId, `  ⚠ ${w}`)
     log(set, nodeId, ok ? `✓ ${req.name} accepted (${expected.length} files verified)` : `✗ ${req.name} rejected — fix the sheet and deliver again (or force-accept from the panel)`)
-    const requests = current().map((r) => (r.id === reqId ? { ...r, status: ok ? ("accepted" as const) : ("rejected" as const), reasons: ok ? undefined : reasons } : r))
+    const requests = current().map((r) => (r.id === reqId ? { ...r, status: ok ? ("accepted" as const) : ("rejected" as const), reasons: ok ? undefined : reasons, outputs: ok ? found : undefined } : r))
     await saveModelRequests(bpId, nodeId, cwd, requests)
   }
   useBlueprintsStore.setState((s) => {
@@ -1275,14 +1410,32 @@ async function maybeResumeModel(bpId: string, nodeId: string, partial = false): 
   const backend = await getBackend()
   const report = modelManifest(requests)
   await backend.writeProjectFile(cwd, MODEL_DOC_REL, modelDoc(requests, node.data.folder)).catch(() => undefined)
-  store.updateNode(bpId, nodeId, { status: "done", note: complete ? undefined : `${requests.filter((r) => r.status !== "accepted").length} unresolved (continued)`, data: { report, lastOk: true } })
+  patchModel(bpId, nodeId, { report, lastOk: true }, { status: "done", note: complete ? undefined : `${requests.filter((r) => r.status !== "accepted").length} unresolved (continued)` })
   const build = incoming(bp, nodeId).find((n) => n.type === "build" || n.type === "buildPhoto")
   if (build) void store.refreshBuild(bpId, build.id).catch(() => undefined)
   log(set, nodeId, complete ? `✓ all ${requests.length} asset(s) accepted — ${MODEL_DOC_REL} written, the chain resumes` : "→ continuing with a partial contract (strict off)")
   void store.run(bpId, nodeId).catch((e) => reportError(e instanceof Error ? e.message : String(e)))
 }
 
-async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean; /** Görev aktarımı: run on this model instead of the box's own (the box keeps its setting). */ modelRef?: string }): Promise<boolean> {
+type ExecAiOpts = { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean; /** Görev aktarımı: run on this model instead of the box's own (the box keeps its setting). */ modelRef?: string }
+
+async function execAi(bpId: string, aiId: string, opts?: ExecAiOpts): Promise<boolean> {
+  // Re-entry guard: a box that is running (any chain) is never started a second time (2026-10-05: the fixer loop
+  // re-entered a running Eylem, replaced its cancel handle and released the box while the first session still ran).
+  if (useBlueprintsStore.getState().running[aiId]) {
+    log(useBlueprintsStore.setState, aiId, "⚠ already running — not started a second time")
+    return false
+  }
+  // Reserve BEFORE the first await (backend, build dir, repo sync, digest): a double Enter in that window used to start two runs.
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: () => undefined } }))
+  try {
+    return await execAiInner(bpId, aiId, opts)
+  } finally {
+    releaseRunning(aiId)
+  }
+}
+
+async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promise<boolean> {
   const store = useBlueprintsStore.getState()
   const set = useBlueprintsStore.setState
   let bp = store.byId(bpId)
