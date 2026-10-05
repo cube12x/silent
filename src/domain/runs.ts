@@ -134,6 +134,8 @@ export interface SilentCodeRun {
   /** Run this one continues (develop mode). */
   parentRunId?: string
   report?: RunReport
+  /** Ready tasks waiting for a slot because the host capped concurrency (absent when nothing waits). */
+  waitingSlots?: { ready: number; cap: number }
   /** English product spec written by the planner from the user's request; every worker gets it. */
   spec?: string
   /** Expert kit applied (see domain/kits). */

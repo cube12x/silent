@@ -104,3 +104,12 @@ describe("stalled tasks and the auto-answer countdown (2026-10-05 terminal revie
     expect(buildStatusSnapshot({ blueprints: [], runs: [running], pendingUpdate: null, now, autoAnswerMs: 0 }).blocked[0]!.autoAnswerAt).toBeUndefined()
   })
 })
+
+describe("host-capped runs show their waiting slots (2026-10-05)", () => {
+  it("waitingSlots is mirrored for running runs; the host line carries cpu idle and pressure", () => {
+    const capped = { id: "r7", status: "running", createdAt: 5, plan: [], waitingSlots: { ready: 2, cap: 1 } } as unknown as Run
+    const s = buildStatusSnapshot({ blueprints: [], runs: [capped], pendingUpdate: null, now: 10, host: { load: { load1: 5.5, cpus: 6, swapUsedPct: 88, cpuIdlePct: 52, memPressure: 2 }, level: "ok" } })
+    expect(s.runs[0]!.waitingSlots).toEqual({ ready: 2, cap: 1 })
+    expect(s.host).toMatchObject({ cpuIdlePct: 52, memPressure: 2, level: "ok" })
+  })
+})

@@ -79,6 +79,8 @@ export interface BpCheckData {
   softCommands?: string[]
   /** Walk on to the non-Eylem boxes after this check even when it stays red after the fixer. */
   continueOnFail?: boolean
+  /** Consecutive time-outs per soft command; at `SOFT_SKIP_AFTER_TIMEOUTS` the command is skipped until it is edited or passes. */
+  softTimeouts?: Record<string, number>
   /** `# CHECK` report of the last run (fed to the wired fixer AI when red). */
   report?: string
   lastOk?: boolean

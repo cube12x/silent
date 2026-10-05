@@ -22,6 +22,8 @@ export type RunEvent =
   | { type: "run.completed"; runId: string; at: number }
   | { type: "run.failed"; runId: string; reason: string; at: number }
   | { type: "run.cancelled"; runId: string; at: number }
+  /** Ready tasks waiting because the host capped the slots (ready 0 = cleared). 2026-10-05 time-waste hunt. */
+  | { type: "run.capped"; runId: string; ready: number; cap: number; at: number }
 
 export type RunEventListener = (event: RunEvent) => void
 

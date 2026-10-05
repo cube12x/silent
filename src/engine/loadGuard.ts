@@ -10,6 +10,10 @@ export interface HostLoad {
   cpus: number
   /** Swap in use, 0..100, when the host reports it. */
   swapUsedPct?: number
+  /** CPU idle %, 0..100, sampled over ~1 s (macOS `top`, Linux /proc/stat). The main signal since 2026-10-05. */
+  cpuIdlePct?: number
+  /** Memory pressure: 1 normal · 2 warn · 4 critical (macOS kern.memorystatus_vm_pressure_level; Linux from MemAvailable). */
+  memPressure?: number
 }
 
 export type LoadLevel = "ok" | "high" | "critical"
@@ -20,8 +24,20 @@ export type LoadLevel = "ok" | "high" | "critical"
  */
 export function loadLevel(h: HostLoad): LoadLevel {
   const cpus = Math.max(1, h.cpus)
-  if (h.load1 > 2 * cpus || (h.swapUsedPct ?? 0) >= 97) return "critical"
-  if (h.load1 > cpus || (h.swapUsedPct ?? 0) >= 93) return "high"
+  // 2026-10-05: the 1-minute load average counted every runnable/waiting thread on the machine (other apps, build
+  // tools) and read 5.5 on 6 cores while the CPU was 52 % idle; 18 runs were throttled to 1–2 workers and took 31.6 h
+  // instead of ~19.4 h. Workers mostly wait on the network; the real risks are a saturated CPU and memory pressure
+  // (the 2026-09-30 swap blackout), so those are measured directly when the host reports them.
+  if (h.memPressure !== undefined || h.cpuIdlePct !== undefined) {
+    const idle = h.cpuIdlePct ?? 100
+    const pressure = h.memPressure ?? 1
+    if (pressure >= 4 || (h.swapUsedPct ?? 0) >= 97 || idle < 5) return "critical"
+    if (idle < 15 || (pressure >= 2 && idle < 30)) return "high"
+    return "ok"
+  }
+  // No direct measurements (older backend, other OS): load average with generous thresholds.
+  if (h.load1 > 3 * cpus || (h.swapUsedPct ?? 0) >= 97) return "critical"
+  if (h.load1 > 2 * cpus || (h.swapUsedPct ?? 0) >= 93) return "high"
   return "ok"
 }
 

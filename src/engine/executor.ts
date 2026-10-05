@@ -240,6 +240,8 @@ export class Executor {
   /** Schedule ready subtasks until every subtask is terminal (or the run is cancelled). */
   private async drain(limit: number): Promise<void> {
     const running = new Map<string, Promise<void>>()
+    // Last (waiting, cap) pair reported: the "wait for a slot" note is emitted on change only.
+    let lastCapped = { ready: 0, cap: 0 }
     while (!this.cancelled) {
       const all = this.snapshot
       if (all.every((s) => isTerminalState(s.state))) break
@@ -258,10 +260,20 @@ export class Executor {
         (s) => !isTerminalState(s.state) && !running.has(s.id) && s.state !== "blocked" && s.dependsOn.every((d) => this.subtasks.get(d)?.state === "completed"),
       )
       const cap = Math.min(limit, Math.max(1, this.opts.concurrency?.() ?? Infinity))
+      let started = 0
       for (const s of ready) {
         if (running.size >= cap) break
         const p = this.execute(s.id).finally(() => running.delete(s.id))
         running.set(s.id, p)
+        started += 1
+      }
+      // Visibility (2026-10-05): ready tasks held back by the HOST cap (not the run's own limit) are reported.
+      const waiting = cap < limit ? ready.length - started : 0
+      if (waiting !== lastCapped.ready || (waiting > 0 && cap !== lastCapped.cap)) {
+        lastCapped = { ready: waiting, cap }
+        this.bus.emit({ type: "run.capped", runId: this.run.id, ready: waiting, cap, at: this.now() })
+        const first = ready[started]
+        if (waiting > 0 && first) this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: first.id, line: { ts: this.now(), stream: "system", text: `⏸ ${waiting} ready task(s) wait for a slot — host busy (cap ${cap})` } })
       }
       if (running.size === 0) break
       await Promise.race(running.values())

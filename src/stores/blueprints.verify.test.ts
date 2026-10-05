@@ -10,9 +10,11 @@ vi.mock("@/services", () => ({
     cliStart: async () => { throw new Error("no cli in this test") },
   }),
 }))
+const laneCalls: string[] = []
 vi.mock("@/engine/blueprint/single", () => ({
   runSingle: (_backend: unknown, req: { prompt: string }) => {
     const lane = Object.keys(laneText).find((l) => req.prompt.includes(`LANE: ${l}`)) ?? ""
+    laneCalls.push(lane)
     return { cancel: async () => undefined, done: Promise.resolve({ ok: true, text: laneText[lane] ?? "", tokens: 1, sessionId: "s" }) }
   },
 }))
@@ -73,6 +75,34 @@ describe("Çoklu Tarayıcı → fixer hand-off (2026-10-03)", () => {
     expect(v.data.type === "verify" && v.data.failedLanes).toEqual(["play", "swim"])
     expect(st.byId("b1")!.nodes.find((n) => n.id === "fix")!.status).toBeUndefined()
     expect(st.byId("b1")!.nodes.find((n) => n.id === "next")!.status).toBeDefined()
+    useHostStore.setState({ level: "ok" })
+  })
+})
+
+describe("browser lanes give up fast (2026-10-05 time-waste hunt)", () => {
+  it("the first lane that cannot be driven stops the remaining lanes", async () => {
+    const { useHostStore } = await import("./host")
+    useHostStore.setState({ level: "ok" })
+    const g = bp()
+    g.nodes = g.nodes.map((n) => (n.id === "v" && n.data.type === "verify" ? { ...n, data: { ...n.data, lanes: ["play", "swim", "fly"] } } : n))
+    useBlueprintsStore.setState({ logs: {}, blueprints: [g], running: {} })
+    laneText = { play: "# VERIFY\n- INCONCLUSIVE: the machine is overloaded", swim: "# VERIFY\n- OK", fly: "# VERIFY\n- OK" }
+    laneCalls.length = 0
+    useHostStore.setState({ cap: () => 1 } as never)
+    await useBlueprintsStore.getState().run("b1", "s")
+    expect(laneCalls).toEqual(["play"])
+    const v = useBlueprintsStore.getState().byId("b1")!.nodes.find((n) => n.id === "v")!
+    expect(v.note).toMatch(/3\/3 lanes inconclusive/)
+    expect(v.data.type === "verify" && v.data.failedLanes).toEqual(["play", "swim", "fly"])
+  })
+  it("a busy (high) host skips the lanes before any browser starts", async () => {
+    const { useHostStore } = await import("./host")
+    useHostStore.setState({ level: "high" })
+    useBlueprintsStore.setState({ logs: {}, blueprints: [bp()], running: {} })
+    laneCalls.length = 0
+    laneText = { play: "# VERIFY\n- OK", swim: "# VERIFY\n- OK" }
+    await useBlueprintsStore.getState().run("b1", "s")
+    expect(laneCalls).toEqual([])
     useHostStore.setState({ level: "ok" })
   })
 })

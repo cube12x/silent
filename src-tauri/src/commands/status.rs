@@ -264,6 +264,14 @@ pub fn render_status(text: &str) -> String {
             h.get("cpus").and_then(|x| x.as_i64()).unwrap_or(0),
             h.get("swapUsedPct").and_then(|x| x.as_f64()).unwrap_or(0.0)
         ));
+        if let Some(idle) = h.get("cpuIdlePct").and_then(|x| x.as_f64()) {
+            out.push_str(&format!(" · cpu idle {idle:.0}%"));
+        }
+        match h.get("memPressure").and_then(|x| x.as_i64()) {
+            Some(p) if p >= 4 => out.push_str(" · mem pressure critical"),
+            Some(p) if p >= 2 => out.push_str(" · mem pressure warn"),
+            _ => {}
+        }
     }
     out.push('\n');
     if let Some(p) = v.get("pendingUpdate").and_then(|p| p.as_str()) {
@@ -345,8 +353,14 @@ pub fn render_status(text: &str) -> String {
         }
     }
     for r in v.get("runs").and_then(|b| b.as_array()).unwrap_or(&empty).iter().filter(|r| r.get("status").and_then(|s| s.as_str()) == Some("running")) {
+        let slots = r
+            .get("waitingSlots")
+            .and_then(|w| Some((w.get("ready")?.as_i64()?, w.get("cap")?.as_i64()?)))
+            .filter(|(ready, _)| *ready > 0)
+            .map(|(ready, cap)| format!(" · {ready} ready, host cap {cap}"))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "run {} {}/{} tasks, {} tokens\n",
+            "run {} {}/{} tasks, {} tokens{slots}\n",
             r.get("id").and_then(|x| x.as_str()).unwrap_or("?"),
             r.get("done").and_then(|x| x.as_i64()).unwrap_or(0),
             r.get("total").and_then(|x| x.as_i64()).unwrap_or(0),
@@ -501,6 +515,22 @@ mod tests {
         assert!(out.contains("answer: silent bp answer \"Minecraft\" \"Bölücü 4C\" \"…\""), "{out}");
         // a blueprint whose only live box is waiting is listed, with ⏸
         assert!(out.contains("Mario\n  ⏸ Model Plus [model] — 2 waiting"), "{out}");
+    }
+
+    #[test]
+    fn render_status_shows_cpu_idle_mem_pressure_and_waiting_slots() {
+        let text = r#"{"at":1,"host":{"load1":5.5,"cpus":6,"swapUsedPct":88,"level":"ok","cpuIdlePct":52.4,"memPressure":2},"blueprints":[],"runs":[{"id":"r1","status":"running","done":1,"total":4,"tokens":9,"waitingSlots":{"ready":2,"cap":1}}]}"#;
+        let out = render_status(text);
+        assert!(out.contains("host ok (load 5.5/6 cpus, swap 88%) · cpu idle 52% · mem pressure warn"), "{out}");
+        assert!(out.contains("run r1 1/4 tasks, 9 tokens · 2 ready, host cap 1"), "{out}");
+        // critical pressure, and no slot info / normal pressure omitted
+        let text = r#"{"at":1,"host":{"load1":5.5,"cpus":6,"level":"critical","memPressure":4},"blueprints":[],"runs":[{"id":"r2","status":"running","done":0,"total":2,"tokens":0}]}"#;
+        let out = render_status(text);
+        assert!(out.contains("· mem pressure critical"), "{out}");
+        assert!(!out.contains("cpu idle"), "{out}");
+        assert!(out.contains("run r2 0/2 tasks, 0 tokens\n") || out.ends_with("run r2 0/2 tasks, 0 tokens"), "{out}");
+        let text = r#"{"at":1,"host":{"load1":1.0,"cpus":6,"level":"ok","cpuIdlePct":90.0,"memPressure":1},"blueprints":[],"runs":[]}"#;
+        assert!(!render_status(text).contains("mem pressure"));
     }
 
     #[test]

@@ -39,3 +39,13 @@ export function judgeLanes(results: LaneResult[]): LaneVerdicts {
 export function laneCap(level: LoadLevel, hostCap: number): number {
   return Math.max(1, Math.min(level === "ok" ? 2 : 1, hostCap))
 }
+
+/** One lane session's ceiling (2026-10-05: lanes ran up to 25 min each on an overloaded host before giving up). */
+export const VERIFY_LANE_TIMEOUT_SECS = 20 * 60
+
+/** The lane reported it could not be driven (`# VERIFY - INCONCLUSIVE: …`). */
+export function isInconclusiveLane(text: string): boolean {
+  const t = text.trim()
+  // Same rule as judgeLanes: a lane with real findings is never "could not be driven".
+  return !FINDING_RE.test(t) && !OK_RE.test(t) && INCONCLUSIVE_RE.test(t)
+}

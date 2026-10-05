@@ -847,3 +847,40 @@ describe("stall fixes (2026-10-05): dead sessions, foreground rule, auto-answer"
     expect(worker2.jobs[1]!.brief).not.toContain(AUTO_ANSWER)
   })
 })
+
+describe("host-capped slots are reported (2026-10-05 time-waste hunt)", () => {
+  const threeIndependent = () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", TEST_POOL, "parallel")
+    run.plan = run.plan.slice(0, 1)
+    const base = run.plan[0]!
+    run.plan = [0, 1, 2].map((i) => ({ ...base, id: `t${i}`, title: `Task ${i}`, dependsOn: [] }))
+    run.routing = routeSubtasks({ subtasks: run.plan, pool: TEST_POOL, models: TEST_MODELS, costMode: "balanced" })
+    return run
+  }
+  it("cap 1 with three independent tasks: one note per (waiting, cap) change, then cleared", async () => {
+    const run = threeIndependent()
+    const bus = new EventBus()
+    const events = collect(bus)
+    const exec = new Executor(run, () => new ScriptedWorker(), bus, { models: TEST_MODELS, concurrency: () => 1 })
+    await exec.start()
+    const capped = events.filter((e): e is Extract<RunEvent, { type: "run.capped" }> => e.type === "run.capped")
+    expect(capped.map((e) => [e.ready, e.cap])).toEqual([[2, 1], [1, 1], [0, 1]])
+    const notes = events.filter((e) => e.type === "worker.log" && e.line.text.includes("wait for a slot"))
+    expect(notes.map((e) => (e.type === "worker.log" ? e.line.text : ""))).toEqual(["⏸ 2 ready task(s) wait for a slot — host busy (cap 1)", "⏸ 1 ready task(s) wait for a slot — host busy (cap 1)"])
+  })
+  it("no host cap: no capped events", async () => {
+    const run = threeIndependent()
+    const bus = new EventBus()
+    const events = collect(bus)
+    const exec = new Executor(run, () => new ScriptedWorker(), bus, { models: TEST_MODELS, concurrency: () => Infinity })
+    await exec.start()
+    expect(events.some((e) => e.type === "run.capped")).toBe(false)
+  })
+  it("the runs reducer stores and clears waitingSlots", async () => {
+    const { applyEvent } = await import("@/stores/runs")
+    const run = threeIndependent()
+    const a = applyEvent(run, { type: "run.capped", runId: run.id, ready: 2, cap: 1, at: 1 })
+    expect(a.waitingSlots).toEqual({ ready: 2, cap: 1 })
+    expect(applyEvent(a, { type: "run.capped", runId: run.id, ready: 0, cap: 1, at: 2 }).waitingSlots).toBeUndefined()
+  })
+})

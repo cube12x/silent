@@ -10,3 +10,14 @@ describe("Denetçi command timeouts (2026-10-03)", () => {
     expect(checkTimeoutFor("npm test", 900)).toBe(900)
   })
 })
+
+describe("soft commands are short (2026-10-05 time-waste hunt)", () => {
+  it("softTimeoutFor caps at 10 minutes; the browser floor stays for blocking commands", async () => {
+    const { softTimeoutFor, isCheckTimeout, checkTimeoutFor } = await import("./check")
+    expect(softTimeoutFor(2400)).toBe(600)
+    expect(softTimeoutFor(300)).toBe(300)
+    expect(checkTimeoutFor("npm run e2e", 900)).toBe(2400)
+    expect(isCheckTimeout({ ok: false, exitCode: null, tail: "timed out after 600 s\n…" })).toBe(true)
+    expect(isCheckTimeout({ ok: false, exitCode: 1, tail: "1 failed" })).toBe(false)
+  })
+})

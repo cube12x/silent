@@ -129,6 +129,8 @@ export function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       const report = run.report ?? { done: [], deviations: [], openQuestions: [], finishedAt: e.at }
       return { ...run, status: "failed", finishedAt: e.at, report: { ...report, notes: [...(report.notes ?? []), e.reason] } }
     }
+    case "run.capped":
+      return { ...run, waitingSlots: e.ready > 0 ? { ready: e.ready, cap: e.cap } : undefined }
     case "run.report":
       return { ...run, report: e.report }
     case "subtask.added":

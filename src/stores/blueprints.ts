@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { mapWithLimit } from "@/engine/loadGuard"
-import { judgeLanes, laneCap } from "@/engine/blueprint/verify"
-import { checkTimeoutFor } from "@/engine/blueprint/check"
+import { VERIFY_LANE_TIMEOUT_SECS, isInconclusiveLane, judgeLanes, laneCap } from "@/engine/blueprint/verify"
+import { SOFT_SKIP_AFTER_TIMEOUTS, checkTimeoutFor, isCheckTimeout, softTimeoutFor } from "@/engine/blueprint/check"
 import { useHostStore } from "@/stores/host"
 import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
@@ -932,10 +932,13 @@ async function execCheckInner(bpId: string, nodeId: string): Promise<boolean | "
   let ok = true
   let failingTail = ""
   const warnings: string[] = []
+  // Soft time-out streaks: carried over only for commands still on the box (an edited list starts fresh).
+  const softTimeouts: Record<string, number> = Object.fromEntries(Object.entries(data.softTimeouts ?? {}).filter(([c]) => soft.includes(c)))
   const runOne = async (cmd: string, isSoft: boolean): Promise<boolean> => {
     log(set, nodeId, `$ ${cmd}${isSoft ? "  (soft)" : ""}`)
     try {
-      const r = await backend.runCheck(cwd, cmd, checkTimeoutFor(cmd, data.timeoutSecs), data.maxLines, token)
+      const r = await backend.runCheck(cwd, cmd, isSoft ? softTimeoutFor(data.timeoutSecs) : checkTimeoutFor(cmd, data.timeoutSecs), data.maxLines, token)
+      if (isSoft) softTimeouts[cmd] = isCheckTimeout(r) ? (softTimeouts[cmd] ?? 0) + 1 : 0
       log(set, nodeId, r.tail || "(no output)", r.ok ? "stdout" : "stderr")
       log(set, nodeId, `↳ exit ${r.exitCode ?? "?"} · ${Math.round(r.elapsedMs / 1000)} s`)
       lines.push(`- ${cmd}: ${r.ok ? "ok" : `FAIL (exit ${r.exitCode ?? "timeout"})${isSoft ? " · soft, not blocking" : ""}`} · ${Math.round(r.elapsedMs / 1000)} s`)
@@ -957,6 +960,13 @@ async function execCheckInner(bpId: string, nodeId: string): Promise<boolean | "
   // Soft commands (e2e on a slow host, lint-as-warning…): red ones are reported, never fixed, never block.
   if (ok && !cancelled) for (const cmd of soft) {
     if (cancelled) break
+    if ((softTimeouts[cmd] ?? 0) >= SOFT_SKIP_AFTER_TIMEOUTS) {
+      // 2026-10-05: never-green 40-minute soft e2e runs cost ~3.4 h over seven stages.
+      lines.push(`- ${cmd}: skipped (timed out on the last ${softTimeouts[cmd]} runs — run it by hand, or edit the box to retry)`)
+      log(set, nodeId, `⏭ ${cmd} skipped: timed out on the last ${softTimeouts[cmd]} runs (edit the box's soft commands to retry)`)
+      warnings.push(`${cmd} (skipped)`)
+      continue
+    }
     if (!(await runOne(cmd, true))) warnings.push(cmd)
   }
   const report = ok && !warnings.length ? lines.join("\n") : `${lines.join("\n")}\n\nOutput of the failing command (last lines):\n${failingTail}`
@@ -969,7 +979,7 @@ async function execCheckInner(bpId: string, nodeId: string): Promise<boolean | "
   store.updateNode(bpId, nodeId, {
     status: cancelled ? "failed" : ok ? "done" : "failed",
     note: cancelled ? "cancelled" : !ok ? "check failed" : warn ? `⚠ soft red: ${warnings.join(", ")}` : undefined,
-    data: { report, lastOk: ok && !cancelled },
+    data: { report, lastOk: ok && !cancelled, softTimeouts },
   })
   log(set, nodeId, !ok ? "✖ check failed — wired fixer AI gets the report" : warn ? `⚠ green with warnings — soft red: ${warnings.join(", ")} (chain goes on, no fixer)` : "✓ all checks green")
   if (cancelled) return "cancelled"
@@ -1136,10 +1146,10 @@ async function execVerifyInner(bpId: string, nodeId: string, opts?: { onlyLanes?
   }
   // Host policy (2026-10-04): on a critically loaded host the lanes only burn tokens and report "could not be driven".
   // Skip them as inconclusive now; `failedLanes` keeps them for a replay when the host is idle.
-  if (useHostStore.getState().level === "critical") {
-    const report = ["# VERIFY", ...lanes.map((l) => `## ${l}\n- [inconclusive] skipped: host load critical — replay when idle`), ...(skipped.length ? [`## skipped (OK on the previous pass)\n${skipped.map((l) => `- ${l}`).join("\n")}`] : [])].join("\n\n")
+  if (useHostStore.getState().level !== "ok") {
+    const report = ["# VERIFY", ...lanes.map((l) => `## ${l}\n- [inconclusive] skipped: host busy (${useHostStore.getState().level}) — replay when idle`), ...(skipped.length ? [`## skipped (OK on the previous pass)\n${skipped.map((l) => `- ${l}`).join("\n")}`] : [])].join("\n\n")
     store.updateNode(bpId, nodeId, { status: "failed", note: `${lanes.length}/${lanes.length} lanes inconclusive (host busy) — re-run when idle`, data: { ...data, report, lastOk: true, failedLanes: lanes } })
-    log(set, nodeId, `⚠ host load critical — ${lanes.length} lane(s) skipped as inconclusive (no browser started); replay later`)
+    log(set, nodeId, `⚠ host busy (${useHostStore.getState().level}) — ${lanes.length} lane(s) skipped as inconclusive (no browser started); replay later`)
     return "inconclusive"
   }
   const backend = await getBackend()
@@ -1148,12 +1158,21 @@ async function execVerifyInner(bpId: string, nodeId: string, opts?: { onlyLanes?
   useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await Promise.all(cancels.map((c) => c())) } } }))
   store.updateNode(bpId, nodeId, { status: "running", note: undefined })
   log(set, nodeId, `▶ ${lanes.length} lanes · ${data.modelRef} · ${cwd}`)
+  // Fail fast (2026-10-05): when one lane cannot be driven (overloaded host, app does not start), the others cannot either —
+  // 4B and 4C each spent ~2 h on lanes that all came back inconclusive. Remaining lanes are not started.
+  let giveUp: string | undefined
   const results = await mapWithLimit(lanes, () => laneCap(useHostStore.getState().level, useHostStore.getState().cap()), async (lane) => {
     if (cancelled) return { lane, ok: false, text: "", tokens: 0 }
-    const handle = runSingle(backend, { runId: `bp:verify:${nodeId}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`, modelRef: data.modelRef, prompt: verifyLanePrompt(lane, cwd), cwd, timeoutSecs: 25 * 60 }, (line, stream) => log(set, nodeId, `[${lane.slice(0, 24)}] ${line}`, stream))
+    if (giveUp) return { lane, ok: true, text: `# VERIFY\n- INCONCLUSIVE: skipped after lane "${giveUp.slice(0, 60)}" could not be driven`, tokens: 0 }
+    const handle = runSingle(backend, { runId: `bp:verify:${nodeId}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`, modelRef: data.modelRef, prompt: verifyLanePrompt(lane, cwd), cwd, timeoutSecs: VERIFY_LANE_TIMEOUT_SECS }, (line, stream) => log(set, nodeId, `[${lane.slice(0, 24)}] ${line}`, stream))
     cancels.push(handle.cancel)
     const res = await handle.done
-    return { lane, ok: res.ok, text: extractReport(res.text), tokens: res.tokens }
+    const text = extractReport(res.text)
+    if (!giveUp && isInconclusiveLane(text)) {
+      giveUp = lane
+      log(set, nodeId, `⏭ lane "${lane.slice(0, 40)}" could not be driven — the remaining lanes are skipped (replay when the host is idle)`)
+    }
+    return { lane, ok: res.ok, text, tokens: res.tokens }
   })
   const tokens = results.reduce((n, r) => n + r.tokens, 0)
   // Lanes start dev servers and browsers; nothing waits for them once the lane is done.
