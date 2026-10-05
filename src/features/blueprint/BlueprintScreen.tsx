@@ -792,7 +792,7 @@ export function BlueprintScreen() {
         </div>
       )}
       {!full && (
-      <div className="flex items-center gap-3 border-b border-line px-4 py-2">
+      <div className="flex min-w-0 items-center gap-3 overflow-hidden border-b border-line px-4 py-2 [&>*]:shrink-0">
         <PageHeader eyebrow={t("bp.title")} title="" description="" className="mb-0" />
         {bp && (
           <div className="flex rounded-sm border border-line text-[11px]">
@@ -800,7 +800,7 @@ export function BlueprintScreen() {
             <button type="button" onClick={() => setView("files")} className={cn("px-2 py-1", view === "files" ? "bg-ink-3 text-text-1" : "text-text-3 hover:text-text-1")}>{t("files.tab")}</button>
           </div>
         )}
-        <select value={id ?? ""} onChange={(e) => navigate(`/blueprint/${e.target.value}`)} className="rounded-sm border border-line bg-ink-2 px-2 py-1 text-xs text-text-1">
+        <select value={id ?? ""} onChange={(e) => navigate(`/blueprint/${e.target.value}`)} className="max-w-[260px] truncate rounded-sm border border-line bg-ink-2 px-2 py-1 text-xs text-text-1">
           {!id && <option value="">—</option>}
           {blueprints.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
@@ -810,7 +810,9 @@ export function BlueprintScreen() {
         {bp && <button type="button" onClick={() => { void remove(bp.id); navigate("/blueprint") }} className="ml-auto rounded-sm border border-line px-2 py-1 text-xs text-text-3 hover:text-danger">{t("common.delete")}</button>}
         {bp && <span className="mono shrink-0 rounded-sm border border-line px-2 py-0.5 text-[11px] whitespace-nowrap text-text-2" title={t("bp.tokensHint")}>{t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>}
         {bp && <button type="button" onClick={() => setFull((v) => !v)} title={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} aria-label={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} className="flex shrink-0 items-center gap-1 rounded-sm border border-line px-2 py-1 text-xs text-text-2 hover:text-text-1 [&_svg]:size-3.5">{full ? <Minimize2 /> : <Maximize2 />}{full ? t("bp.exitFullscreen") : t("bp.fullscreen")}</button>}
-        <span className="text-[11px] text-text-3">{t("bp.hint", { mod: modKey() })}</span>
+        {/* 2026-10-05: in a narrow window this hint wrapped word by word into a tall column and pushed the canvas half off
+            the screen ("huge black columns"). It now takes the leftover width on one line and truncates. */}
+        <span className="min-w-0 !shrink truncate text-[11px] whitespace-nowrap text-text-3" title={t("bp.hint", { mod: modKey() })}>{t("bp.hint", { mod: modKey() })}</span>
       </div>
       )}
       {!full && autoOpen && (

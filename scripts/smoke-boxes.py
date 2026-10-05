@@ -53,6 +53,15 @@ async def main() -> int:
         await pg.wait_for_timeout(600)
         pane = pg.locator(".react-flow__pane").first
         await pane.wait_for(state="visible", timeout=20000)  # a loaded host renders the canvas late
+        # 2026-10-05: the header's hint wrapped into a tall column and squeezed the canvas; the header must stay one row.
+        for width in (1600, 1100):
+            await pg.set_viewport_size({"width": width, "height": 1000})
+            await pg.wait_for_timeout(300)
+            hdr_h = await pg.evaluate("() => { const p = document.querySelector('.react-flow__pane'); const col = p && p.closest('.relative.flex') && p.closest('.relative.flex').parentElement; return col ? Math.round(col.children[0].getBoundingClientRect().height) : -1 }")
+            if hdr_h > 80:
+                raise SystemExit(f"blueprint header is {hdr_h}px tall at width {width} (should be one row)")
+        await pg.set_viewport_size({"width": 1600, "height": 1000})
+        await pg.wait_for_timeout(300)
         box = await pane.bounding_box()
         added = 0
         for i, (label, header, runnable) in enumerate(MENU):
