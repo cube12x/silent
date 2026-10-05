@@ -104,6 +104,20 @@ export class TauriBackend implements Backend {
     return typeof picked === "string" ? picked : null
   }
 
+  async pickFiles(): Promise<string[]> {
+    const picked = await openDialog({
+      directory: false,
+      multiple: true,
+      title: "Select asset files",
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+        { name: "Audio", extensions: ["wav", "mp3", "ogg"] },
+        { name: "3D", extensions: ["glb", "gltf", "obj", "fbx"] },
+      ],
+    })
+    return Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : []
+  }
+
   async confirm(message: string, title?: string): Promise<boolean> {
     const { ask } = await import("@tauri-apps/plugin-dialog")
     return ask(message, { title: title ?? "Silent", kind: "warning" })
@@ -153,6 +167,10 @@ export class TauriBackend implements Backend {
 
   readProjectFile(root: string, rel: string, maxBytes = 65536): Promise<string | null> {
     return invoke<string | null>("read_project_file", { root, rel, maxBytes })
+  }
+
+  writeProjectFile(root: string, rel: string, content: string): Promise<void> {
+    return invoke<void>("write_project_file", { root, rel, content })
   }
 
   listProjectFiles(root: string, maxFiles = 5000): Promise<ProjectFile[]> {

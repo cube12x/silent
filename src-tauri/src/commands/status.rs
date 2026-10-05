@@ -251,17 +251,51 @@ pub fn render_status(text: &str) -> String {
     let empty = vec![];
     let blocked = v.get("blocked").and_then(|b| b.as_array()).unwrap_or(&empty);
     for b in blocked {
+        let s = |k: &str| b.get(k).and_then(|x| x.as_str());
+        // The CLI takes the blueprint and the box, not the subtask id (old snapshots lack them: fall back to the id).
+        let target = match (s("blueprint"), s("node")) {
+            (Some(bp), Some(node)) => format!("\"{bp}\" \"{node}\""),
+            _ => s("subtaskId").unwrap_or("?").to_string(),
+        };
         out.push_str(&format!(
-            "❓ BLOCKED {} — {}\n   answer: silent bp answer {} \"…\"\n",
-            b.get("title").and_then(|x| x.as_str()).unwrap_or("?"),
-            b.get("question").and_then(|x| x.as_str()).unwrap_or("").lines().next().unwrap_or(""),
-            b.get("subtaskId").and_then(|x| x.as_str()).unwrap_or("?")
+            "❓ BLOCKED {} — {}\n   answer: silent bp answer {target} \"…\"\n",
+            s("title").unwrap_or("?"),
+            s("question").unwrap_or("").lines().next().unwrap_or("")
+        ));
+    }
+    for w in v.get("waiting").and_then(|b| b.as_array()).unwrap_or(&empty) {
+        let pending = w.get("pending").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        let items: Vec<String> = pending
+            .iter()
+            .map(|p| {
+                let g = |k: &str| p.get(k).and_then(|x| x.as_str()).unwrap_or("");
+                let frames = p.get("frames").and_then(|x| x.as_i64()).unwrap_or(0);
+                let mut d = vec![g("kind").to_string()];
+                if frames > 0 {
+                    d.push(format!("{frames} frames"));
+                }
+                if !g("frameSize").is_empty() {
+                    d.push(g("frameSize").to_string());
+                }
+                if g("status") == "rejected" {
+                    d.push("REJECTED".into());
+                }
+                format!("{} ({})", g("name"), d.join(", "))
+            })
+            .collect();
+        out.push_str(&format!(
+            "🎨 WAITING {} ({}) — {} asset(s): {}\n   deliver: {}\n",
+            w.get("node").and_then(|x| x.as_str()).unwrap_or("Model Plus"),
+            w.get("blueprint").and_then(|x| x.as_str()).unwrap_or("?"),
+            pending.len(),
+            items.join(", "),
+            w.get("deliverCmd").and_then(|x| x.as_str()).unwrap_or("silent bp deliver …")
         ));
     }
     for bp in v.get("blueprints").and_then(|b| b.as_array()).unwrap_or(&empty) {
         let nodes = bp.get("nodes").and_then(|n| n.as_array()).unwrap_or(&empty);
         let status_of = |n: &serde_json::Value| n.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-        let running: Vec<&serde_json::Value> = nodes.iter().filter(|n| status_of(n) == "running").collect();
+        let running: Vec<&serde_json::Value> = nodes.iter().filter(|n| status_of(n) == "running" || status_of(n) == "waiting").collect();
         let failed: Vec<&serde_json::Value> = nodes.iter().filter(|n| status_of(n) == "failed").collect();
         // Blueprints nobody touched for 6 h only add old red boxes to the list: skip them unless something runs.
         let updated = bp.get("updatedAt").and_then(|x| x.as_i64()).unwrap_or(0);
@@ -275,7 +309,7 @@ pub fn render_status(text: &str) -> String {
         let hidden = failed.len().saturating_sub(FAILED_SHOWN);
         for n in live {
             let status = n.get("status").and_then(|s| s.as_str()).unwrap_or("");
-            let mark = if status == "running" { "▶" } else { "✗" };
+            let mark = match status { "running" => "▶", "waiting" => "⏸", _ => "✗" };
             let note = n.get("note").and_then(|s| s.as_str()).map(|s| format!(" — {s}")).unwrap_or_default();
             out.push_str(&format!("  {mark} {} [{}]{}\n", n.get("title").and_then(|x| x.as_str()).unwrap_or("?"), n.get("type").and_then(|x| x.as_str()).unwrap_or(""), note));
         }
@@ -380,6 +414,17 @@ mod tests {
         assert!(s.contains("open -a \"/Applications/Silent.app\""));
         assert!(s.contains("pgrep -x silent"));
         assert!(s.matches("sleep").count() >= 2, "{s}");
+    }
+
+    #[test]
+    fn render_status_lists_waiting_model_boxes_and_prints_the_real_answer_shape() {
+        let text = r#"{"at":1,"blueprints":[{"id":"b","name":"Mario","updatedAt":1,"nodes":[{"id":"m1","title":"Model Plus","type":"model","status":"waiting","note":"2 waiting"}]}],"runs":[],"blocked":[{"runId":"r1","subtaskId":"t9","title":"Portal","question":"Which id?","blueprint":"Minecraft","node":"Bölücü 4C"}],"waiting":[{"blueprint":"Mario","blueprintId":"b","node":"Model Plus","nodeId":"m1","pending":[{"name":"mario","kind":"sprite-sheet","frames":15,"frameSize":"64x64","status":"pending"},{"name":"coin_pickup","kind":"audio","frames":0,"status":"rejected"}],"deliverCmd":"silent bp deliver \"Mario\" \"Model Plus\" <file>"}]}"#;
+        let out = render_status(text);
+        assert!(out.contains("🎨 WAITING Model Plus (Mario) — 2 asset(s): mario (sprite-sheet, 15 frames, 64x64), coin_pickup (audio, REJECTED)"), "{out}");
+        assert!(out.contains("deliver: silent bp deliver \"Mario\" \"Model Plus\" <file>"), "{out}");
+        assert!(out.contains("answer: silent bp answer \"Minecraft\" \"Bölücü 4C\" \"…\""), "{out}");
+        // a blueprint whose only live box is waiting is listed, with ⏸
+        assert!(out.contains("Mario\n  ⏸ Model Plus [model] — 2 waiting"), "{out}");
     }
 
     #[test]

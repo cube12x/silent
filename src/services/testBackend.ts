@@ -82,7 +82,13 @@ export class TestBackend implements Backend {
     // Dev preview: a canned folder so Build boxes (and the Dosyalar tab) can be exercised without a dialog.
     return this.preview ? "/Users/demo/CubeCode/demo-game" : null
   }
+  async pickFiles() {
+    return this.preview ? ["/Users/demo/Downloads/hero-sheet.png"] : []
+  }
   projectFiles: Record<string, string> = {}
+  async writeProjectFile(_root: string, rel: string, content: string) {
+    this.projectFiles[rel] = content
+  }
   blueprintsMem: Blueprint[] = []
   async blueprintBuildDir(blueprint: string, build: string) {
     return `/tmp/blueprints/${blueprint}/${build}`
@@ -174,7 +180,7 @@ export class TestBackend implements Backend {
       // Dev preview: a short canned session so every Blueprint box (single AI, queue, verify, wizard, naming) can be clicked through without a CLI.
       queueMicrotask(() => {
         onEvent({ type: "sessionStarted", data: { sessionId: `preview-${Date.now().toString(36)}` } } as RuntimeEvent)
-        onEvent({ type: "agentMessage", data: { text: "Preview session: nothing is executed in the browser.\n\n# FINDINGS\n- preview only\n\n# VERIFY\n- OK\n\nNAME: Preview\nSUMMARY: Preview build.\n\nSILENT_DEVIATIONS: none" } } as RuntimeEvent)
+        onEvent({ type: "agentMessage", data: { text: "Preview session: nothing is executed in the browser.\n\n# MODEL_REQUESTS\n[{\"name\":\"hero\",\"kind\":\"sprite-sheet\",\"subject\":\"the hero\",\"animations\":[{\"name\":\"idle\",\"frames\":2},{\"name\":\"walk\",\"frames\":2}],\"frameSize\":\"32x32\",\"view\":\"side\"}]\n\n# FINDINGS\n- preview only\n\n# VERIFY\n- OK\n\nNAME: Preview\nSUMMARY: Preview build.\n\nSILENT_DEVIATIONS: none" } } as RuntimeEvent)
         onEvent({ type: "exited", data: { code: 0 } } as RuntimeEvent)
       })
       return { cancel: async () => {} }

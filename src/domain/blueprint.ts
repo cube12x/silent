@@ -4,7 +4,7 @@
  */
 import type { CostMode, Effort } from "./runs"
 
-export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub" | "check" | "queue" | "snapshot" | "verify" | "budget"
+export type BpNodeType = "prompt" | "ai" | "build" | "buildPhoto" | "button" | "variable" | "wizard" | "stub" | "check" | "queue" | "snapshot" | "verify" | "budget" | "model"
 /** Asset kinds a Uydurma (placeholder) node can stand in for. */
 export type BpStubKind = "image" | "sprite" | "tileset" | "sfx" | "music" | "voice" | "text" | "font" | "model3d" | "video"
 export const BP_STUB_KINDS: BpStubKind[] = ["image", "sprite", "tileset", "sfx", "music", "voice", "text", "font", "model3d", "video"]
@@ -15,7 +15,8 @@ export type BpAiMode = "orchestration" | "single" | "lite"
 export function isOrchestration(mode: BpAiMode | undefined): boolean {
   return mode === "orchestration" || mode === "lite"
 }
-export type BpNodeStatus = "idle" | "running" | "done" | "failed" | "listening"
+/** `waiting`: a Model Plus box that stopped the chain until the user delivers its asset requests (2026-10-05). */
+export type BpNodeStatus = "idle" | "running" | "done" | "failed" | "listening" | "waiting"
 
 export interface BpPromptData {
   title: string
@@ -118,6 +119,49 @@ export interface BpBudgetData {
   /** Tokens the guarded run had spent when it last stopped (for the badge). */
   spent?: number
 }
+/** Model Plus (2026-10-05): kinds of assets the art director may request; one request = one subject = one packed sheet. */
+export type ModelRequestKind = "sprite-sheet" | "texture" | "tileset" | "image" | "model3d" | "audio"
+export type ModelRequestStatus = "pending" | "delivered" | "rejected" | "accepted"
+export interface ModelRequest {
+  id: string
+  /** Subject slug and file stem (`mario`): frames are `<name>_<anim>_<NN>.png`, the sheet `<name>.png` + `<name>.json`. */
+  name: string
+  kind: ModelRequestKind
+  subject: string
+  animations?: Array<{ name: string; frames: number }>
+  /** `WxH` of one frame as the renderer draws it. */
+  frameSize?: string
+  view?: string
+  notes?: string
+  /** Ready-to-paste prompt for the external image AI (one packed sheet). */
+  sheetPrompt: string
+  /** Folder under the build where the final files land. */
+  target: string
+  /** File/function that loads the placeholder today — where the integration AI wires the real asset. */
+  codeHook?: string
+  status: ModelRequestStatus
+  delivered?: { path: string; at: number }
+  /** Why the last validation rejected it (or, on a forced accept, what was overridden). */
+  reasons?: string[]
+}
+/** Model Plus: the asset contract box — writes the requests, waits for the user's deliveries, validates them, hands a `# MODEL` manifest on. */
+export interface BpModelData {
+  title?: string
+  /** Art director + converter model. */
+  modelRef: string
+  /** Visual style every request must enforce (pixel art 16-bit, flat vector…). */
+  style?: string
+  /** Folder (relative to the build) holding `<name>/` targets and `inbox/`. */
+  folder: string
+  requests: ModelRequest[]
+  /** `# MODEL` manifest of the accepted assets (the wired integration AI's brief). */
+  report?: string
+  lastOk?: boolean
+  /** Default true: the chain waits until EVERY request is accepted. */
+  strict?: boolean
+  /** Tokens the director/converter sessions consumed (counted in the blueprint Σ). */
+  tokens?: number
+}
 /** Uydurma: assets are registered as prompt-named placeholders (the name is the prompt); a cheaper AI fills them later. */
 export interface BpStubData {
   title?: string
@@ -163,6 +207,7 @@ export type BpNodeData =
   | ({ type: "snapshot" } & BpSnapshotData)
   | ({ type: "verify" } & BpVerifyData)
   | ({ type: "budget" } & BpBudgetData)
+  | ({ type: "model" } & BpModelData)
 
 export interface BpNode {
   id: string
@@ -205,9 +250,9 @@ export interface Blueprint {
 /** Which node types may wire into which. */
 export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
   prompt: ["ai", "wizard", "queue"],
-  ai: ["build", "buildPhoto", "ai", "stub", "check", "snapshot", "verify"],
-  build: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify"],
-  buildPhoto: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify"],
+  ai: ["build", "buildPhoto", "ai", "stub", "check", "snapshot", "verify", "model"],
+  build: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify", "model"],
+  buildPhoto: ["prompt", "button", "ai", "variable", "check", "queue", "snapshot", "verify", "model"],
   button: ["ai", "build", "buildPhoto", "prompt", "queue", "snapshot"],
   variable: ["wizard", "ai"],
   wizard: ["ai"],
@@ -223,6 +268,8 @@ export const BP_EDGE_RULES: Record<BpNodeType, BpNodeType[]> = {
   verify: ["ai"],
   // budget → ai: the guarded box.
   budget: ["ai"],
+  // model → ai: the integration AI that wires the accepted assets into the code (gets the `# MODEL` manifest).
+  model: ["ai"],
 }
 
 export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
@@ -230,4 +277,4 @@ export function canConnect(from: BpNodeType, to: BpNodeType): boolean {
 }
 
 /** Human labels used by the context menu and node headers (translated in the UI). */
-export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget"]
+export const BP_NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget", "model"]

@@ -45,6 +45,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "snapshot", key: "snapshot" },
   { type: "verify", key: "verify" },
   { type: "budget", key: "budget" },
+  { type: "model", key: "model" },
   { type: "build", key: "build" },
   { type: "buildPhoto", key: "buildPhoto" },
   { type: "button", data: { kind: "start" }, key: "button.start" },
@@ -148,6 +149,11 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
         const nodeEl = el?.closest<HTMLElement>("[data-id]")
         const id = nodeEl?.dataset.id
         const node = id && useBlueprintsStore.getState().byId(id0)?.nodes.find((n) => n.id === id)
+        if (node && node.type === "model") {
+          // Model Plus: a dropped sheet is a delivery (matched to a request, converted, validated).
+          void useBlueprintsStore.getState().modelDeliver(id0, node.id, event.payload.paths).then((n) => setToast(tr("bp.modelDelivered", { n })))
+          return
+        }
         if (!node || (node.type !== "build" && node.type !== "buildPhoto")) {
           setToast(tr("bp.dropOnBuild"))
           return
@@ -331,7 +337,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
       <div className="flex items-center justify-between">
         <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t(`bp.node.${node.type}` as never)}</div>
         <div className="flex gap-1">
-          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
+          {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify" || node.type === "model") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
           {node.type === "ai" && d.type === "ai" && (running || node.status === "failed") && <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen((v) => !v)} title={t("bp.handoverHint")}>↪ {t("bp.handover")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
@@ -548,6 +554,55 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           <pre className="mono max-h-[30vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
         </>
       )}
+      {d.type === "model" && (
+        <>
+          <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.model")} />
+          <ModelPicker providerId={(parseModelRef(d.modelRef || `${models[0]?.providerId ?? "codex"}:${models[0]?.id ?? ""}`).providerId || "codex") as ProviderId} modelId={parseModelRef(d.modelRef || "").modelId} onChange={(p, m) => patch({ modelRef: modelRef(p, m) })} />
+          <label className="flex flex-col gap-1 text-xs text-text-3">{t("bp.modelStyle")}
+            <Textarea value={d.style ?? ""} onChange={(e) => patch({ style: e.target.value })} rows={2} placeholder={t("bp.modelStylePlaceholder")} className="text-[12px]" />
+          </label>
+          <label className="flex items-start gap-2 text-xs text-text-3">
+            <input type="checkbox" checked={d.strict !== false} onChange={(e) => patch({ strict: e.target.checked })} className="mt-0.5" />
+            <span>{t("bp.modelStrict")}<br /><span className="text-[10px]">{t("bp.modelStrictHint")}</span></span>
+          </label>
+          <div className="text-[10px] text-text-3">{t("bp.modelHint")}</div>
+          <div className="flex flex-col gap-1 rounded-sm border border-line bg-ink-0 p-2 text-xs">
+            <div className="text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("bp.modelRequests")} · {d.requests.filter((r) => r.status === "accepted").length}/{d.requests.length}</div>
+            {!d.requests.length && <div className="text-[10px] text-text-3">{t("bp.modelRequestsEmpty")}</div>}
+            {d.requests.map((r) => {
+              const frames = (r.animations ?? []).reduce((n, a) => n + a.frames, 0)
+              const others = d.requests.filter((o) => o.id !== r.id && o.status !== "accepted")
+              return (
+                <div key={r.id} className="flex flex-col gap-0.5 border-t border-line/60 pt-1 first:border-t-0 first:pt-0">
+                  <div className="flex items-center gap-1">
+                    <span className={cn("mono text-[11px]", r.status === "accepted" ? "text-success" : r.status === "rejected" ? "text-danger" : r.status === "delivered" ? "text-text-1" : "text-warn")}>{r.status === "accepted" ? "✓" : r.status === "rejected" ? "✗" : r.status === "delivered" ? "…" : "⏸"} {r.name}</span>
+                    <span className="mono truncate text-[10px] text-text-3">{r.kind}{frames ? ` · ${frames} ${t("bp.modelFrames")}` : ""}{r.frameSize ? ` · ${r.frameSize}` : ""} · {t(`bp.modelStatus.${r.status}` as never)}</span>
+                  </div>
+                  {r.animations?.length ? <div className="mono text-[10px] text-text-3">{r.animations.map((a) => `${a.name}×${a.frames}`).join(" · ")}</div> : null}
+                  <div className="flex flex-wrap gap-1">
+                    <NeonButton size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(r.sheetPrompt); }} title={r.sheetPrompt.slice(0, 200)}>{t("bp.modelCopyPrompt")}</NeonButton>
+                    {r.status === "rejected" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().modelForceAccept(bpId, node.id, r.id)}>{t("bp.modelForceAccept")}</NeonButton>}
+                    {r.delivered && others.length > 0 && !running && (
+                      <select className="h-6 rounded-sm border border-line bg-ink-2 px-1 text-[10px] text-text-2" value="" onChange={(e) => { if (e.target.value) void useBlueprintsStore.getState().modelReassign(bpId, node.id, r.id, e.target.value) }}>
+                        <option value="">{t("bp.modelAssign")}</option>
+                        {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                  {r.delivered && <div className="mono truncate text-[10px] text-text-3">{r.delivered.path}</div>}
+                  {r.reasons?.length ? <div className="text-[10px] text-danger">{t("bp.modelReasons")}: {r.reasons.join("; ")}</div> : null}
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {!running && d.requests.length > 0 && <NeonButton size="sm" variant="outline" onClick={() => void (async () => { const paths = await (await getBackend()).pickFiles(); if (paths.length) await useBlueprintsStore.getState().modelDeliver(bpId, node.id, paths) })()}>{t("bp.modelAddFiles")}</NeonButton>}
+            {!running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().modelRelist(bpId, node.id)}>{t("bp.modelRelist")}</NeonButton>}
+            {!running && d.strict === false && d.requests.some((r) => r.status === "accepted") && node.status !== "done" && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().modelContinue(bpId, node.id)}>{t("bp.modelContinue")}</NeonButton>}
+          </div>
+          <pre className="mono max-h-[24vh] overflow-auto rounded-sm border border-line bg-ink-1 p-2 text-[10px] leading-4 whitespace-pre-wrap text-text-2">{d.report?.trim() || t("bp.reportEmpty")}</pre>
+        </>
+      )}
       {d.type === "budget" && (
         <>
           <Input value={d.title ?? ""} onChange={(e) => patch({ title: e.target.value })} placeholder={t("bp.node.budget")} />
@@ -691,6 +746,11 @@ export function BlueprintScreen() {
         return
       }
       navigate(`/blueprint/${target.bp.id}`)
+      if (autorun.deliver) {
+        const n = await st.modelDeliver(target.bp.id, target.node.id, autorun.deliver.paths, autorun.deliver.for)
+        console.warn("[autostart] model deliver", target.bp.id, target.node.id, `${n} file(s)`)
+        return
+      }
       if (autorun.answer) {
         const n = st.answer(target.bp.id, target.node.id, autorun.answer)
         console.warn("[autostart] blueprint answer", target.bp.id, target.node.id, `${n} question(s)`)
@@ -704,7 +764,7 @@ export function BlueprintScreen() {
   const bp = blueprints.find((b) => b.id === id)
   // Σ tokens: persisted per AI node + live subtask tokens of orchestration runs in flight (number selector).
   const liveTokens = useRunsStore((s) => (bp ? bp.nodes.reduce((acc, n) => acc + (n.status === "running" && n.executionId && !n.executionId.startsWith("session:") ? (s.byId(n.executionId)?.plan ?? []).reduce((a, st) => a + (st.tokens ?? 0), 0) : 0), 0) : 0))
-  const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" || n.data.type === "verify" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
+  const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" || n.data.type === "verify" || n.data.type === "model" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
   const newBlueprint = async () => {
     const created = await create(t("bp.newName", { n: blueprints.length + 1 }))
     navigate(`/blueprint/${created.id}`)

@@ -111,6 +111,7 @@ pub fn run() {
             commands::snapshot::git_snapshot,
             commands::snapshot::git_restore,
             commands::files::read_project_file,
+            commands::files::write_project_file,
             commands::files::repo_changed_files,
             commands::files::list_project_files,
             commands::files::read_project_blob,

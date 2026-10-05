@@ -5,7 +5,8 @@ import { checkTimeoutFor } from "@/engine/blueprint/check"
 import { useHostStore } from "@/stores/host"
 import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
-import type { Blueprint, BpEdge, BpNode, BpNodeData, BpNodeType, CostMode, TerminalLine } from "@/domain"
+import type { Blueprint, BpEdge, BpModelData, BpNode, BpNodeData, BpNodeType, CostMode, ModelRequest, TerminalLine } from "@/domain"
+import { MODEL_DEFAULT_FOLDER, MODEL_DELIVERY_HEADING, MODEL_DOC_REL, MODEL_REQUESTS_HEADING, MODEL_STATE_REL, artDirectorBrief, converterBrief, decodeBase64, expectedFiles, frameName, matchDelivery, modelDoc, modelManifest, parseModelRequests, pendingSummary, probePng, validateDelivery, type AtlasJson, type PngProbe } from "@/engine/blueprint/model"
 import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraPrompt, type TamirciRequest } from "@/engine/blueprint/tamirci"
 import { newId } from "@/lib/ids"
 import { getBackend } from "@/services"
@@ -87,6 +88,16 @@ interface BlueprintsState {
   autorun?: AutorunRef
   importFiles(id: string, nodeId: string, paths: string[]): Promise<number>
   refreshBuild(id: string, nodeId: string): Promise<void>
+  /** Model Plus: hand files to the box (drop / "Dosya ekle" / `silent bp deliver`); they are matched, converted and validated. Returns how many were imported. */
+  modelDeliver(id: string, nodeId: string, paths: string[], forName?: string): Promise<number>
+  /** Model Plus: move a delivered file to another request and re-validate it. */
+  modelReassign(id: string, nodeId: string, fromReqId: string, toReqId: string): Promise<void>
+  /** Model Plus: accept a rejected request anyway (logged; the reasons stay on the request). */
+  modelForceAccept(id: string, nodeId: string, reqId: string): Promise<void>
+  /** Model Plus: throw the contract away and ask the art director again (deliveries in the inbox stay on disk). */
+  modelRelist(id: string, nodeId: string): Promise<void>
+  /** Model Plus, strict off: continue with what is accepted; the rest stays listed under # UNRESOLVED. */
+  modelContinue(id: string, nodeId: string): Promise<void>
   /** Variable nodes: poll wired build folders and fire wizards/AIs on change. */
   tickWatchers(id: string): Promise<void>
 }
@@ -356,6 +367,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       snapshot: { type: "snapshot" },
       verify: { type: "verify", modelRef: (() => { const m = useProvidersStore.getState().availableModels().find((x) => providerInfo(x.providerId).capabilities.browser) ?? useProvidersStore.getState().availableModels()[0]; return m ? `${m.providerId}:${m.id}` : "" })(), lanes: [] },
       budget: { type: "budget", maxTokens: 200000 },
+      model: { type: "model", modelRef: useProvidersStore.getState().availableModels()[0] ? `${useProvidersStore.getState().availableModels()[0].providerId}:${useProvidersStore.getState().availableModels()[0].id}` : "", folder: MODEL_DEFAULT_FOLDER, requests: [], strict: true },
     }
     const node: BpNode = { id: newId("n"), type, x: Math.round(x), y: Math.round(y), data: { ...defaults[type], ...(data ?? {}) } as BpNodeData, status: "idle" }
     get().update(id, (b) => ({ ...b, nodes: [...b.nodes, node] }))
@@ -461,6 +473,15 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         }
       } else if (step.kind === "snapshot") {
         if (!(await execSnapshot(id, step.node.id))) break
+      } else if (step.kind === "model") {
+        // Model Plus: the walk stops here while the box waits for the user's assets; a delivery that completes the
+        // contract re-runs the walk from this box (execModel then returns true at once).
+        const r = await execModel(id, step.node.id)
+        if (r === "waiting") {
+          log(set, step.node.id, "⏸ waiting for the user's assets — the chain resumes from this box once every request is accepted")
+          break
+        }
+        if (!r) break
       } else if (step.kind === "queue") {
         if (!(await execQueue(id, step.node.id))) break
       } else {
@@ -605,6 +626,101 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const n = await backend.blueprintBuildImport(folder, paths)
     await get().refreshBuild(id, nodeId)
     return n
+  },
+  async modelDeliver(id, nodeId, paths, forName) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "model") return 0
+    const cwd = sourceFolder(bp, nodeId)
+    if (!cwd) {
+      log(set, nodeId, "⚠ wire a Build into this box before delivering files")
+      return 0
+    }
+    if (get().running[nodeId]) {
+      log(set, nodeId, "⚠ the box is busy (director/converter running) — deliver again when it is waiting")
+      return 0
+    }
+    if (!node.data.requests.length) {
+      log(set, nodeId, "⚠ no requests yet — run the box first so the art director writes the contract")
+      return 0
+    }
+    const backend = await getBackend()
+    const inboxRel = `${node.data.folder.replace(/\/$/, "")}/inbox`
+    const n = await backend.blueprintBuildImport(`${cwd}/${inboxRel}`, paths)
+    let requests = node.data.requests
+    const touched: string[] = []
+    for (const p of paths) {
+      const base = p.split("/").pop() ?? p
+      const req = matchDelivery(requests, base, forName)
+      if (!req) {
+        log(set, nodeId, `⚠ no open request matches "${base}" — it stays in ${inboxRel}; assign it from the panel`)
+        continue
+      }
+      if (req.status === "accepted") log(set, nodeId, `⚠ ${req.name} was already accepted — the new file replaces it`)
+      requests = requests.map((r) => (r.id === req.id ? { ...r, status: "delivered" as const, delivered: { path: `${inboxRel}/${base}`, at: Date.now() }, reasons: undefined } : r))
+      touched.push(req.id)
+      log(set, nodeId, `📦 ${base} → ${req.name}`)
+    }
+    await saveModelRequests(id, nodeId, cwd, requests)
+    if (touched.length) {
+      await convertAndValidate(id, nodeId, touched)
+      await maybeResumeModel(id, nodeId)
+    }
+    return n
+  },
+  async modelReassign(id, nodeId, fromReqId, toReqId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "model" || fromReqId === toReqId) return
+    const cwd = sourceFolder(bp, nodeId)
+    const from = node.data.requests.find((r) => r.id === fromReqId)
+    if (!cwd || !from?.delivered) return
+    const delivered = from.delivered
+    const requests = node.data.requests.map((r) => (r.id === fromReqId ? { ...r, status: "pending" as const, delivered: undefined, reasons: undefined } : r.id === toReqId ? { ...r, status: "delivered" as const, delivered, reasons: undefined } : r))
+    log(set, nodeId, `↪ ${delivered.path.split("/").pop()} reassigned ${from.name} → ${requests.find((r) => r.id === toReqId)?.name}`)
+    await saveModelRequests(id, nodeId, cwd, requests)
+    await convertAndValidate(id, nodeId, [toReqId])
+    await maybeResumeModel(id, nodeId)
+  },
+  async modelForceAccept(id, nodeId, reqId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "model") return
+    const cwd = sourceFolder(bp, nodeId)
+    if (!cwd) return
+    const requests = node.data.requests.map((r) => (r.id === reqId ? { ...r, status: "accepted" as const, reasons: [`forced by the user${r.reasons?.length ? ` — overrode: ${r.reasons.join("; ")}` : ""}`] } : r))
+    log(set, nodeId, `⚠ ${requests.find((r) => r.id === reqId)?.name} accepted by force (the validator said no)`)
+    await saveModelRequests(id, nodeId, cwd, requests)
+    if (requests.every((r) => r.status === "accepted")) await maybeResumeModel(id, nodeId)
+    else markModelWaiting(id, nodeId, requests)
+  },
+  async modelRelist(id, nodeId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "model") return
+    if (get().running[nodeId]) {
+      log(set, nodeId, "⚠ busy — wait for the running session first")
+      return
+    }
+    const cwd = sourceFolder(bp, nodeId)
+    log(set, nodeId, "🗑 contract discarded — asking the art director again (inbox files stay on disk)")
+    get().updateNode(id, nodeId, { status: "idle", note: undefined, data: { requests: [], report: undefined, lastOk: undefined } })
+    if (cwd) await saveModelRequests(id, nodeId, cwd, [])
+    await execModel(id, nodeId)
+  },
+  async modelContinue(id, nodeId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "model") return
+    if (node.data.strict !== false) {
+      log(set, nodeId, "⚠ strict mode is on — every request must be accepted (turn strict off in the panel to continue with a partial contract)")
+      return
+    }
+    if (!node.data.requests.some((r) => r.status === "accepted")) {
+      log(set, nodeId, "⚠ nothing accepted yet — deliver at least one request")
+      return
+    }
+    await maybeResumeModel(id, nodeId, true)
   },
   async refreshBuild(id, nodeId) {
     const bp = get().byId(id)
@@ -969,9 +1085,201 @@ function addTokens(bpId: string, nodeId: string, delta: number) {
   if (!delta) return
   useBlueprintsStore.getState().update(
     bpId,
-    (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && n.data.type === "ai" ? { ...n, data: { ...n.data, tokens: (n.data.tokens ?? 0) + delta } } : n)) }),
+    (b) => ({ ...b, nodes: b.nodes.map((n) => (n.id === nodeId && (n.data.type === "ai" || n.data.type === "model") ? { ...n, data: { ...n.data, tokens: (n.data.tokens ?? 0) + delta } } : n)) }),
     { history: false },
   )
+}
+
+/** Persist a model box's requests (node data is the source of truth; the file is the restart-safe, scriptable mirror). */
+async function saveModelRequests(bpId: string, nodeId: string, cwd: string, requests: ModelRequest[]): Promise<void> {
+  useBlueprintsStore.getState().updateNode(bpId, nodeId, { data: { requests } })
+  const backend = await getBackend()
+  await backend.writeProjectFile(cwd, MODEL_STATE_REL, JSON.stringify({ version: 1, updatedAt: Date.now(), requests }, null, 2)).catch((e) => log(useBlueprintsStore.setState, nodeId, `⚠ could not write ${MODEL_STATE_REL}: ${e instanceof Error ? e.message : String(e)}`))
+}
+
+/**
+ * Model Plus step. Returns true when every request is accepted (the walk goes on), "waiting" when the box stopped the
+ * chain for the user's deliveries, false on failure. Phases are idempotent: a re-run picks up where the data says.
+ */
+async function execModel(bpId: string, nodeId: string): Promise<boolean | "waiting"> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "model") return false
+  const cwd = sourceFolder(bp, nodeId)
+  if (!cwd) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: "no folder" })
+    log(set, nodeId, "⚠ wire a Build (or an AI with a build) into this box")
+    return false
+  }
+  if (!node.data.modelRef) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: "no model" })
+    return false
+  }
+  const data = node.data
+  if (data.requests.length) {
+    // Deliveries interrupted by a restart: finish their conversion first.
+    const stale = data.requests.filter((r) => r.status === "delivered").map((r) => r.id)
+    if (stale.length) await convertAndValidate(bpId, nodeId, stale)
+    const now = (useBlueprintsStore.getState().byId(bpId) && nodeById(useBlueprintsStore.getState().byId(bpId)!, nodeId)?.data) as BpModelData | undefined
+    const requests = now?.requests ?? data.requests
+    if (requests.every((r) => r.status === "accepted")) {
+      if (!now?.report || now.lastOk !== true) store.updateNode(bpId, nodeId, { data: { report: modelManifest(requests), lastOk: true } })
+      store.updateNode(bpId, nodeId, { status: "done", note: undefined })
+      return true
+    }
+    return markModelWaiting(bpId, nodeId, requests)
+  }
+  // SPEC: the art director writes the contract.
+  const backend = await getBackend()
+  const handleRef: { cancel?: () => Promise<void> } = {}
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { await handleRef.cancel?.() } } }))
+  store.updateNode(bpId, nodeId, { status: "running", note: "art director" })
+  log(set, nodeId, `▶ art director · ${data.modelRef} · ${cwd}`)
+  const digest = await backend.repoDigest(cwd, 12 * 1024).catch(() => "")
+  const stubFolder = bp.nodes.find((n) => n.data.type === "stub")?.data
+  const uydurmaRel = stubFolder && stubFolder.type === "stub" ? `${stubFolder.folder.replace(/\/$/, "")}/uydurma.json` : "assets/uydurma/uydurma.json"
+  const uydurma = (await backend.readProjectFile(cwd, uydurmaRel, 64 * 1024).catch(() => null)) ?? undefined
+  const kitAi = incoming(bp, nodeId).find((n) => n.data.type === "ai" && n.data.kitId)
+  const kit = kitAi && kitAi.data.type === "ai" ? kitAi.data.kitId : undefined
+  const prompt = artDirectorBrief({ digest, uydurma, kit, style: data.style, folder: data.folder })
+  const handle = runSingle(backend, { runId: `bp:model:${nodeId}:${Date.now()}`, modelRef: data.modelRef, prompt, cwd, readOnly: true, timeoutSecs: 15 * 60, effort: clampEffort(parseModelRef(data.modelRef).providerId as ProviderId, "medium") }, (line, stream) => log(set, nodeId, line, stream))
+  handleRef.cancel = handle.cancel
+  const res = await handle.done
+  useBlueprintsStore.setState((s) => {
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+  addTokens(bpId, nodeId, res.tokens)
+  const requests = parseModelRequests(res.text, { folder: data.folder, style: data.style })
+  if (!res.ok || !requests.length) {
+    store.updateNode(bpId, nodeId, { status: "failed", note: res.ok ? "no requests parsed" : (res.error ?? "failed") })
+    log(set, nodeId, res.ok ? `✖ no ${MODEL_REQUESTS_HEADING} list found in the reply — tail:\n${res.text.trim().slice(-600)}` : `✖ ${res.error ?? "failed"}`)
+    return false
+  }
+  await saveModelRequests(bpId, nodeId, cwd, requests)
+  log(set, nodeId, `📋 ${requests.length} asset request(s):`)
+  return markModelWaiting(bpId, nodeId, requests)
+}
+
+/** Put the box in `waiting` (no running handle: the app stays idle for updates and the resume walk is never refused). */
+function markModelWaiting(bpId: string, nodeId: string, requests: ModelRequest[]): "waiting" {
+  const set = useBlueprintsStore.setState
+  const open = pendingSummary(requests)
+  const rejected = open.filter((r) => r.status === "rejected").length
+  useBlueprintsStore.getState().updateNode(bpId, nodeId, { status: "waiting", note: `${open.length} waiting${rejected ? ` · ${rejected} rejected` : ""} · ${requests.length - open.length}/${requests.length} accepted` })
+  for (const r of open) log(set, nodeId, `  • ${r.name} — ${r.kind}${r.frames ? ` · ${r.frames} frames` : ""}${r.frameSize ? ` · ${r.frameSize}` : ""} · ${r.status}`)
+  log(set, nodeId, "→ generate each request with an image AI (copy its prompt from the panel) and drop the sheet on this box, or: silent bp deliver \"<blueprint>\" \"<box>\" <file>")
+  return "waiting"
+}
+
+/**
+ * Convert each delivered request with a converter session (the bundled tool), then run the deterministic validator
+ * on the disk. Accepted or rejected with reasons; the box returns to `waiting` afterwards (resume is a separate step).
+ */
+async function convertAndValidate(bpId: string, nodeId: string, reqIds: string[]): Promise<void> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "model" || !reqIds.length) return
+  const cwd = sourceFolder(bp, nodeId)
+  if (!cwd) return
+  const data = node.data
+  const backend = await getBackend()
+  let cancelled = false
+  const cancels: Array<() => Promise<void>> = []
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: async () => { cancelled = true; await Promise.all(cancels.map((c) => c())) } } }))
+  store.updateNode(bpId, nodeId, { status: "running", note: "converting" })
+  await backend.blueprintWriteTool(cwd, DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE).catch((e) => log(set, nodeId, `⚠ converter tool not written: ${e instanceof Error ? e.message : String(e)}`))
+  const current = () => {
+    const b = useBlueprintsStore.getState().byId(bpId)
+    const n = b && nodeById(b, nodeId)
+    return n && n.data.type === "model" ? n.data.requests : data.requests
+  }
+  for (const reqId of reqIds) {
+    if (cancelled) break
+    const req = current().find((r) => r.id === reqId)
+    if (!req?.delivered) continue
+    store.updateNode(bpId, nodeId, { note: `converting ${req.name}` })
+    const expected = expectedFiles(req)
+    log(set, nodeId, `🔧 converting ${req.delivered.path} → ${req.target}/ (${req.name})`)
+    let reasons: string[] = []
+    let warnings: string[] = []
+    try {
+      const handle = runSingle(backend, { runId: `bp:model:${nodeId}:${req.id}:${Date.now()}`, modelRef: data.modelRef, prompt: converterBrief({ req, deliveredRel: req.delivered.path, build: cwd, expected }), cwd, timeoutSecs: 20 * 60, effort: clampEffort(parseModelRef(data.modelRef).providerId as ProviderId, "medium") }, (line, stream) => log(set, nodeId, line, stream))
+      cancels.push(handle.cancel)
+      const res = await handle.done
+      addTokens(bpId, nodeId, res.tokens)
+      if (!res.ok) reasons.push(`converter failed: ${res.error ?? "no result"}`)
+      else {
+        const at = res.text.toUpperCase().lastIndexOf(MODEL_DELIVERY_HEADING)
+        if (at >= 0) log(set, nodeId, res.text.slice(at).trim().slice(0, 1200))
+      }
+    } catch (e) {
+      reasons.push(`converter crashed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    if (!reasons.length) {
+      // The validator reads the disk, never the converter's words.
+      const files = new Set((await backend.listProjectFiles(cwd, 20000).catch(() => [])).map((f) => f.rel.replace(/\\/g, "/")))
+      const base = req.target.replace(/\/$/, "")
+      let atlas: AtlasJson | null
+      try {
+        const text = await backend.readProjectFile(cwd, `${base}/${req.name}.json`, 512 * 1024)
+        atlas = text ? (JSON.parse(text) as AtlasJson) : null
+      } catch {
+        atlas = null
+      }
+      const png = new Map<string, PngProbe | null>()
+      const probe = async (rel: string) => {
+        if (!files.has(rel)) return
+        const blob = await backend.readProjectBlob(cwd, rel, 16 * 1024 * 1024).catch(() => null)
+        png.set(rel, blob ? probePng(decodeBase64(blob.base64)) : null)
+      }
+      await probe(`${base}/${req.name}.png`)
+      for (const a of req.animations ?? []) await probe(`${base}/${frameName(req.name, a.name, 0)}.png`)
+      const v = validateDelivery(req, { files, atlas, png })
+      reasons = v.reasons
+      warnings = v.warnings
+    }
+    const ok = !reasons.length
+    for (const r of reasons) log(set, nodeId, `  ✗ ${r}`, "stderr")
+    for (const w of warnings) log(set, nodeId, `  ⚠ ${w}`)
+    log(set, nodeId, ok ? `✓ ${req.name} accepted (${expected.length} files verified)` : `✗ ${req.name} rejected — fix the sheet and deliver again (or force-accept from the panel)`)
+    const requests = current().map((r) => (r.id === reqId ? { ...r, status: ok ? ("accepted" as const) : ("rejected" as const), reasons: ok ? undefined : reasons } : r))
+    await saveModelRequests(bpId, nodeId, cwd, requests)
+  }
+  useBlueprintsStore.setState((s) => {
+    const running = { ...s.running }
+    delete running[nodeId]
+    return { running }
+  })
+  const requests = current()
+  if (!requests.every((r) => r.status === "accepted")) markModelWaiting(bpId, nodeId, requests)
+}
+
+/** Every request accepted (or a non-strict "continue"): write the manifest, go green, and walk on from the box. */
+async function maybeResumeModel(bpId: string, nodeId: string, partial = false): Promise<void> {
+  const store = useBlueprintsStore.getState()
+  const set = useBlueprintsStore.setState
+  const bp = store.byId(bpId)
+  const node = bp && nodeById(bp, nodeId)
+  if (!bp || !node || node.data.type !== "model") return
+  const cwd = sourceFolder(bp, nodeId)
+  if (!cwd) return
+  const requests = node.data.requests
+  const complete = requests.length > 0 && requests.every((r) => r.status === "accepted")
+  if (!complete && !partial) return
+  const backend = await getBackend()
+  const report = modelManifest(requests)
+  await backend.writeProjectFile(cwd, MODEL_DOC_REL, modelDoc(requests, node.data.folder)).catch(() => undefined)
+  store.updateNode(bpId, nodeId, { status: "done", note: complete ? undefined : `${requests.filter((r) => r.status !== "accepted").length} unresolved (continued)`, data: { report, lastOk: true } })
+  const build = incoming(bp, nodeId).find((n) => n.type === "build" || n.type === "buildPhoto")
+  if (build) void store.refreshBuild(bpId, build.id).catch(() => undefined)
+  log(set, nodeId, complete ? `✓ all ${requests.length} asset(s) accepted — ${MODEL_DOC_REL} written, the chain resumes` : "→ continuing with a partial contract (strict off)")
+  void store.run(bpId, nodeId).catch((e) => reportError(e instanceof Error ? e.message : String(e)))
 }
 
 async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; parallel?: boolean; /** Görev aktarımı: run on this model instead of the box's own (the box keeps its setting). */ modelRef?: string }): Promise<boolean> {
@@ -997,6 +1305,8 @@ async function execAi(bpId: string, aiId: string, opts?: { purpose?: string; ext
     if (n.data.type === "check") return n.data.report?.trim() && n.data.lastOk === false ? [{ title: n.data.title || "Denetçi", report: n.data.report, kind: "check" }] : []
     // Çoklu Tarayıcı: only lanes with findings are a work order.
     if (n.data.type === "verify") return n.data.report?.trim() && n.data.lastOk === false ? [{ title: n.data.title || "Çoklu Tarayıcı", report: n.data.report, kind: "verify" }] : []
+    // Model Plus: the validated asset manifest (only once the contract is complete).
+    if (n.data.type === "model") return n.data.report?.trim() && n.data.lastOk === true ? [{ title: n.data.title || "Model Plus", report: n.data.report, kind: "model" }] : []
     if (n.data.type !== "ai" || !n.data.report?.trim()) return []
     if (n.data.role === "bilinc" && role === "eylem") return [{ title: n.data.title || n.id, report: n.data.report, kind: "bilinc" }]
     if (n.data.role === "kesifci") return [{ title: n.data.title || n.id, report: n.data.report, kind: "kesifci" }]

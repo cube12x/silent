@@ -30,7 +30,7 @@ Investigate the task thoroughly, then reply with a report and nothing else:
 1. numbered, concrete, minimal edits another AI will apply verbatim: file, what to change, expected result, how to verify
 Keep the report self-contained; the next AI has not seen this conversation.`
 
-export type BpReportKind = "bilinc" | "donusturucu" | "check" | "kesifci" | "verify"
+export type BpReportKind = "bilinc" | "donusturucu" | "check" | "kesifci" | "verify" | "model"
 
 /** Keşifçi: a cheap read-only scout. Its report is the map the next (expensive) AI works from instead of re-scanning. */
 export const KESIFCI_POLICY = `You are the KEŞİFÇİ (scout) step: READ-ONLY reconnaissance for the task below on a cheap model — do not create, modify or delete any file, do not run installers or formatters (reading files, grep, running tests to observe is fine).
@@ -67,6 +67,14 @@ export function convertedBrief(all: Array<{ title: string; report: string; kind?
   if (!reports.length) return ""
   const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
   return `Converted assets (produced by the converter step below; use these files, they are already in the needed format):\n${body}`
+}
+
+/** Model Plus: the validated asset manifest of the model boxes wired into an AI — wire the code to these files. */
+export function modelBrief(all: Array<{ title: string; report: string; kind?: BpReportKind }>): string {
+  const reports = all.filter((r) => r.kind === "model")
+  if (!reports.length) return ""
+  const body = reports.map((r) => `## ${r.title}\n${r.report.trim()}`).join("\n\n")
+  return `Model Plus delivered and VALIDATED the assets below (exact paths, atlas format, frame counts). Wire the code to them: load the sheets/atlases, map animations by frame name, replace and remove the placeholders they stand in for; do NOT redraw, regenerate or run an image tool for them. Finish with a short summary and a \`# FIXED\` list of what you wired.\n${body}`
 }
 
 /** Denetçi: a failed automated check is the work order of the wired fixer AI. */
@@ -161,7 +169,7 @@ export function defaultTaskForRole(role: AiPromptInput["role"]): string {
 }
 
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
-  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), verifyBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
+  return [i.purpose ? `Purpose: ${i.purpose}` : "", i.wired, i.extraPrompt ?? "", eylemBrief(i.reports ?? []), checkBrief(i.reports ?? []), verifyBrief(i.reports ?? []), reconBrief(i.reports ?? []), convertedBrief(i.reports ?? []), modelBrief(i.reports ?? [])].filter((x) => x && x.trim()).join("\n\n")
 }
 
 /**
@@ -198,6 +206,8 @@ export function buildAiPrompt(i: AiPromptInput): string {
 export function extractReport(text: string): string {
   const t = text.trim()
   const upper = t.toUpperCase()
-  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"), upper.lastIndexOf("# VERIFY"))
+  // `# MODEL` is matched as a whole line so `# MODEL_REQUESTS` / `# MODEL_DELIVERY` (Model Plus internals) do not count.
+  const modelAt = (() => { let last = -1; const re = /^# MODEL[ \t]*$/gim; let m: RegExpExecArray | null; while ((m = re.exec(t))) last = m.index; return last })()
+  const idx = Math.max(upper.lastIndexOf("# FINDINGS"), upper.lastIndexOf("# CONVERTED"), upper.lastIndexOf("# FIXED"), upper.lastIndexOf("# RECON"), upper.lastIndexOf("# CHECK"), upper.lastIndexOf("# VERIFY"), modelAt)
   return idx >= 0 ? t.slice(idx).trim() : t
 }

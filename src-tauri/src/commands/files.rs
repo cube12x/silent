@@ -11,6 +11,18 @@ fn safe_join(root: &Path, rel: &str) -> Option<PathBuf> {
     Some(root.join(rel))
 }
 
+/// Writes `root/rel` (parents created). Model Plus mirrors its requests and manifest into the build with this.
+#[tauri::command]
+pub fn write_project_file(root: String, rel: String, content: String) -> Result<(), String> {
+    let Some(path) = safe_join(Path::new(&root), &rel) else {
+        return Err("invalid path".into());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
 /// Returns up to `max_bytes` of `root/rel` as text, or `None` when the file does not exist.
 #[tauri::command]
 pub fn read_project_file(

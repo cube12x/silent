@@ -48,3 +48,25 @@ describe("blocked questions are visible in `silent status` (2026-10-04)", () => 
     expect(buildStatusSnapshot({ blueprints: [], runs: [run], pendingUpdate: null }).blocked).toEqual([])
   })
 })
+
+describe("Model Plus waiting boxes and blocked owners in the snapshot (2026-10-05)", () => {
+  it("lists waiting model boxes with their open requests and a deliver command; blocked entries name the owning box", () => {
+    const model: Blueprint = {
+      ...bp,
+      id: "b2",
+      name: "Mario",
+      nodes: [
+        { id: "m", type: "model", x: 0, y: 0, status: "waiting", data: { type: "model", title: "Model Plus", modelRef: "claude:sonnet", folder: "assets/model-plus", tokens: 7, requests: [
+          { id: "mr_mario", name: "mario", kind: "sprite-sheet", subject: "Mario", animations: [{ name: "walk", frames: 8 }, { name: "jump", frames: 4 }], frameSize: "64x64", sheetPrompt: "x", target: "assets/model-plus/mario", status: "pending" },
+          { id: "mr_coin", name: "coin", kind: "audio", subject: "coin", sheetPrompt: "x", target: "assets/model-plus/coin", status: "accepted" },
+        ] } },
+        { id: "owner", type: "ai", x: 0, y: 0, status: "running", executionId: "r2", data: { type: "ai", modelRef: "claude:sonnet", mode: "lite", title: "Bölücü 4C" } },
+      ],
+    }
+    const blockedRun = { id: "r2", status: "running", createdAt: 5, plan: [{ id: "t1", title: "Portal", state: "blocked", question: "Which id?" }] } as unknown as Run
+    const s = buildStatusSnapshot({ blueprints: [model], runs: [blockedRun], pendingUpdate: null, now: 99 })
+    expect(s.waiting).toEqual([{ blueprint: "Mario", blueprintId: "b2", node: "Model Plus", nodeId: "m", pending: [{ name: "mario", kind: "sprite-sheet", frames: 12, frameSize: "64x64", status: "pending" }], deliverCmd: 'silent bp deliver "Mario" "Model Plus" <file>' }])
+    expect(s.blocked[0]).toMatchObject({ runId: "r2", subtaskId: "t1", blueprint: "Mario", node: "Bölücü 4C" })
+    expect(s.blueprints[0]!.nodes[0]).toMatchObject({ type: "model", status: "waiting", tokens: 7 })
+  })
+})

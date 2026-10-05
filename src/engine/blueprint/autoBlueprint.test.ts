@@ -285,3 +285,34 @@ describe("parse keeps edges to boxes the designer did not re-emit", () => {
     expect(r?.edges).toEqual([{ from: "bud", to: "n_existing_ai" }])
   })
 })
+
+describe("Model Plus in auto blueprints (2026-10-05)", () => {
+  it("materialises a model box with its fields and keeps its state on edits; the rules and wiring mention it", () => {
+    const input = {
+      name: "Mario",
+      summary: "s",
+      nodes: [
+        { key: "s", type: "button" as const, title: "Start", kind: "start" as const },
+        { key: "b", type: "build" as const, title: "Oyun" },
+        { key: "m", type: "model" as const, title: "Model Plus", modelRef: "claude:sonnet", style: "pixel", strict: false },
+        { key: "i", type: "ai" as const, title: "Entegrasyon", modelRef: "claude:sonnet", mode: "single" as const },
+      ],
+      edges: [{ from: "s", to: "b" }, { from: "b", to: "m" }, { from: "m", to: "i" }],
+    }
+    const bp = materializeAutoBlueprint(input, TEST_MODELS)
+    const m = bp.nodes.find((n) => n.type === "model")!
+    expect(m.data).toMatchObject({ type: "model", modelRef: "claude:sonnet", style: "pixel", strict: false, folder: "assets/model-plus", requests: [] })
+    const kinds = bp.edges.map((e) => `${bp.nodes.find((n) => n.id === e.from)!.type}→${bp.nodes.find((n) => n.id === e.to)!.type}`)
+    expect(kinds).toEqual(expect.arrayContaining(["build→model", "model→ai"]))
+    // an edit that omits style/strict keeps them and never touches the requests
+    const withState = { ...bp, nodes: bp.nodes.map((n) => (n.id === m.id && n.data.type === "model" ? { ...n, data: { ...n.data, requests: [{ id: "mr_x", name: "x", kind: "image" as const, subject: "x", sheetPrompt: "p", target: "assets/model-plus/x", status: "accepted" as const }] } } : n)) }
+    const idOf = (t: string) => bp.nodes.find((x) => x.type === t)!.id
+    const edited = materializeAutoBlueprint({ name: "Mario", summary: "s", nodes: [{ key: idOf("button"), type: "button", title: "Start", kind: "start" }, { key: idOf("build"), type: "build", title: "Oyun" }, { key: m.id, type: "model", title: "Model Plus 2" }, { key: idOf("ai"), type: "ai", title: "Entegrasyon", modelRef: "claude:sonnet", mode: "single" }], edges: [] }, TEST_MODELS, withState)
+    const kept = edited.nodes.find((n) => n.id === m.id)!
+    expect(kept.data).toMatchObject({ title: "Model Plus 2", style: "pixel", strict: false })
+    expect(kept.data.type === "model" && kept.data.requests).toHaveLength(1)
+    const p = buildAutoBlueprintPrompt({ request: "x", models: TEST_MODELS, language: "tr", kits: [] })
+    expect(p).toContain("Model Plus")
+    expect(p).toContain("model→ai")
+  })
+})

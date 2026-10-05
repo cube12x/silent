@@ -23,7 +23,7 @@ pub fn parse_argv(args: &[String], cwd: Option<&Path>) -> Result<Option<Value>, 
         "cancel" => Ok(Some(json!({ "folder": "", "prompt": "", "cancel": true }))),
         "bp" => {
             let rest: Vec<String> = it.cloned().collect();
-            parse_bp(&rest).map(Some)
+            parse_bp(&rest, cwd.as_deref()).map(Some)
         }
         "run" => {
             let rest: Vec<String> = it.cloned().collect();
@@ -33,7 +33,7 @@ pub fn parse_argv(args: &[String], cwd: Option<&Path>) -> Result<Option<Value>, 
     }
 }
 
-fn parse_bp(rest: &[String]) -> Result<Value, String> {
+fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
     let mut i = 0;
     let mut only = false;
     if rest.get(i).map(String::as_str) == Some("only") {
@@ -84,6 +84,32 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "fix": { "problem": problem, "files": files, "run": run } } }));
         }
+        Some("deliver") => {
+            // silent bp deliver <blueprint> <box> <file>… [--for <request>]  → hand asset files to a Model Plus box.
+            let bpref = rest.get(i + 1).cloned().unwrap_or_default();
+            let node = rest.get(i + 2).cloned().unwrap_or_default();
+            let mut paths: Vec<String> = Vec::new();
+            let mut for_name: Option<String> = None;
+            let mut j = i + 3;
+            while j < rest.len() {
+                if rest[j] == "--for" {
+                    for_name = rest.get(j + 1).cloned();
+                    j += 2;
+                } else {
+                    let raw = PathBuf::from(&rest[j]);
+                    let abs = if raw.is_absolute() { raw } else if let Some(base) = cwd { base.join(raw) } else { raw };
+                    if !abs.is_file() {
+                        return Err(format!("not a file: {}", abs.display()));
+                    }
+                    paths.push(abs.to_string_lossy().to_string());
+                    j += 1;
+                }
+            }
+            if bpref.is_empty() || node.is_empty() || paths.is_empty() {
+                return Err("usage: silent bp deliver <blueprint name|id> <box title|id> <file>… [--for <request name>]".into());
+            }
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "deliver": { "paths": paths, "for": for_name } } }));
+        }
         Some("answer") => {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let node = rest.get(i + 2).cloned().unwrap_or_default();
@@ -95,7 +121,7 @@ fn parse_bp(rest: &[String]) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]…".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>]".into())
         }
     };
     Ok(json!({
@@ -275,6 +301,25 @@ mod tests {
         assert_eq!(v["blueprint"]["fix"]["run"], true);
         let v = parse_argv(&argv("bp fix Alien the door is broken"), None).unwrap().unwrap();
         assert_eq!(v["blueprint"]["fix"]["run"], false);
+    }
+
+    #[test]
+    fn parses_deliver_with_files_resolved_against_cwd() {
+        let base = std::env::temp_dir().join(format!("silent-deliver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("mario-sheet.png"), b"png").unwrap();
+        std::fs::write(base.join("coin.wav"), b"wav").unwrap();
+        let v = parse_argv(&argv("bp deliver Mario \"Model Plus\" mario-sheet.png coin.wav --for mario"), Some(&base)).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["ref"], "Mario");
+        assert_eq!(v["blueprint"]["node"], "\"Model Plus\"");
+        let paths = v["blueprint"]["deliver"]["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(PathBuf::from(paths[0].as_str().unwrap()).is_absolute() && paths[0].as_str().unwrap().ends_with("mario-sheet.png"));
+        assert_eq!(v["blueprint"]["deliver"]["for"], "mario");
+        assert!(parse_argv(&argv("bp deliver Mario Model"), Some(&base)).is_err());
+        assert!(parse_argv(&argv("bp deliver Mario Model missing.png"), Some(&base)).unwrap_err().contains("not a file"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

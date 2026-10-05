@@ -12,7 +12,7 @@ import type { CliRunRequest, RuntimeEvent } from "@/domain"
 
 export const AUTO_BLUEPRINT_TIMEOUT_SECS = 240
 
-const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget"]
+const NODE_TYPES: BpNodeType[] = ["prompt", "ai", "build", "buildPhoto", "button", "variable", "wizard", "stub", "check", "queue", "snapshot", "verify", "budget", "model"]
 
 /** Structured output the CLI must return (Gemini-compatible: string enums only). */
 export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
@@ -42,7 +42,7 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           turbo: { type: "boolean", description: "ai: Turbo — no polish round, effort ≤ medium, lean plan (fastest run)" },
           keepSession: { type: "boolean", description: "ai (single mode): every run resumes the box's last CLI session" },
           repos: { type: "array", items: { type: "string" }, description: "ai: GitHub repository urls (https:// or git@) cloned into .silent/refs before every run" },
-          modelRef: { type: "string", description: "ai/wizard: provider:model from the catalog" },
+          modelRef: { type: "string", description: "ai/wizard/queue/verify/model: provider:model from the catalog" },
           pool: { type: "array", items: { type: "string" }, description: "ai (orchestration): extra provider:model refs the planner may assign" },
           mode: { type: "string", enum: ["orchestration", "single", "lite"], description: "ai: lite = Bölücü, an orchestration that plans only disjoint build tasks (Turbo, no review/tests/integration); wire a dikis ai after its Build" },
           costMode: { type: "string", enum: ["economy", "balanced", "max-quality"] },
@@ -57,6 +57,8 @@ export const AUTO_BLUEPRINT_SCHEMA: Record<string, unknown> = {
           continueOnFail: { type: "boolean", description: "check only: walk on to the next boxes even when the check stays red after the fixer" },
           lanes: { type: "array", items: { type: "string" }, description: "verify only: one browser lane (screen/flow to play through) per item; lanes run in parallel" },
           maxTokens: { type: "number", description: "budget only: the wired AI's run is cancelled past this many tokens" },
+          style: { type: "string", description: "model only: the visual style the art director writes into every asset request" },
+          strict: { type: "boolean", description: "model only: default true — the chain waits until EVERY asset request is accepted" },
         },
       },
     },
@@ -92,6 +94,10 @@ export interface AutoBlueprintNode {
   maxTokens?: number
   turbo?: boolean
   keepSession?: boolean
+  /** model only: the visual style the art director enforces. */
+  style?: string
+  /** model only: wait for every asset (default true). */
+  strict?: boolean
 }
 export interface AutoBlueprintResult {
   name: string
@@ -135,6 +141,8 @@ export function describeExisting(bp: Blueprint): string {
       timeoutSecs: typeof d.timeoutSecs === "number" ? (d.timeoutSecs as number) : undefined,
       softCommands: pick("softCommands"),
       continueOnFail: typeof d.continueOnFail === "boolean" ? (d.continueOnFail as boolean) : undefined,
+      style: pick("style"),
+      strict: typeof d.strict === "boolean" ? (d.strict as boolean) : undefined,
       instructions: typeof d.instructions === "string" ? (d.instructions as string).slice(0, 200) : undefined,
       repos: Array.isArray(d.repos) ? (d.repos as Array<{ url: string }>).map((r) => r.url) : undefined,
     }
@@ -163,7 +171,8 @@ const RULES = `Node types and what they do:
 - verify ("Çoklu Tarayıcı", speed): N browser lanes (field lanes: one screen/flow each) verified IN PARALLEL by modelRef (a browser-capable model); when the lanes find problems, the ai wired after it (role eylem) gets the findings as its work order; when all lanes are OK the chain ends there. Wire build → verify → eylem ai.
 - budget ("Bütçe", cost guard, zero tokens): wire budget → ai; the AI's run is cancelled once it passes maxTokens.
 - stub ("Uydurma", cost saver): wired stub → ai, that AI registers prompt-named PLACEHOLDERS instead of producing real assets (kinds: image, sprite, tileset, sfx, music, voice, text, font, model3d, video; fields kinds and folder, folder default assets/uydurma); wired ai → stub, that AI later fills the placeholders from the manifest prompts (use an image-tool model for images). Use it whenever an expensive model would otherwise draw or synthesise.
-Wiring rules (from → to): prompt→ai|wizard|queue; ai→build|buildPhoto|ai|stub|check|snapshot|verify; build|buildPhoto→prompt|button|ai|variable|check|queue|snapshot|verify; button→ai|build|buildPhoto|prompt|queue|snapshot; variable→wizard|ai; wizard→ai; stub→ai; check→ai; queue→build|ai; snapshot→ai|prompt|queue|button; verify→ai; budget→ai.
+- model ("Model Plus", the asset contract): after the fundamentals are built (after a Dikiş/integration AI, before polish) put a model box on a cheap-to-medium model; it inspects the project and writes every needed asset as a request (sprite sheets with frame counts and frame size, textures, audio, 3D), and the chain WAITS for the user to deliver each request (the user generates ONE packed sheet per request with an external image AI and drops it on the box); the box converts, validates and hands a MODEL manifest to the next AI. Wire Build → model → a single-mode integration ai ("Entegrasyon AI") whose prompt says to wire the delivered assets into the code. Fields: style (optional), strict (default true). Use it instead of asking an AI to draw final art.
+Wiring rules (from → to): prompt→ai|wizard|queue; ai→build|buildPhoto|ai|stub|check|snapshot|verify|model; build|buildPhoto→prompt|button|ai|variable|check|queue|snapshot|verify|model; button→ai|build|buildPhoto|prompt|queue|snapshot; variable→wizard|ai; wizard→ai; stub→ai; check→ai; queue→build|ai; snapshot→ai|prompt|queue|button; verify→ai; budget→ai; model→ai.
 Model rules: use only refs from the catalog below; art/drawing tasks need a model whose strengths say it can GENERATE RASTER IMAGES; browser verification needs a model that can drive a browser; big builds → max-quality with a frontier planner-capable model; cheap follow-ups → single mode.
 Shape: Start → main prompt → main AI (orchestration) → Build (+ buildPhoto when art is involved; EVERY buildPhoto needs an incoming wire from the AI that produces the images, e.g. the art AI → buildPhoto); then Build → a parallel button → follow-up prompts → independent role AIs (visuals, audio, art, text) each wired back into the same Build, and Build → integration prompt → integrator AI (runs after the fan-out); add a Reload button for the art AI when images are generated; optionally buildPhoto → variable → wizard → a CHEAP single-mode integrator ai (never the main orchestration AI: a wizard fires on every new file). Keep it 5–14 nodes. Titles in the user's language; assign the models the user names to the roles they name.`
 
@@ -329,6 +338,9 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
       case "stub":
         data = { type: "stub", title: n.title, kinds: (n.kinds ?? []).filter((k): k is BpStubKind => (BP_STUB_KINDS as string[]).includes(k)), folder: n.folder || "assets/uydurma" }
         break
+      case "model":
+        data = { type: "model", title: n.title, modelRef: fixRef(n.modelRef, n.key), style: n.style?.trim() || undefined, strict: n.strict === false ? false : undefined, folder: "assets/model-plus", requests: [] }
+        break
     }
     const prev = keep.get(n.key)
     if (prev && prev.type === n.type) {
@@ -345,6 +357,13 @@ export function materializeAutoBlueprint(input: AutoBlueprintResult, models: Pro
       if (!n.lanes?.length) delete fresh.lanes
       delete fresh.maxLines
       if (typeof n.timeoutSecs !== "number") delete fresh.timeoutSecs
+      // Model Plus: the requests, their folder and the style/strict choice are the box's state, never reset by an edit.
+      if (prev.type === "model") {
+        delete fresh.requests
+        delete fresh.folder
+        if (!n.style?.trim()) delete fresh.style
+        if (typeof n.strict !== "boolean") delete fresh.strict
+      }
       return { ...prev, data: { ...prev.data, ...fresh } as BpNodeData }
     }
     return { id: ids.get(n.key)!, type: n.type, x: pos.x, y: pos.y, data }

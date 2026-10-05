@@ -23,6 +23,7 @@ MENU = [
     ("Anlık Görüntü", "Anlık Görüntü", True),
     ("Çoklu Tarayıcı", "Çoklu Tarayıcı", True),
     ("Bütçe", "Bütçe", False),
+    ("Model Plus", "Model Plus", True),
     ("Build", "Build", False),
     ("Build Foto", "Build Foto", False),
     ("Buton: Start", "Buton", True),

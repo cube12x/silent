@@ -64,7 +64,7 @@ export interface AutostartRequest {
   /** Expert (template) agent name or id whose run defaults apply (flags given explicitly win). */
   agent?: string
   /** `silent bp "<blueprint name|id>" ["<node title|id>"]`: trigger a Blueprint node instead of a Silent Code run. */
-  blueprint?: { ref: string; node?: string; answer?: string; only?: boolean; auto?: string; edit?: string; fix?: { problem: string; files: string[]; run?: boolean } }
+  blueprint?: { ref: string; node?: string; answer?: string; only?: boolean; auto?: string; edit?: string; fix?: { problem: string; files: string[]; run?: boolean }; /** `silent bp deliver <bp> <box> <file>… [--for <request>]`: hand files to a Model Plus box. */ deliver?: { paths: string[]; for?: string } }
   /** `silent reload`: reload the webview page (recovers a blank/black window; running orchestrations are lost). */
   reload?: boolean
   /** `silent cancel`: stop every running blueprint box and Silent Code run (the UI's cancel buttons, from the terminal). */
@@ -98,6 +98,8 @@ export interface Backend {
   installCliLauncher(): Promise<LauncherStatus>
   repoInspect(path: string): Promise<RepoInfo>
   pickDirectory(): Promise<string | null>
+  /** File picker (images, audio, 3D); empty when cancelled. */
+  pickFiles(): Promise<string[]>
   /** Blueprint build folders: create, stats, import dropped files, copy between builds. */
   blueprintBuildDir(blueprint: string, build: string, base?: string): Promise<string>
   blueprintBuildStats(folder: string): Promise<{ fileCount: number; images: string[]; newestMs: number }>
@@ -124,6 +126,8 @@ export interface Backend {
   repoDigest(root: string, maxBytes?: number): Promise<string>
   /** Text of `root/rel` (capped), or null when missing. */
   readProjectFile(root: string, rel: string, maxBytes?: number): Promise<string | null>
+  /** Write `root/rel` (parents created; `rel` must stay inside `root`). */
+  writeProjectFile(root: string, rel: string, content: string): Promise<void>
   /** Files under `root` modified at/after `sinceMs` (skips node_modules, .git, dist…); fallback when a CLI reports no file events. */
   changedFiles(root: string, sinceMs: number): Promise<string[]>
   /** Every file under `root` (node_modules, .git, .silent, dist, dotfiles skipped), sorted, capped (Dosyalar tab). */

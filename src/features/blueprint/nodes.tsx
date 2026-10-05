@@ -2,7 +2,7 @@ import * as React from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { cn } from "cn"
 import { roleHint, roleLabel } from "./roles"
-import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass, ListOrdered, Camera, Globe, Wallet, Link2 } from "lucide-react"
+import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass, ListOrdered, Camera, Globe, Wallet, Link2, Palette } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
 import { formatTokens } from "@/lib/format"
@@ -18,6 +18,7 @@ const STATUS_RING: Record<BpNodeStatus, string> = {
   running: "border-text-1 animate-pulse",
   done: "border-success/70",
   failed: "border-danger/70",
+  waiting: "border-warn/70",
   listening: "border-warn/70",
 }
 
@@ -244,4 +245,22 @@ export function BudgetNode({ data }: NodeProps<BpFlowNode>) {
   )
 }
 
-export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode, check: CheckNode, queue: QueueNode, snapshot: SnapshotNode, verify: VerifyNode, budget: BudgetNode }
+export function ModelNode({ data }: NodeProps<BpFlowNode>) {
+  const t = useT()
+  const n = data.node
+  const d = n.data.type === "model" ? n.data : { modelRef: "", requests: [], title: "", lastOk: undefined }
+  const accepted = d.requests.filter((r) => r.status === "accepted").length
+  const rejected = d.requests.filter((r) => r.status === "rejected").length
+  return (
+    <Shell node={n} icon={<Palette />} title={(n.data.type === "model" && n.data.title) || t("bp.node.model")} warnings={data.warnings} accent={providerColor(d.modelRef)} className="w-[220px]">
+      <div className="mono truncate text-[10px] text-text-3">{d.requests.length ? `${accepted}/${d.requests.length} ${t("bp.modelStatus.accepted")}` : t("bp.modelRequestsEmpty").split(" — ")[0]} · {d.modelRef.split(":").pop()}</div>
+      <div className={cn("mt-1 text-[10px]", n.status === "waiting" ? "text-warn" : d.lastOk === true ? "text-success" : rejected ? "text-danger" : "text-text-3")}>
+        {n.status === "waiting" ? `⏸ ${t("bp.modelStatus.pending")} · ${d.requests.length - accepted}` : d.lastOk === true ? `✓ ${t("bp.checkGreen")}` : t("bp.checkIdle")}
+        {rejected ? ` · ✗ ${rejected} ${t("bp.modelStatus.rejected")}` : ""}
+      </div>
+      <div className="mt-1 rounded-sm border border-dashed border-line px-1 py-0.5 text-[9px] text-text-3">{t("bp.modelDropHint")}</div>
+    </Shell>
+  )
+}
+
+export const NODE_TYPES = { prompt: PromptNode, ai: AiNode, build: BuildNode, buildPhoto: BuildNode, button: ButtonNode, variable: VariableNode, wizard: WizardNode, stub: StubNode, check: CheckNode, queue: QueueNode, snapshot: SnapshotNode, verify: VerifyNode, budget: BudgetNode, model: ModelNode }

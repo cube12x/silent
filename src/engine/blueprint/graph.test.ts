@@ -458,3 +458,41 @@ describe("Tamirci boxes are never walked from a Build (2026-10-04)", () => {
     expect(aiChainFrom(g, "b").map((n) => n.id)).toEqual(["split"])
   })
 })
+
+describe("Model Plus (model) wiring and walk (2026-10-05)", () => {
+  function withModel(): Blueprint {
+    const g = bp()
+    g.nodes.push(
+      { id: "m", type: "model", x: 0, y: 0, data: { type: "model", modelRef: "claude:sonnet", folder: "assets/model-plus", requests: [] } },
+      { id: "integ", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", title: "Entegrasyon" } },
+    )
+    // s → p → a → b (existing); b → m → integ; b → integ (context only)
+    g.edges.push({ id: "e_b_m", from: "b", to: "m" }, { id: "e_m_integ", from: "m", to: "integ" }, { id: "e_b_integ", from: "b", to: "integ" })
+    return g
+  }
+  it("accepts build/buildPhoto/ai → model and model → ai; rejects the rest", () => {
+    const g = withModel()
+    expect(validateEdge(g, { from: "a", to: "m" })).toBeNull()
+    expect(validateEdge(g, { from: "m", to: "a2" })).toBeNull()
+    expect(validateEdge(g, { from: "m", to: "b" })).toMatch(/no-rule/)
+    expect(validateEdge(g, { from: "p", to: "m" })).toMatch(/no-rule/)
+  })
+  it("walkPlan: the model box is its own step before the integration AI; the Build → integration wire is context only", () => {
+    const g = withModel()
+    const only = (startId: string) => walkPlan(g, startId).map((st) => (st.kind === "parallel" ? "parallel" : `${st.kind}:${st.node.id}`)).filter((x) => x === "model:m" || x === "ai:integ" || x === "ai:a")
+    expect(only("s")).toEqual(["ai:a", "model:m", "ai:integ"])
+    // a walk from the hub Build must not start the integration AI directly (it waits behind the model box)
+    expect(only("b")).toEqual(["model:m", "ai:integ"])
+  })
+  it("composeAiInput: an AI behind a model box inherits the build folder", () => {
+    const g = withModel()
+    g.edges = g.edges.filter((e) => e.id !== "e_b_integ")
+    expect(composeAiInput(g, "integ").buildFolders).toEqual(["/tmp/loki2"])
+  })
+  it("lint: model.noSource / noModel / noTarget; an AI fed only by a model box needs no prompt", () => {
+    const g = withModel()
+    expect(lintBlueprint(g)["integ"] ?? []).not.toContain("ai.noPrompt")
+    const lone: Blueprint = { ...g, nodes: [{ id: "m", type: "model", x: 0, y: 0, data: { type: "model", modelRef: "", folder: "assets/model-plus", requests: [] } }], edges: [] }
+    expect(lintBlueprint(lone)["m"]).toEqual(expect.arrayContaining(["model.noSource", "model.noModel", "model.noTarget"]))
+  })
+})

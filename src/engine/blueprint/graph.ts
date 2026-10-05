@@ -35,7 +35,7 @@ export function validateEdge(bp: Blueprint, edge: Omit<BpEdge, "id">): string | 
 }
 
 /** One step of a blueprint run: a single AI, or a Paralel button starting several AIs at once. */
-export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] } | { kind: "check"; node: BpNode } | { kind: "queue"; node: BpNode } | { kind: "snapshot"; node: BpNode } | { kind: "verify"; node: BpNode }
+export type BpStep = { kind: "ai"; node: BpNode } | { kind: "parallel"; button: BpNode; heads: BpNode[] } | { kind: "check"; node: BpNode } | { kind: "queue"; node: BpNode } | { kind: "snapshot"; node: BpNode } | { kind: "verify"; node: BpNode } | { kind: "model"; node: BpNode }
 
 function isParallel(n: BpNode | undefined): boolean {
   return Boolean(n && n.data.type === "button" && n.data.kind === "parallel")
@@ -89,6 +89,10 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
       // Çoklu Tarayıcı: same shape as Denetçi.
       plan.push({ kind: "verify", node })
       started.add(id)
+    } else if (node.type === "model" && !started.has(id)) {
+      // Model Plus: its own step; the walk STOPS here while the box waits for the user's assets and resumes from it.
+      plan.push({ kind: "model", node })
+      started.add(id)
     } else if ((node.type === "queue" || node.type === "snapshot") && !started.has(id)) {
       plan.push({ kind: node.type, node })
       started.add(id)
@@ -102,7 +106,7 @@ export function walkPlan(bp: Blueprint, startId: string): BpStep[] {
     // trigger out into every stage's fixers and stitchers (Eylem boxes failed with "no prompt", stages re-ran).
     // A Tamirci box (repair request) is started only by the Dosyalar tab / `silent bp fix`: its Build wire is context.
     // 2026-10-04: a running Tamirci sat on the hub and the "already running" guard refused the next stage's trigger.
-    const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && (to.data.type === "ai" && to.data.tamirci === true || incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue"))
+    const contextOnly = (from: BpNode, to: BpNode) => (from.type === "build" || from.type === "buildPhoto") && to.type === "ai" && (to.data.type === "ai" && to.data.tamirci === true || incoming(bp, to.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "snapshot" || x.type === "queue" || x.type === "model"))
     // Stages meet at a shared Build hub. A walk that passes through or starts at the hub (anything but Start) must
     // not leave it into stages that already ran: Build → prompt → done AI, Build → done snapshot…
     // 2026-10-02: Bölücü → Build → every stage's entry prompt re-ran the whole blueprint (Büyük Güncelleme, Online, El…).
@@ -147,7 +151,7 @@ export function composeAiInput(bp: Blueprint, aiId: string): { prompt: string; b
   // Pass-through boxes (snapshot, check, verify, queue, button) and upstream AIs: the project an AI wired behind them
   // works on is the build those boxes sit on. 2026-10-01: a Dikiş wired Bölücü → snapshot → Dikiş got no folder and
   // ran in a fresh empty build.
-  const passThrough = new Set<BpNodeType>(["snapshot", "check", "verify", "queue", "button", "budget"])
+  const passThrough = new Set<BpNodeType>(["snapshot", "check", "verify", "queue", "button", "budget", "model"])
   const inherited = (id: string, seen = new Set<string>(), depth = 0): BpNode[] => {
     if (seen.has(id) || depth > 6) return []
     seen.add(id)
@@ -179,7 +183,7 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       // An Eylem's task is the wired Bilinç report; it needs no prompt of its own.
       const fedByBilinc = n.data.type === "ai" && n.data.role === "eylem" && incoming(bp, n.id).some((x) => x.data.type === "ai" && x.data.role === "bilinc")
       // A Dikiş's task is fixed by its policy (stitch + full suite); a fixer after a Denetçi/Çoklu Tarayıcı works from the report.
-      const fedByReport = n.data.type === "ai" && (n.data.role === "dikis" || incoming(bp, n.id).some((x) => x.type === "check" || x.type === "verify"))
+      const fedByReport = n.data.type === "ai" && (n.data.role === "dikis" || incoming(bp, n.id).some((x) => x.type === "check" || x.type === "verify" || x.type === "model"))
       if (!fedByBilinc && !fedByReport && !incoming(bp, n.id).some((x) => x.type === "prompt" || x.type === "wizard")) add(n.id, "ai.noPrompt")
       if (!n.data.type || (n.data.type === "ai" && !n.data.modelRef && !n.data.pool?.length)) add(n.id, "ai.noModel")
       if (n.data.type === "ai" && (n.data.repos ?? []).some((r) => r.url.trim() && !isRepoUrl(r.url))) add(n.id, "ai.badRepo")
@@ -201,6 +205,11 @@ export function lintBlueprint(bp: Blueprint): Record<string, string[]> {
       else if (n.data.type === "verify" && !n.data.modelRef) add(n.id, "verify.noModel")
     }
     if (n.type === "budget" && !outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "budget.noAi")
+    if (n.type === "model") {
+      if (!incoming(bp, n.id).some((x) => x.type === "build" || x.type === "buildPhoto" || x.type === "ai")) add(n.id, "model.noSource")
+      if (n.data.type === "model" && !n.data.modelRef) add(n.id, "model.noModel")
+      if (!outgoing(bp, n.id).some((x) => x.type === "ai")) add(n.id, "model.noTarget")
+    }
     if (n.type === "stub" && !outgoing(bp, n.id).length && !incoming(bp, n.id).length) add(n.id, "stub.unwired")
     if (n.type === "button" && n.data.type === "button") {
       if (!outgoing(bp, n.id).length) add(n.id, "button.unwired")
@@ -225,6 +234,8 @@ export interface AutorunRef {
   auto?: string
   /** `silent bp fix <bp> "<problem>" [--file …]`: open the Dosyalar tab's Tamirci dialog prefilled. */
   fix?: { problem: string; files: string[]; run?: boolean }
+  /** `silent bp deliver …`: files handed to a Model Plus box (absolute paths) and an optional request name. */
+  deliver?: { paths: string[]; for?: string }
   /** `silent bp edit "<blueprint>" "<change>"`: let the designer modify that blueprint in place. */
   edit?: string
 }

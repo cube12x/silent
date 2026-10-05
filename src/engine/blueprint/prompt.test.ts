@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { FOREGROUND_RULE, aiTaskText, buildAiPrompt, checkBrief, defaultTaskForRole, effectivePurpose, extractReport, isRepoUrl, repoName, verifyBrief, verifyLanePrompt } from "./prompt"
+import { FOREGROUND_RULE, aiTaskText, buildAiPrompt, checkBrief, defaultTaskForRole, effectivePurpose, extractReport, isRepoUrl, modelBrief, repoName, verifyBrief, verifyLanePrompt } from "./prompt"
 
 describe("Özel AI prompt", () => {
   it("orders policy → existing project → repos → base instructions → purpose → wired → extra", () => {
@@ -170,5 +170,21 @@ describe("fixer briefs tell the fixer to wait for its own commands (2026-10-03)"
     expect(checkBrief([{ title: "Denetçi", report: "# CHECK\n- npm test: FAIL", kind: "check" }])).toContain(FOREGROUND_RULE)
     expect(verifyBrief([{ title: "Çoklu Tarayıcı", report: "# VERIFY\n- [high] x", kind: "verify" }])).toContain(FOREGROUND_RULE)
     expect(checkBrief([])).toBe("")
+  })
+})
+
+describe("Model Plus manifest brief (2026-10-05)", () => {
+  const reports = [{ title: "Model Plus", report: "# MODEL\n- mario (sprite-sheet) → assets/model-plus/mario/mario.png + mario.json", kind: "model" as const }, { title: "x", report: "# FINDINGS\n- y", kind: "bilinc" as const }]
+  it("only model reports are included and the AI is told to wire, not redraw", () => {
+    const b = modelBrief(reports)
+    expect(b).toContain("VALIDATED")
+    expect(b).toContain("mario.json")
+    expect(b).not.toContain("FINDINGS")
+    expect(b).toMatch(/do NOT redraw/)
+    expect(aiTaskText({ purpose: "", wired: "", reports })).toContain("mario.json")
+  })
+  it("extractReport keeps a `# MODEL` report but is not fooled by `# MODEL_REQUESTS`", () => {
+    expect(extractReport("rationale\n# MODEL_REQUESTS\n[]\nmore")).toBe("rationale\n# MODEL_REQUESTS\n[]\nmore")
+    expect(extractReport("chatter\n# MODEL\n- a → b")).toBe("# MODEL\n- a → b")
   })
 })
