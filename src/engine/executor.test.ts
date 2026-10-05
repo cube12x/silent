@@ -950,6 +950,54 @@ describe("quota exhaustion on the only browser-capable model (2026-10-05)", () =
     expect(await exec.start()).toBe("completed")
     expect(worker.maxRunningAgy).toBe(1)
   })
+  describe("waits for whichever eligible model resets first (2026-10-05: Kimi had no reset time, Gemini did)", () => {
+    const KIMI = "kimi:kimi-code/kimi-for-coding"
+    const M2 = [...MODELS, { id: "kimi-code/kimi-for-coding", providerId: "kimi" as const, displayName: "Kimi", source: "catalog" as const, tier: "strong" as const }]
+    const P2 = [...POOL, KIMI]
+    class KimiOut extends QuotaWorker {
+      start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+        if (!job.modelId.startsWith("kimi:")) return super.start(job, sink)
+        this.jobs.push(job)
+        sink.session(`s-${this.jobs.length}`)
+        const done = new Promise<import("./workers/Worker").WorkerResult>((resolve) => setTimeout(() => resolve({ ok: false, summary: "quota", error: "provider.auth_error: 403 You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends.", retryable: false }), 10))
+        return { done, cancel: async () => {} }
+      }
+    }
+    const mk = (tasks: { id: string; browser: boolean; primary: string; fallbacks: string[]; dependsOn?: string[] }[]): SilentCodeRun => {
+      const plan = tasks.map((t) => ({ id: t.id, runId: "run_k", kind: "testing" as SubtaskKind, title: t.id, description: "x", dependsOn: t.dependsOn ?? [], state: "waiting" as const, attempts: [], files: [], commands: [], weight: 1 as const, progress: 0, lastUpdate: 0, answers: [], deviations: [], needsBrowser: t.browser }))
+      const routing = tasks.map((t) => ({ subtaskId: t.id, kind: "testing" as SubtaskKind, primaryModelId: t.primary, fallbackModelIds: t.fallbacks, reason: "x", score: 1 }))
+      return { id: "run_k", title: "k", prompt: "k", modelPool: P2, executionMode: "parallel", costMode: "balanced", plan, routing, status: "planned", estimate: { minutes: 1, tokens: 1, costUsd: 0 } as never, createdAt: 0 } as SilentCodeRun
+    }
+    it("after a rejection: the failing model has no reset time but another browser model does — wait for it, finish there", async () => {
+      const worker = new KimiOut(0)
+      setTimeout(() => (worker.quotaLeft = 5), 300)
+      const bus = new EventBus()
+      const events = collect(bus)
+      const exec = new Executor(mk([{ id: "b", browser: true, primary: "antigravity:gemini-3.8-flash-high", fallbacks: [KIMI] }]), () => worker, bus, { models: M2 })
+      expect(await exec.start()).toBe("completed")
+      expect(events.some((e) => e.type === "subtask.deferred" && e.until > 0)).toBe(true)
+      expect(worker.jobs.map((j) => j.modelId)).toEqual(["antigravity:gemini-3.8-flash-high", KIMI, "antigravity:gemini-3.8-flash-high"])
+    }, 10_000)
+    it("before starting: the primary is dead with no reset time — wait for the earliest known reset and start on that model", async () => {
+      const worker = new KimiOut(0)
+      const bus = new EventBus()
+      const events = collect(bus)
+      const exec = new Executor(
+        mk([
+          { id: "a", browser: false, primary: KIMI, fallbacks: ["antigravity:gemini-3.8-flash-high", "codex:gpt-5.6-terra"] },
+          { id: "b", browser: true, primary: KIMI, fallbacks: [], dependsOn: ["a"] },
+        ]),
+        () => worker,
+        bus,
+        { models: M2 },
+      )
+      setTimeout(() => (worker.quotaLeft = 5), 300)
+      expect(await exec.start()).toBe("completed")
+      const bJobs = worker.jobs.filter((j) => j.subtask.id === "b").map((j) => j.modelId)
+      expect(bJobs).toEqual(["antigravity:gemini-3.8-flash-high"])
+      expect(events.some((e) => e.type === "subtask.deferred" && e.subtaskId === "b" && e.until > 0)).toBe(true)
+    }, 10_000)
+  })
   it("Antigravity briefs forbid manage_task polling", async () => {
     const worker = new QuotaWorker(10)
     const exec = new Executor(browserRun(1), () => worker, new EventBus(), { models: MODELS })

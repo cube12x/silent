@@ -414,7 +414,9 @@ export class Executor {
         this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ ${modelId} is out of quota in this run — starting on ${alt.modelId}` } })
         modelId = alt.modelId
       } else {
-        const w = await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))
+        const r = this.earliestReset(subtask, decision, modelId)
+        const w = await this.waitForQuota(subtask, r?.modelId ?? modelId, r?.until)
+        if (w === true && r) modelId = r.modelId
         if (w === "handover") {
           const h = this.takeHandover(subtask, decision, tried, modelId, `handed over by the user while waiting for ${modelId}'s quota`, subtask.summary)
           if (!h) return
@@ -547,9 +549,11 @@ export class Executor {
       // No other model can take it (2026-10-05: both browser checks of a run failed when the only browser-capable CLI in
       // the pool hit its quota): wait for the reset the error announced, then continue on the same model.
       if (isReject && !next && !result.blocked) {
-        const w = await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))
+        const r = this.earliestReset(subtask, decision, modelId)
+        const w = await this.waitForQuota(subtask, r?.modelId ?? modelId, r?.until)
         if (w === true) {
           handoverFrom = { modelId, reason: `quota reset — continuing after "${(result.error ?? "").slice(0, 120)}"`, lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
+          if (r) modelId = r.modelId
           cause = "handover"
           continue
         }
@@ -596,6 +600,22 @@ export class Executor {
     if (!pick) return null
     this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: subtask.id, line: { ts: this.now(), stream: "system", text: `↪ no browser-capable model left in the pool — using ${pick.ref} from outside the pool (Settings: browser fallback)` } })
     return { modelId: pick.ref, cause: "fallback" }
+  }
+
+  /**
+   * The quota-exhausted model that can take `subtask` and resets first (known reset times only): the current model, its
+   * routing fallbacks, then the pool; browser tasks only consider browser-capable CLIs. 2026-10-05: a browser check failed
+   * because its model (Kimi, "5-hour window", no time given) had no reset time while Gemini's reset was 11 minutes away.
+   */
+  private earliestReset(subtask: Subtask, decision: RoutingDecision, current: string): { modelId: string; until: number } | undefined {
+    let best: { modelId: string; until: number } | undefined
+    for (const ref of new Set([current, ...decision.fallbackModelIds, ...this.run.modelPool])) {
+      const until = this.deadUntil.get(ref)
+      if (!until) continue
+      if (subtask.needsBrowser && !providerInfo(parseModelRef(ref).providerId as ProviderId)?.capabilities.browser) continue
+      if (!best || until < best.until) best = { modelId: ref, until }
+    }
+    return best
   }
 
   /** Wait (state "waiting") until `modelId`'s quota resets; false when no reset time is known, it is too far away, or the run was cancelled. */
