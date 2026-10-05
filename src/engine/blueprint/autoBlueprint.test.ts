@@ -305,7 +305,7 @@ describe("Model Plus in auto blueprints (2026-10-05)", () => {
     const kinds = bp.edges.map((e) => `${bp.nodes.find((n) => n.id === e.from)!.type}→${bp.nodes.find((n) => n.id === e.to)!.type}`)
     expect(kinds).toEqual(expect.arrayContaining(["build→model", "model→ai"]))
     // an edit that omits style/strict keeps them and never touches the requests
-    const withState = { ...bp, nodes: bp.nodes.map((n) => (n.id === m.id && n.data.type === "model" ? { ...n, data: { ...n.data, requests: [{ id: "mr_x", name: "x", kind: "image" as const, subject: "x", sheetPrompt: "p", target: "assets/model-plus/x", status: "accepted" as const }] } } : n)) }
+    const withState = { id: "bp_m", name: "Mario", createdAt: 0, updatedAt: 0, edges: bp.edges, nodes: bp.nodes.map((n) => (n.id === m.id && n.data.type === "model" ? { ...n, data: { ...n.data, requests: [{ id: "mr_x", name: "x", kind: "image" as const, subject: "x", sheetPrompt: "p", target: "assets/model-plus/x", status: "accepted" as const }] } } : n)) }
     const idOf = (t: string) => bp.nodes.find((x) => x.type === t)!.id
     const edited = materializeAutoBlueprint({ name: "Mario", summary: "s", nodes: [{ key: idOf("button"), type: "button", title: "Start", kind: "start" }, { key: idOf("build"), type: "build", title: "Oyun" }, { key: m.id, type: "model", title: "Model Plus 2" }, { key: idOf("ai"), type: "ai", title: "Entegrasyon", modelRef: "claude:sonnet", mode: "single" }], edges: [] }, TEST_MODELS, withState)
     const kept = edited.nodes.find((n) => n.id === m.id)!
