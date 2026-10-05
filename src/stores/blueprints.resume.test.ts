@@ -125,3 +125,26 @@ describe("Devret: hand one task to another model (2026-10-05)", () => {
     expect(await useBlueprintsStore.getState().handoverTask("b1", "main", "a", "claude:sonnet")).toBe(false)
   })
 })
+
+describe("accidental re-runs (2026-10-05)", () => {
+  beforeEach(() => {
+    useBlueprintsStore.setState({ logs: {}, blueprints: [bp()], running: {} })
+  })
+  it("resumableRun finds the box's unfinished run by folder when the link was lost", () => {
+    const g = bp()
+    g.nodes = g.nodes.map((n) => (n.id === "main" ? { ...n, executionId: undefined } : n))
+    g.nodes.push({ id: "build", type: "build", x: 0, y: 0, data: { type: "build", title: "x", folderPath: "/tmp/mario", kind: "code" } })
+    g.edges.push({ id: "e9", from: "main", to: "build" })
+    useBlueprintsStore.setState({ blueprints: [g] })
+    useRunsStore.setState({ runs: [{ ...run(), repoPath: "/tmp/mario", createdAt: Date.now() - 3600_000 }] } as never)
+    expect(useBlueprintsStore.getState().resumableRun("b1", "main")?.id).toBe("run_r")
+    useRunsStore.setState({ runs: [{ ...run(), repoPath: "/tmp/other", createdAt: Date.now() }] } as never)
+    expect(useBlueprintsStore.getState().resumableRun("b1", "main")).toBeUndefined()
+  })
+  it("a finished or running run is not resumable", () => {
+    useRunsStore.setState({ runs: [{ ...run(), status: "running" }] } as never)
+    expect(useBlueprintsStore.getState().resumableRun("b1", "main")).toBeUndefined()
+    useRunsStore.setState({ runs: [{ ...run(), plan: run().plan.map((x) => ({ ...x, state: "completed" })) }] } as never)
+    expect(useBlueprintsStore.getState().resumableRun("b1", "main")).toBeUndefined()
+  })
+})

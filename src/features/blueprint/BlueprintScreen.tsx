@@ -11,7 +11,7 @@ import { formatCountdown, formatTokens } from "@/lib/format"
 import { useNow } from "@/lib/useNow"
 import { rosterGlyph } from "@/engine/blueprint/roster"
 import { ModelSelectorGrid } from "@/design-system/tactical/ModelSelectorGrid"
-import { lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
+import { aiChainFrom, lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
 import { roleHint, roleLabel } from "./roles"
 import { NeonButton, PageHeader } from "@/design-system"
@@ -193,8 +193,20 @@ function Canvas({ bpId, onNodeQuadClick, bare = false }: { bpId: string; onNodeQ
     return () => clearTimeout(timer)
   }, [toast])
 
+  // 2026-10-05: an accidental double-click re-ran a finished orchestration box from scratch (and dropped its link to the
+  // unfinished run). Anything that would re-run AI boxes which already produced work asks first.
+  const [confirmRun, setConfirmRun] = React.useState<{ node: BpNode; rerun: string[]; resumable: boolean } | null>(null)
   const trigger = React.useCallback(
     (node: BpNode) => {
+      const st = useBlueprintsStore.getState()
+      const bp0 = st.byId(bpId)
+      const isSend = node.data.type === "button" && node.data.kind === "send"
+      const ran = (n: BpNode) => n.type === "ai" && (n.status === "done" || n.status === "failed") && Boolean(n.executionId || (n.data.type === "ai" && (n.data.tokens ?? 0) > 0))
+      const rerun = bp0 && !isSend ? aiChainFrom(bp0, node.id).filter(ran).map((n) => (n.data.type === "ai" && n.data.title) || n.id) : []
+      if (rerun.length) {
+        setConfirmRun({ node, rerun, resumable: node.type === "ai" && Boolean(st.resumableRun(bpId, node.id)) })
+        return
+      }
       void triggerNode(bpId, node.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") })
     },
     [bpId, triggerNode, t],
@@ -311,6 +323,20 @@ function Canvas({ bpId, onNodeQuadClick, bare = false }: { bpId: string; onNodeQ
           </div>
         )}
         {toast && <div className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-sm border border-line bg-ink-2 px-3 py-1.5 text-xs text-text-1">{toast}</div>}
+        {confirmRun && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50" onClick={() => setConfirmRun(null)} onKeyDown={(e) => { if (e.key === "Escape") setConfirmRun(null) }}>
+            <div role="dialog" aria-modal="true" className="w-[420px] rounded-md border border-line bg-ink-1 p-4 text-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-1 font-semibold text-text-1">{t("bp.confirmRerunTitle")}</div>
+              <div className="mb-2 text-xs text-text-2">{t("bp.confirmRerunBody", { n: confirmRun.rerun.length })}</div>
+              <ul className="mb-3 max-h-32 list-disc overflow-auto pl-5 text-xs text-text-3">{confirmRun.rerun.map((name) => <li key={name}>{name}</li>)}</ul>
+              <div className="flex flex-wrap justify-end gap-2">
+                <NeonButton size="sm" variant="outline" autoFocus onClick={() => setConfirmRun(null)}>{t("common.cancel")}</NeonButton>
+                {confirmRun.resumable && <NeonButton size="sm" variant="outline" onClick={() => { const n = confirmRun.node; setConfirmRun(null); void useBlueprintsStore.getState().resumeBox(bpId, n.id) }}>↻ {t("bp.resume")}</NeonButton>}
+                <NeonButton size="sm" onClick={() => { const n = confirmRun.node; setConfirmRun(null); void triggerNode(bpId, n.id, { reloadDefaultPurpose: t("bp.reloadDefaultPurpose") }) }}>{t("bp.confirmRerunGo")}</NeonButton>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {!bare && (
       <aside className="flex w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-ink-1 p-3">

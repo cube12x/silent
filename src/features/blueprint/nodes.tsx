@@ -68,7 +68,8 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   // The run object itself is a stable store reference (replaced only when it changes), so selecting it is loop-safe.
   const run = useRunsStore((s) => (runId ? s.byId(runId) : undefined))
   const plan = run?.plan
-  const live = n.status === "running" && plan ? plan.reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0
+  // Only a run that is actually running adds live tokens (the box keeps its previous run's id while a re-run plans).
+  const live = n.status === "running" && run?.status === "running" && plan ? plan.reduce((acc, st) => acc + (st.tokens ?? 0), 0) : 0
   const questions = n.status === "running" && plan ? plan.filter((st) => st.state === "blocked" && st.question).length : 0
   const tokens = (d.tokens ?? 0) + live
   const extra = (d.pool ?? []).filter((p) => p !== d.modelRef)

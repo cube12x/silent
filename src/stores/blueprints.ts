@@ -5,7 +5,7 @@ import { SOFT_SKIP_AFTER_TIMEOUTS, checkTimeoutFor, isCheckTimeout, softTimeoutF
 import { useHostStore } from "@/stores/host"
 import { isOrchestration, parseModelRef, type ProviderId } from "@/domain"
 import { providerInfo } from "@/providers/registry"
-import type { Blueprint, BpEdge, BpModelData, BpNode, BpNodeData, BpNodeType, CostMode, ModelRequest, TerminalLine } from "@/domain"
+import type { Blueprint, BpEdge, BpModelData, BpNode, BpNodeData, BpNodeType, CostMode, ModelRequest, SilentCodeRun, TerminalLine } from "@/domain"
 import { MODEL_DEFAULT_FOLDER, MODEL_DELIVERY_HEADING, MODEL_DOC_REL, MODEL_REQUESTS_HEADING, MODEL_STATE_REL, artDirectorBrief, converterBrief, decodeBase64, expectedFiles, frameName, matchDelivery, modelDoc, modelManifest, parseModelRequests, pendingSummary, probePng, validateDelivery, type AtlasJson, type PngProbe } from "@/engine/blueprint/model"
 import { TAMIRCI_BILINC_TITLE, TAMIRCI_TITLE, findTamirciBoxes, tamirciExtraPrompt, type TamirciRequest } from "@/engine/blueprint/tamirci"
 import { newId } from "@/lib/ids"
@@ -61,6 +61,8 @@ interface BlueprintsState {
   run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string; /** Walk on from this node without running the node itself. */ skipHead?: boolean }): Promise<void>
   /** Kaldığı yerden devam: an orchestration box whose run failed or was cancelled resumes that run (completed tasks kept) and, when it completes, walks on to the boxes behind it. */
   resumeBox(id: string, nodeId: string, overrides?: Record<string, string>): Promise<boolean>
+  /** The box's unfinished run that "Kaldığı yerden devam" would continue (its own run, else the latest stopped run on its folder). */
+  resumableRun(id: string, nodeId: string): SilentCodeRun | undefined
   /** Devret: hand one task of the box's run to `toRef` and continue it from where it stopped (running run → live handover; stopped run → resume with that task re-routed). */
   handoverTask(id: string, nodeId: string, subtaskId: string, toRef: string): Promise<boolean>
   /** The box + task the user asked to hand over from the canvas (opens that row in the side panel). */
@@ -578,6 +580,22 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       }
     }
   },
+  resumableRun(id, nodeId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "ai" || !isOrchestration(node.data.mode)) return undefined
+    const resumable = (r: SilentCodeRun | undefined) => Boolean(r && (r.status === "failed" || r.status === "cancelled") && r.plan.some((st) => st.state === "completed") && r.plan.some((st) => st.state !== "completed"))
+    const own = node.executionId && !node.executionId.startsWith("session:") ? useRunsStore.getState().byId(node.executionId) : undefined
+    if (own) return resumable(own) ? own : undefined
+    // No link (older builds cleared it on re-run): the latest stopped run on this box's folder from the last 3 days.
+    const folder = aiWorkingFolder(bp, nodeId)
+    if (!folder) return undefined
+    return useRunsStore
+      .getState()
+      .runs.filter((r) => r.repoPath === folder && Date.now() - r.createdAt < 3 * 86_400_000)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .find(resumable)
+  },
   setFocusTask(focus) {
     set({ focusTask: focus ? { ...focus, at: Date.now() } : undefined })
   },
@@ -608,12 +626,13 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!bp || !node || node.data.type !== "ai") return false
-    const runId = node.executionId && !node.executionId.startsWith("session:") ? node.executionId : undefined
-    const run = runId ? useRunsStore.getState().byId(runId) : undefined
+    const run = get().resumableRun(id, nodeId) ?? (node.executionId && !node.executionId.startsWith("session:") ? useRunsStore.getState().byId(node.executionId) : undefined)
+    const runId = run?.id
     if (!runId || !run) {
-      log(set, nodeId, "⚠ nothing to resume: this box has no orchestration run (run it with Enter instead)")
+      log(set, nodeId, "⚠ nothing to resume: this box has no unfinished orchestration run (run it with Enter instead)")
       return false
     }
+    if (node.executionId !== runId) get().updateNode(id, nodeId, { executionId: runId })
     if (get().running[nodeId] || run.status === "running") {
       log(set, nodeId, "⚠ already running")
       return false
@@ -1656,7 +1675,9 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
   const digest = buildFolders[0] && !isOrchestration(ai.data.mode) ? await backend.repoDigest(cwd, 10 * 1024).catch(() => "") : ""
   const prompt = buildAiPrompt({ purpose, wired, extraPrompt: opts?.extraPrompt, instructions: ai.data.instructions, existingProjectAt: buildFolders[0] ? cwd : undefined, digest, refPaths, stubs, fills, converterTool: converterTool && ai.data.mode !== "orchestration", imageTool: Boolean(providerInfo(parseModelRef(mainRef).providerId as ProviderId).capabilities.image), role, reports })
   // Orchestration gets a fresh run id after planning; drop the old one so badges do not show a previous run's tokens meanwhile.
-  store.updateNode(bpId, aiId, { status: "running", note: undefined, executionId: isOrchestration(ai.data.mode) ? undefined : ai.executionId })
+  // The box keeps its link to the previous run until the new run exists (2026-10-05: an accidental double-click cleared
+  // it during planning, the re-run was cancelled, and the unfinished run could no longer be resumed).
+  store.updateNode(bpId, aiId, { status: "running", note: undefined })
   // Reserve the node NOW: planning takes a minute, and a second Enter/`silent bp` in that window used to start a
   // second orchestration on the same folder (2026-09-29, two runs 12 s apart). The real cancel handle replaces this.
   useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: s.running[aiId] ?? (() => undefined) } }))
