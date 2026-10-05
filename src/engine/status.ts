@@ -12,6 +12,8 @@ export interface StatusSnapshot {
   runs: Array<{ id: string; status: string; done: number; total: number; tokens: number; createdAt: number; stalled?: StalledTask[]; /** Ready tasks waiting for a slot because the host cap is below the run's own limit. */ waitingSlots?: { ready: number; cap: number } }>
   /** Subtasks waiting on a SILENT_QUESTION answer (`silent bp answer …`), so a stalled chain is visible from the shell. */
   blocked: Array<{ runId: string; subtaskId: string; title: string; question: string; blueprint?: string; node?: string; /** When Silent will answer it itself (ms), if auto-answer is on. */ autoAnswerAt?: number }>
+  /** Tasks waiting for a quota reset because no other model in their pool can take them (2026-10-05). */
+  quotaWaits: Array<{ runId: string; subtaskId: string; title: string; until: number }>
   /** Model Plus boxes waiting for the user's asset deliveries (2026-10-05). */
   waiting: Array<{ blueprint: string; blueprintId: string; node: string; nodeId: string; pending: Array<{ name: string; kind: string; frames: number; frameSize?: string; status: string }>; deliverCmd: string }>
 }
@@ -71,6 +73,9 @@ export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; h
         const owner = i.blueprints.flatMap((b) => b.nodes.filter((n) => n.executionId === r.id).map((n) => ({ blueprint: b.name, node: ("title" in n.data && typeof n.data.title === "string" && n.data.title) || n.id })))[0]
         return r.plan.filter((s) => s.state === "blocked").map((s) => ({ runId: r.id, subtaskId: s.id, title: s.title, question: s.question ?? "", blueprint: owner?.blueprint, node: owner?.node, autoAnswerAt: i.autoAnswerMs && s.lastUpdate ? s.lastUpdate + i.autoAnswerMs : undefined }))
       }),
+    quotaWaits: i.runs
+      .filter((r) => r.status === "running")
+      .flatMap((r) => r.plan.filter((s) => s.waitingUntil && s.waitingUntil > now).map((s) => ({ runId: r.id, subtaskId: s.id, title: s.title, until: s.waitingUntil! }))),
     waiting: i.blueprints.flatMap((b) =>
       b.nodes
         .filter((n) => n.type === "model" && n.status === "waiting" && n.data.type === "model")

@@ -1,6 +1,6 @@
 import { CONVERTER_TOOLKIT, IMAGE_TOOL_HINT } from "./blueprint/prompt"
 import { shellNotes } from "@/lib/platform"
-import { isModelRejected } from "./modelErrors"
+import { isModelRejected, quotaResetAt } from "./modelErrors"
 import { providerInfo } from "@/providers/registry"
 import { parseModelRef, type ProviderId } from "@/domain"
 import type { Attempt, ProviderModel, RoutingDecision, RunReport, SilentCodeRun, Subtask, WorkerState } from "@/domain"
@@ -64,6 +64,10 @@ export interface ExecutorOptions {
   maxQuestions?: number
   /** Unattended runs: a SILENT_QUESTION nobody answers within this many ms gets `AUTO_ANSWER` (0/undefined = wait forever). */
   autoAnswerMs?: number
+  /** Longest wait for a quota reset when no other model can take a task (default 6 h); longer resets fail the task. */
+  maxQuotaWaitMs?: number
+  /** Browser tasks may fall back to a browser-capable catalog model outside the pool when the pool has none left. */
+  browserFallbackOutsidePool?: boolean
   /** Shared project context (e.g. docs/ARCHITECTURE-BRIEF.md) prepended to every brief; updatable while running. */
   context?: string
   /** English product spec from the planner; every worker builds against it. */
@@ -103,6 +107,10 @@ export class Executor {
   private splitChildren = new Set<string>()
   /** Models rejected (quota, limit, no access) during this run: no later subtask starts on them. */
   private dead = new Set<string>()
+  /** Models out of quota with a known reset time (ms): tasks that have no other model wait until then. */
+  private deadUntil = new Map<string, number>()
+  /** Wakers of tasks waiting for a quota reset (cancel resolves them). */
+  private quotaWaiters = new Map<string, () => void>()
   /** Subtasks the user asked to hand over → target model ref or "auto". */
   private handoverTo = new Map<string, string>()
   /** Index into `subtask.commands` where the current attempt started (handover briefs list only that attempt's commands). */
@@ -140,6 +148,8 @@ export class Executor {
     this.handles.clear()
     for (const w of this.waiters.values()) w(null)
     this.waiters.clear()
+    for (const w of this.quotaWaiters.values()) w()
+    this.quotaWaiters.clear()
     for (const s of this.subtasks.values()) {
       if (!isTerminalState(s.state)) this.setState(s, "failed", s.progress, "cancelled")
     }
@@ -260,19 +270,32 @@ export class Executor {
         (s) => !isTerminalState(s.state) && !running.has(s.id) && s.state !== "blocked" && s.dependsOn.every((d) => this.subtasks.get(d)?.state === "completed"),
       )
       const cap = Math.min(limit, Math.max(1, this.opts.concurrency?.() ?? Infinity))
-      let started = 0
+      // One browser session per provider at a time: parallel browser checks on one account burn its quota together
+      // (2026-10-05: three Antigravity sessions at once, the quota was gone in 25 min).
+      const providerOf = (id: string) => (this.routing.get(id)?.primaryModelId ?? "").split(":")[0]
+      const browserBusy = new Set([...running.keys()].filter((id) => this.subtasks.get(id)?.needsBrowser).map(providerOf))
+      let heldForBrowser = 0
+      const notStarted: Subtask[] = []
       for (const s of ready) {
-        if (running.size >= cap) break
+        if (running.size >= cap) {
+          notStarted.push(s)
+          continue
+        }
+        if (s.needsBrowser && browserBusy.has(providerOf(s.id))) {
+          heldForBrowser += 1
+          continue
+        }
+        if (s.needsBrowser) browserBusy.add(providerOf(s.id))
         const p = this.execute(s.id).finally(() => running.delete(s.id))
         running.set(s.id, p)
-        started += 1
       }
       // Visibility (2026-10-05): ready tasks held back by the HOST cap (not the run's own limit) are reported.
-      const waiting = cap < limit ? ready.length - started : 0
+      const waiting = cap < limit ? notStarted.length : 0
+      void heldForBrowser
       if (waiting !== lastCapped.ready || (waiting > 0 && cap !== lastCapped.cap)) {
         lastCapped = { ready: waiting, cap }
         this.bus.emit({ type: "run.capped", runId: this.run.id, ready: waiting, cap, at: this.now() })
-        const first = ready[started]
+        const first = notStarted[0]
         if (waiting > 0 && first) this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: first.id, line: { ts: this.now(), stream: "system", text: `⏸ ${waiting} ready task(s) wait for a slot — host busy (cap ${cap})` } })
       }
       if (running.size === 0) break
@@ -318,13 +341,14 @@ export class Executor {
     const tried: string[] = []
     let attemptNo = 0
     if (this.dead.has(modelId)) {
-      const alt = nextModel(decision, [], this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true })
-      if (!alt) {
-        this.setState(subtask, "failed", 0, `no usable model: ${modelId} is out of quota`)
+      const alt = nextModel(decision, [], this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true }) ?? this.outsidePoolBrowser(subtask, [modelId])
+      if (alt) {
+        this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ ${modelId} is out of quota in this run — starting on ${alt.modelId}` } })
+        modelId = alt.modelId
+      } else if (!(await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId)))) {
+        if (!this.cancelled) this.setState(subtask, "failed", 0, `no usable model: ${modelId} is out of quota`)
         return
       }
-      this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ ${modelId} is out of quota in this run — starting on ${alt.modelId}` } })
-      modelId = alt.modelId
     }
     let handoverFrom: { modelId: string; reason: string; lastMessage?: string; commandsFrom: number } | undefined
 
@@ -442,8 +466,22 @@ export class Executor {
       if (this.cancelled) return
       tried.push(modelId)
       const isReject = rejected(result)
-      if (isReject) this.dead.add(modelId)
-      const next = nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: isReject })
+      if (isReject) {
+        this.dead.add(modelId)
+        const until = quotaResetAt(result.error ?? "", this.now())
+        if (until) this.deadUntil.set(modelId, until)
+      }
+      const next = nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: isReject }) ?? (isReject ? this.outsidePoolBrowser(subtask, tried) : null)
+      // No other model can take it (2026-10-05: both browser checks of a run failed when the only browser-capable CLI in
+      // the pool hit its quota): wait for the reset the error announced, then continue on the same model.
+      if (isReject && !next && !result.blocked) {
+        if (await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))) {
+          handoverFrom = { modelId, reason: `quota reset — continuing after "${(result.error ?? "").slice(0, 120)}"`, lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
+          cause = "handover"
+          continue
+        }
+        if (this.cancelled) return
+      }
       if (result.blocked) {
         // Unanswered after the question budget: leave it blocked so the user can still answer later.
         this.setState(subtask, "failed", subtask.progress, result.question)
@@ -459,6 +497,54 @@ export class Executor {
       modelId = next.modelId
       cause = nextCause
     }
+  }
+
+  /**
+   * A browser task whose pool has no browser-capable model left may use one from the catalog when the user allowed it
+   * (Settings → browser fallback outside the pool). Highest tier first.
+   */
+  private outsidePoolBrowser(subtask: Subtask, tried: string[]): { modelId: string; cause: "fallback" } | null {
+    if (!subtask.needsBrowser || !this.opts.browserFallbackOutsidePool) return null
+    const rank: Record<string, number> = { fast: 0, strong: 1, frontier: 2 }
+    const pick = this.models
+      .all()
+      .filter((m) => providerInfo(m.providerId).capabilities.browser)
+      .map((m) => ({ ref: `${m.providerId}:${m.id}`, m }))
+      .filter((x) => !this.dead.has(x.ref) && !tried.includes(x.ref) && !this.run.modelPool.includes(x.ref))
+      .sort((a, b) => (rank[b.m.tier] ?? 0) - (rank[a.m.tier] ?? 0))[0]
+    if (!pick) return null
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: subtask.id, line: { ts: this.now(), stream: "system", text: `↪ no browser-capable model left in the pool — using ${pick.ref} from outside the pool (Settings: browser fallback)` } })
+    return { modelId: pick.ref, cause: "fallback" }
+  }
+
+  /** Wait (state "waiting") until `modelId`'s quota resets; false when no reset time is known, it is too far away, or the run was cancelled. */
+  private async waitForQuota(subtask: Subtask, modelId: string, until: number | undefined): Promise<boolean> {
+    const now = this.now()
+    const max = this.opts.maxQuotaWaitMs ?? 6 * 3_600_000
+    if (!until || until - now > max || this.cancelled) return false
+    const at = new Date(until)
+    const hhmm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`
+    const reason = `${modelId} is out of quota and no other model in the pool can take this task — waiting until ${hhmm}`
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: subtask.id, line: { ts: now, stream: "system", text: `⏳ ${reason}, then resuming on it` } })
+    subtask.waitingUntil = until
+    this.setState(subtask, "waiting", subtask.progress)
+    this.bus.emit({ type: "subtask.deferred", runId: this.run.id, subtaskId: subtask.id, until, reason, at: now })
+    // A minute of slack after long waits: providers reset on their own clock.
+    const delay = Math.max(0, until - now) + (until - now > 60_000 ? 60_000 : 0)
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, delay)
+      this.quotaWaiters.set(subtask.id, () => {
+        clearTimeout(t)
+        resolve()
+      })
+    })
+    this.quotaWaiters.delete(subtask.id)
+    subtask.waitingUntil = undefined
+    this.bus.emit({ type: "subtask.deferred", runId: this.run.id, subtaskId: subtask.id, until: 0, reason: "quota reset", at: this.now() })
+    if (this.cancelled) return false
+    this.dead.delete(modelId)
+    this.deadUntil.delete(modelId)
+    return true
   }
 
   /** HANDOVER brief: the normal brief plus what the previous worker already did, so the new model continues instead of restarting. */
@@ -709,6 +795,11 @@ export class Executor {
     const providerNotes = [
       caps.browser ? "A real browser can be launched here (Playwright/Chromium) when the task needs it." : "This sandbox CANNOT launch a browser (Chromium/Playwright fail on mach-port check-in); local dev servers, curl and headless Node checks work. Do not retry browser launches; report it under SILENT_DEVIATIONS.",
       ...(caps.image ? [IMAGE_TOOL_HINT] : []),
+      // 2026-10-05: two Antigravity browser checks made ~150 tool calls each in 20 min, polling background tasks with
+      // `manage_task Action=status`, and exhausted the account quota for four hours.
+      ...(modelId.startsWith("antigravity:")
+        ? ["Antigravity: do NOT start background tasks with manage_task and never poll a task's status — every tool call costs quota. Run commands yourself in the foreground with a cap (`timeout 600 npx playwright test <one spec>`), read only the files you need, and stop as soon as the check is answered."]
+        : []),
     ]
     const task = [
       "# TASK",

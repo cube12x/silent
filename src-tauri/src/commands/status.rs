@@ -298,6 +298,15 @@ pub fn render_status(text: &str) -> String {
             s("question").unwrap_or("").lines().next().unwrap_or("")
         ));
     }
+    for q in v.get("quotaWaits").and_then(|b| b.as_array()).unwrap_or(&empty) {
+        let until = q.get("until").and_then(|x| x.as_i64()).unwrap_or(0);
+        let mins = if now > 0 && until > now { (until - now) / 60_000 } else { 0 };
+        out.push_str(&format!(
+            "⏳ QUOTA WAIT {} — resumes in {} min (the only usable model is out of quota)\n",
+            q.get("title").and_then(|x| x.as_str()).unwrap_or("?"),
+            mins
+        ));
+    }
     for w in v.get("waiting").and_then(|b| b.as_array()).unwrap_or(&empty) {
         let pending = w.get("pending").and_then(|p| p.as_array()).cloned().unwrap_or_default();
         let items: Vec<String> = pending
@@ -492,6 +501,14 @@ mod tests {
         assert!(s.contains("pgrep -f \"^/Applications/Silent.app/Contents/MacOS/silent$\""), "{s}");
         assert!(!s.contains("pgrep -x silent"));
         assert!(s.matches("sleep").count() >= 2, "{s}");
+    }
+
+    #[test]
+    fn render_status_prints_quota_waits() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let text = format!(r#"{{"at":{now},"blueprints":[],"runs":[],"quotaWaits":[{{"runId":"r1","subtaskId":"b0","title":"Browser check","until":{}}}]}}"#, now + 95 * 60_000 + 20_000);
+        let out = render_status(&text);
+        assert!(out.contains("⏳ QUOTA WAIT Browser check — resumes in 95 min"), "{out}");
     }
 
     #[test]

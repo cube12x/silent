@@ -85,6 +85,8 @@ export interface Subtask {
   verify?: string
   /** Worker asked the user something and is waiting (state = blocked). */
   question?: string
+  /** The only usable model is out of quota: the task waits (state = waiting) until this time (ms), then resumes on it. */
+  waitingUntil?: number
   answers: string[]
   /** Things the worker reported it did differently from the request. */
   deviations: string[]

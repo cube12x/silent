@@ -150,6 +150,8 @@ export function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       return patch(e.subtaskId, (s) => ({ ...s, summary: e.summary, attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "success", finishedAt: e.at } : a)) }))
     case "subtask.question":
       return patch(e.subtaskId, (s) => ({ ...s, question: e.question, state: "blocked", attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "failure", finishedAt: e.at, error: `question: ${e.question}` } : a)) }))
+    case "subtask.deferred":
+      return patch(e.subtaskId, (s) => ({ ...s, waitingUntil: e.until > 0 ? e.until : undefined }))
     case "subtask.answered":
       return patch(e.subtaskId, (s) => ({ ...s, question: undefined, answers: [...s.answers, e.answer] }))
     case "subtask.deviations":
@@ -366,7 +368,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     // The polish reviewer must be able to launch a browser (it play-tests); only then the strongest tier.
     const pw = dosageWeights(useSettingsStore.getState().settings)
     const polishModel = [...poolModels].filter((m) => pw[m.providerId] > 0).sort((a, b) => Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser) || TIER_RANK[b.tier] - TIER_RANK[a.tier] || pw[b.providerId] - pw[a.providerId])[0]
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap(), warmSessions: useSettingsStore.getState().settings.warmSessions !== false, autoAnswerMs: Math.max(0, useSettingsStore.getState().settings.autoAnswerAfterMin ?? 10) * 60_000 })
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap(), warmSessions: useSettingsStore.getState().settings.warmSessions !== false, autoAnswerMs: Math.max(0, useSettingsStore.getState().settings.autoAnswerAfterMin ?? 10) * 60_000, browserFallbackOutsidePool: useSettingsStore.getState().settings.browserFallbackOutsidePool === true })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
     const loadContext = async () => {

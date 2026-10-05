@@ -45,6 +45,8 @@ export interface Settings {
   providerDosage?: Partial<Record<ProviderId, Dosage>>
   /** Minutes a worker's SILENT_QUESTION may wait before Silent answers it with "decide yourself, document it" (0 = never; default 10). 2026-10-05: questions waited 37–44 min with nobody at the screen. */
   autoAnswerAfterMin?: number
+  /** When no browser-capable model is left in a run's pool (quota, auth), use one from the catalog (e.g. Claude) instead of waiting for the reset. Off by default: it can cost more than the pool the user chose. */
+  browserFallbackOutsidePool?: boolean
 }
 export type Dosage = "none" | "minimal" | "low" | "medium" | "high"
 export const DOSAGE_LEVELS: Dosage[] = ["none", "minimal", "low", "medium", "high"]

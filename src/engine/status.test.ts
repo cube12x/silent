@@ -113,3 +113,12 @@ describe("host-capped runs show their waiting slots (2026-10-05)", () => {
     expect(s.host).toMatchObject({ cpuIdlePct: 52, memPressure: 2, level: "ok" })
   })
 })
+
+describe("quota waits are visible (2026-10-05)", () => {
+  it("a task waiting for a quota reset is listed with its resume time", () => {
+    const r = { id: "r8", status: "running", createdAt: 5, plan: [{ id: "b0", title: "Browser check", state: "waiting", waitingUntil: 9_000_000 }] } as unknown as Run
+    const s = buildStatusSnapshot({ blueprints: [], runs: [r], pendingUpdate: null, now: 1_000 })
+    expect(s.quotaWaits).toEqual([{ runId: "r8", subtaskId: "b0", title: "Browser check", until: 9_000_000 }])
+    expect(buildStatusSnapshot({ blueprints: [], runs: [r], pendingUpdate: null, now: 9_500_000 }).quotaWaits).toEqual([])
+  })
+})

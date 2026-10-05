@@ -884,3 +884,76 @@ describe("host-capped slots are reported (2026-10-05 time-waste hunt)", () => {
     expect(applyEvent(a, { type: "run.capped", runId: run.id, ready: 0, cap: 1, at: 2 }).waitingSlots).toBeUndefined()
   })
 })
+
+describe("quota exhaustion on the only browser-capable model (2026-10-05)", () => {
+  const MODELS = [
+    { id: "gemini-3.8-flash-high", providerId: "antigravity" as const, displayName: "Gemini 3.8 Flash", source: "catalog" as const, tier: "fast" as const },
+    { id: "gpt-5.6-terra", providerId: "codex" as const, displayName: "Terra", source: "catalog" as const, tier: "strong" as const },
+    { id: "sonnet", providerId: "claude" as const, displayName: "Claude Sonnet", source: "alias" as const, tier: "strong" as const },
+  ]
+  const POOL = ["antigravity:gemini-3.8-flash-high", "codex:gpt-5.6-terra"]
+  const browserRun = (n: number): SilentCodeRun => {
+    const plan = Array.from({ length: n }, (_, i) => ({ id: `b${i}`, runId: "run_q", kind: "testing" as SubtaskKind, title: `Browser check ${i}`, description: "play it", dependsOn: [], state: "waiting" as const, attempts: [], files: [], commands: [], weight: 1 as const, progress: 0, lastUpdate: 0, answers: [], deviations: [], needsBrowser: true }))
+    const routing = plan.map((p) => ({ subtaskId: p.id, kind: p.kind, primaryModelId: POOL[0]!, fallbackModelIds: [], reason: "browser", score: 1 }))
+    return { id: "run_q", title: "q", prompt: "q", modelPool: POOL, executionMode: "parallel", costMode: "balanced", plan, routing, status: "planned", estimate: { minutes: 1, tokens: 1, costUsd: 0 } as never, createdAt: 0 } as SilentCodeRun
+  }
+  class QuotaWorker implements Worker {
+    readonly id = "q"
+    jobs: WorkerJob[] = []
+    running = 0
+    maxRunningAgy = 0
+    quotaLeft: number
+    constructor(quotaLeft: number) {
+      this.quotaLeft = quotaLeft
+    }
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.jobs.push(job)
+      sink.session(`s-${this.jobs.length}`)
+      const agy = job.modelId.startsWith("antigravity:")
+      if (agy) this.running += 1
+      this.maxRunningAgy = Math.max(this.maxRunningAgy, this.running)
+      const done = new Promise<import("./workers/Worker").WorkerResult>((resolve) => setTimeout(() => {
+        if (agy) this.running -= 1
+        if (agy && this.quotaLeft <= 0) return resolve({ ok: false, summary: "quota", error: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 0h0m1s.", retryable: false })
+        if (agy) this.quotaLeft -= 1
+        resolve({ ok: true, summary: "checked" })
+      }, 20))
+      return { done, cancel: async () => {} }
+    }
+  }
+  it("waits for the announced reset and finishes on the same model instead of failing the run", async () => {
+    const worker = new QuotaWorker(0)
+    const bus = new EventBus()
+    const events = collect(bus)
+    const exec = new Executor(browserRun(1), () => worker, bus, { models: MODELS })
+    worker.quotaLeft = 0
+    setTimeout(() => (worker.quotaLeft = 5), 300) // the quota "resets"
+    const status = await exec.start()
+    expect(status).toBe("completed")
+    const deferred = events.filter((e) => e.type === "subtask.deferred")
+    expect(deferred.length).toBe(2) // waiting, then resumed
+    expect(worker.jobs.every((j) => j.modelId.startsWith("antigravity:"))).toBe(true)
+  }, 10_000)
+  it("with the outside-pool browser fallback on, a browser task moves to a catalog model (Claude) at once", async () => {
+    const worker = new QuotaWorker(0)
+    const exec = new Executor(browserRun(1), () => worker, new EventBus(), { models: MODELS, browserFallbackOutsidePool: true })
+    const status = await exec.start()
+    expect(status).toBe("completed")
+    expect(worker.jobs.map((j) => j.modelId)).toEqual(["antigravity:gemini-3.8-flash-high", "claude:sonnet"])
+  })
+  it("never runs two browser sessions on the same provider at once", async () => {
+    const worker = new QuotaWorker(10)
+    const exec = new Executor(browserRun(3), () => worker, new EventBus(), { models: MODELS })
+    expect(await exec.start()).toBe("completed")
+    expect(worker.maxRunningAgy).toBe(1)
+  })
+  it("Antigravity briefs forbid manage_task polling", async () => {
+    const worker = new QuotaWorker(10)
+    const exec = new Executor(browserRun(1), () => worker, new EventBus(), { models: MODELS })
+    await exec.start()
+    expect(worker.jobs[0]!.brief).toMatch(/manage_task/)
+  })
+})
