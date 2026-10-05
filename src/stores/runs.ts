@@ -81,6 +81,8 @@ interface RunsState {
   /** AI plan through a real CLI (read-only); falls back to the heuristic plan. */
   plan(input: DraftInput): Promise<PlanResult>
   start(run: SilentCodeRun): Promise<void>
+  /** Kaldığı yerden devam: start a failed/cancelled run again with its completed tasks kept; only the rest runs. False when there is nothing to resume. */
+  resume(runId: string): Promise<boolean>
   /** Answer a blocked subtask's question; its CLI session resumes. */
   answer(runId: string, subtaskId: string, text: string): boolean
   /** Görevi böl: stop the running attempt and let the worker hand the rest back as parallel sub-tasks. */
@@ -463,6 +465,15 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     void executor.start().catch((e) => reportError(e, "run"))
   },
 
+  async resume(runId) {
+    const run = get().byId(runId)
+    if (!run || run.status === "running" || get().executors[runId]) return false
+    if (run.plan.every((s) => s.state === "completed")) return false
+    // Completed tasks keep their state, summary and files; every other task starts fresh (its attempts stay as history).
+    const plan = run.plan.map((s) => (s.state === "completed" ? s : { ...s, state: "waiting" as const, progress: 0, question: undefined, waitingUntil: undefined }))
+    await get().start({ ...run, plan, status: "planned", finishedAt: undefined })
+    return true
+  },
   answer(runId, subtaskId, text) {
     return get().executors[runId]?.answer(subtaskId, text) ?? false
   },

@@ -251,6 +251,8 @@ export interface AutorunRef {
   fix?: { problem: string; files: string[]; run?: boolean }
   /** `silent bp deliver …`: files handed to a Model Plus box (absolute paths) and an optional request name. */
   deliver?: { paths: string[]; for?: string }
+  /** `silent bp resume …`: continue the box's failed orchestration run (completed tasks kept). */
+  resume?: boolean
   /** `silent bp edit "<blueprint>" "<change>"`: let the designer modify that blueprint in place. */
   edit?: string
 }

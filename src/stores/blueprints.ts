@@ -58,7 +58,9 @@ interface BlueprintsState {
   addEdge(id: string, from: string, to: string): string | null
   removeEdge(id: string, edgeId: string): void
   /** Execute from a node forward (Start/Enter): every AI reachable through wires, in order. */
-  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string }): Promise<void>
+  run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string; /** Walk on from this node without running the node itself. */ skipHead?: boolean }): Promise<void>
+  /** Kaldığı yerden devam: an orchestration box whose run failed or was cancelled resumes that run (completed tasks kept) and, when it completes, walks on to the boxes behind it. */
+  resumeBox(id: string, nodeId: string): Promise<boolean>
   cancel(id: string, nodeId: string): Promise<void>
   /** `silent cancel`: stop every running box of every blueprint; returns how many were stopped. */
   cancelAll(): Promise<number>
@@ -443,6 +445,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     let plan = walkPlan(bp, nodeId)
     if (opts?.only) plan = plan.slice(0, 1)
+    if (opts?.skipHead && plan[0] && plan[0].kind !== "parallel" && plan[0].node.id === nodeId) plan = plan.slice(1)
+    if (opts?.skipHead && !plan.length) return
     if (!plan.length) {
       log(set, nodeId, "⚠ no AI wired forward from this node")
       return
@@ -568,6 +572,47 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         break
       }
     }
+  },
+  async resumeBox(id, nodeId) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "ai") return false
+    const runId = node.executionId && !node.executionId.startsWith("session:") ? node.executionId : undefined
+    const run = runId ? useRunsStore.getState().byId(runId) : undefined
+    if (!runId || !run) {
+      log(set, nodeId, "⚠ nothing to resume: this box has no orchestration run (run it with Enter instead)")
+      return false
+    }
+    if (get().running[nodeId] || run.status === "running") {
+      log(set, nodeId, "⚠ already running")
+      return false
+    }
+    if (useUpdatesStore.getState().pending) {
+      log(set, nodeId, "⏸ an app update is queued (silent update) — resume after it is installed")
+      return false
+    }
+    const done = run.plan.filter((s) => s.state === "completed").length
+    useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: () => useRunsStore.getState().cancel(runId) } }))
+    try {
+      get().updateNode(id, nodeId, { status: "running", note: `resuming · ${done}/${run.plan.length} done` })
+      log(set, nodeId, `↻ resuming ${runId}: ${done}/${run.plan.length} tasks already done, the rest runs now`)
+      const started = await useRunsStore.getState().resume(runId)
+      if (!started) {
+        get().updateNode(id, nodeId, { status: run.plan.every((s) => s.state === "completed") ? "done" : "failed", note: undefined })
+        log(set, nodeId, "⚠ nothing left to resume")
+        return false
+      }
+      const status = await waitForRun(runId)
+      const final = useRunsStore.getState().byId(runId)
+      addTokens(id, nodeId, (final?.plan ?? []).reduce((n, st) => n + (st.tokens ?? 0), 0) - run.plan.reduce((n, st) => n + (st.tokens ?? 0), 0))
+      get().updateNode(id, nodeId, { status: status === "completed" ? "done" : "failed", note: status === "completed" ? undefined : status })
+      log(set, nodeId, status === "completed" ? "✓ resumed run completed — the chain walks on" : `✖ resumed run ${status}`)
+      if (status !== "completed") return false
+    } finally {
+      releaseRunning(nodeId)
+    }
+    await get().run(id, nodeId, { skipHead: true })
+    return true
   },
   async cancel(id, nodeId) {
     const stop = get().running[nodeId]

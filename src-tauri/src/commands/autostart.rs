@@ -110,6 +110,15 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "deliver": { "paths": paths, "for": for_name } } }));
         }
+        Some("resume") => {
+            // silent bp resume <blueprint> <box>  → continue the box's failed orchestration run from where it stopped.
+            let bpref = rest.get(i + 1).cloned().unwrap_or_default();
+            let node = rest.get(i + 2).cloned().unwrap_or_default();
+            if bpref.is_empty() || node.is_empty() {
+                return Err("usage: silent bp resume <blueprint name|id> <box title|id>".into());
+            }
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "resume": true } }));
+        }
         Some("answer") => {
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let node = rest.get(i + 2).cloned().unwrap_or_default();
@@ -121,7 +130,7 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>]".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box>".into())
         }
     };
     Ok(json!({
@@ -376,6 +385,15 @@ mod tests {
         assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 3})));
         assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), None);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn parses_resume() {
+        let v = parse_argv(&argv("bp resume Mario Build"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["ref"], "Mario");
+        assert_eq!(v["blueprint"]["node"], "Build");
+        assert_eq!(v["blueprint"]["resume"], true);
+        assert!(parse_argv(&argv("bp resume Mario"), None).is_err());
     }
 
     #[test]

@@ -341,6 +341,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
         <div className="flex gap-1">
           {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify" || node.type === "model") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
+          {node.type === "ai" && !running && node.status === "failed" && run && run.status !== "running" && run.plan.some((st) => st.state === "completed") && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().resumeBox(bpId, node.id)} title={t("bp.resumeHint")}>↻ {t("bp.resume")}</NeonButton>}
           {node.type === "ai" && d.type === "ai" && (running || node.status === "failed") && <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen((v) => !v)} title={t("bp.handoverHint")}>↪ {t("bp.handover")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
@@ -748,6 +749,11 @@ export function BlueprintScreen() {
         return
       }
       navigate(`/blueprint/${target.bp.id}`)
+      if (autorun.resume) {
+        console.warn("[autostart] blueprint resume", target.bp.id, target.node.id)
+        void st.resumeBox(target.bp.id, target.node.id)
+        return
+      }
       if (autorun.deliver) {
         const n = await st.modelDeliver(target.bp.id, target.node.id, autorun.deliver.paths, autorun.deliver.for)
         console.warn("[autostart] model deliver", target.bp.id, target.node.id, `${n} file(s)`)
