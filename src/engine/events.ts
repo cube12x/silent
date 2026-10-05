@@ -4,7 +4,7 @@ import type { Subtask, Attempt, RunReport, RunStatus, TerminalLine, WorkerState 
 export type RunEvent =
   | { type: "run.started"; runId: string; at: number }
   | { type: "run.status"; runId: string; status: RunStatus; at: number }
-  | { type: "subtask.state"; runId: string; subtaskId: string; state: WorkerState; progress?: number; at: number }
+  | { type: "subtask.state"; runId: string; subtaskId: string; state: WorkerState; progress?: number; at: number; /** Why it failed (state "failed"): persisted on the last attempt. */ error?: string }
   | { type: "subtask.assigned"; runId: string; subtaskId: string; modelId: string; attempt: Attempt; at: number }
   | { type: "subtask.retry"; runId: string; subtaskId: string; modelId: string; attempt: number; reason: string; at: number }
   | { type: "subtask.fallback"; runId: string; subtaskId: string; fromModelId: string; toModelId: string; cause: "fallback" | "escalation" | "handover"; reason: string; at: number }

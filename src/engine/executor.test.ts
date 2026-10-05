@@ -686,3 +686,45 @@ describe("cancel during a warm attempt (2026-10-05)", () => {
     expect(worker.jobs.length).toBe(2)
   })
 })
+
+describe("failure reasons reach the store (2026-10-05 R6) and deadlocked plans never hang (R10)", () => {
+  it("a non-retryable failure emits subtask.state failed with the error, and the run fails with a reason", async () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = run.plan.map((s) => ({ ...s, dependsOn: [] }))
+    class BoomWorker implements Worker {
+      readonly id = "boom"
+      supports() {
+        return true
+      }
+      start(): WorkerHandle {
+        return { done: Promise.resolve({ ok: false, summary: "failed", error: "boom", retryable: false }), cancel: () => undefined }
+      }
+    }
+    const bus = new EventBus()
+    const events: RunEvent[] = []
+    bus.subscribe((e) => events.push(e))
+    const exec = new Executor(run, () => new BoomWorker(), bus, { models: TEST_MODELS, maxRetriesPerModel: 1 })
+    const result = await exec.start()
+    expect(result).toBe("failed")
+    const failed = events.find((e) => e.type === "subtask.state" && e.state === "failed") as Extract<RunEvent, { type: "subtask.state" }> | undefined
+    expect(failed?.error).toBe("boom")
+    const rf = events.find((e) => e.type === "run.failed") as Extract<RunEvent, { type: "run.failed" }> | undefined
+    expect(rf?.reason).toMatch(/Failed: .+/)
+  })
+  it("a dependency cycle fails the involved subtasks with a readable reason instead of waiting forever", async () => {
+    const run = makeRun("Build the backend API and the frontend dashboard", ["codex:gpt-6-astra"], "parallel")
+    const [a, b] = run.plan
+    run.plan = run.plan.map((s) => (s.id === a!.id ? { ...s, dependsOn: [b!.id] } : s.id === b!.id ? { ...s, dependsOn: [a!.id] } : { ...s, dependsOn: [] }))
+    const bus = new EventBus()
+    const events: RunEvent[] = []
+    bus.subscribe((e) => events.push(e))
+    const exec = new Executor(run, () => new ScriptedWorker(), bus, { models: TEST_MODELS })
+    const result = await Promise.race([exec.start(), new Promise<"hang">((r) => setTimeout(() => r("hang"), 2000))])
+    expect(result).toBe("failed")
+    const cyc = events.filter((e) => e.type === "subtask.state" && e.state === "failed") as Array<Extract<RunEvent, { type: "subtask.state" }>>
+    expect(cyc.some((e) => /dependency cycle/.test(e.error ?? ""))).toBe(true)
+    const rf = events.find((e) => e.type === "run.failed") as Extract<RunEvent, { type: "run.failed" }> | undefined
+    expect(rf?.reason).toContain("Failed:")
+    expect(rf?.reason.length).toBeGreaterThan("Failed: ".length)
+  })
+})

@@ -26,6 +26,7 @@ vi.mock("@/services", () => ({
     },
     checkCancel: async (token: string) => { cancels.push(token) },
     cliStart: async () => { throw new Error("no cli in this test") },
+    gitSnapshot: async () => { await new Promise((r) => setTimeout(r, 60)); return "refs/silent/snapshots/1" },
   }),
 }))
 vi.mock("@/engine/blueprint/single", () => ({
@@ -128,6 +129,7 @@ describe("cancelled checks, fixer re-entry, early reservation, continueOnFail (E
     open()
     await Promise.all([first, second])
     expect(singleCalls).toBe(1)
+    await new Promise((r) => setTimeout(r, 150)) // log lines are batched
     expect(logsOf("next")).toMatch(/already running/)
   })
   it("E5: continueOnFail walks on even when the red check has no fixer wired", async () => {
@@ -165,5 +167,29 @@ describe("a waiting Model Plus box stops only its own branch (M3)", () => {
     expect(node("m").status).toBe("waiting")
     expect(node("integ").status).toBeUndefined()
     expect(node("sib").status).toBe("done")
+  })
+})
+
+describe("Anlık Görüntü holds a running handle while git runs (E13)", () => {
+  it("the box is busy during the snapshot and free afterwards", async () => {
+    const g: Blueprint = {
+      id: "b1",
+      name: "T",
+      nodes: [
+        { id: "s", type: "button", x: 0, y: 0, data: { type: "button", kind: "start" } },
+        { id: "b", type: "build", x: 0, y: 0, data: { type: "build", title: "x", folderPath: "/tmp/x", kind: "code" } },
+        { id: "snap", type: "snapshot", x: 0, y: 0, data: { type: "snapshot" } },
+      ],
+      edges: [{ id: "e1", from: "s", to: "b" }, { id: "e2", from: "b", to: "snap" }],
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    useBlueprintsStore.setState({ logs: {}, blueprints: [g], running: {} })
+    const walk = useBlueprintsStore.getState().run("b1", "s")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(useBlueprintsStore.getState().running["snap"]).toBeDefined()
+    await walk
+    expect(useBlueprintsStore.getState().running).toEqual({})
+    expect(node("snap").status).toBe("done")
   })
 })

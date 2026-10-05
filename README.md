@@ -37,8 +37,9 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 | `silent bp answer "<blueprint>" "<kutu>" "<cevap>"` | Bloke bir SILENT_QUESTION'a cevap verir. |
 | `silent bp fix "<blueprint>" "<sorun>" [--file yol]… [--run]` | Tamirci: diyalogu doldurur; `--run` ile hemen koşturur. |
 | `silent status [--json]` | Okunur özet: koşan/kırmızı kutular, koşular, **cevap bekleyen sorular** (`silent bp answer …` komutuyla), yük, bekleyen güncelleme. `--json` ham `status.json` verir. Pencere açmaz. |
-| `silent wait "<blueprint>" "<kutu>" [--timeout dk]` | Kutu done (0) / failed (1) olana dek bekler; betikler için. |
+| `silent wait "<blueprint>" "<kutu>" [--timeout dk]` | Kutu done (0) / failed (1) olana dek bekler; betikler için. Çıkış kodları: 2 bilinmeyen blueprint/kutu, 4 kutu varlık bekliyor (Model Plus), 5 Silent durum yazmıyor (uygulama kapalı?), 3 yalnız `--once` ile "hâlâ koşuyor". |
 | `silent bp deliver "<blueprint>" "<kutu>" <dosya>… [--for <istek>]` | Model Plus kutusuna varlık dosyası teslim eder (eşleştir → dönüştür → doğrula); `silent status` bekleyen istekleri 🎨 WAITING ile listeler. |
+| `silent cancel`, art arda `silent bp …` | Komutlar `<veri klasörü>/autostart/` kuyruğuna tek tek yazılır; 3 sn içinde gelen iki komut artık birbirini ezmez (05.10). |
 | `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). Kurulamayan paket kuyruktan düşer (sonsuz deneme yok); son 60 sn içinde yazılmış paket (derleme sürüyor) bir sonraki boş anda yeniden denenir; `silent update --cancel` kuyruğu boşaltır. |
 | `silent cancel` | Koşan tüm kutuları ve koşuları durdurur. |
 | `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
@@ -116,7 +117,7 @@ Her alt görev türü bir **hedef katmana** gider: testler/dokümanlar → hızl
 
 ## Blueprint (v2.5)
 
-Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ekle, kabloyla bağla, seçili kutuda **Enter** (veya çift tık) ile çalıştır.
+Unreal Blueprint benzeri düğüm/kablo tuvali (5. ekran). Sağ tık → kutu ekle, kabloyla bağla, seçili kutuda **Enter** (veya çift tık) ile çalıştır. **Sade tam ekran** (05.10): başlıktaki tam ekran düğmesi ya da **⌘⇧F** — ekranda yalnız tuval kalır (başlık, sekmeler ve sağ panel gizlenir; sağ üstte ad + Σ token ve Esc düğmesi); **Esc** çıkar.
 
 | Kutu | İş |
 | --- | --- |

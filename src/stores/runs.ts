@@ -101,7 +101,19 @@ interface RunsState {
   pendingQuestions(): Array<{ runId: string; subtaskId: string; question: string }>
 }
 
-function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
+/** Per-run serialised DB writes (the report upsert and the final status upsert used to race); `remove` waits on it. */
+const persistChains = new Map<string, Promise<void>>()
+/** Runs the user deleted: a persist queued afterwards is dropped so the row never comes back. */
+const removedRuns = new Set<string>()
+export function _persistChain(runId: string, fn: () => Promise<void>): Promise<void> {
+  if (removedRuns.has(runId)) return Promise.resolve()
+  const prev = persistChains.get(runId) ?? Promise.resolve()
+  const next = prev.then(fn).catch((err: unknown) => console.error("run upsert failed", err))
+  persistChains.set(runId, next)
+  return next
+}
+
+export function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
   const patch = (id: string, fn: (s: Subtask) => Subtask) => ({ ...run, plan: run.plan.map((s) => (s.id === id ? fn(s) : s)) })
   switch (e.type) {
     case "run.started":
@@ -110,12 +122,21 @@ function applyEvent(run: SilentCodeRun, e: RunEvent): SilentCodeRun {
       return { ...run, status: e.status as RunStatus, finishedAt: e.status === "completed" || e.status === "failed" ? e.at : run.finishedAt }
     case "run.cancelled":
       return { ...run, status: "cancelled", finishedAt: e.at }
+    case "run.failed": {
+      // The reason lands in the report's notes (the only persisted free-text slot on a run).
+      const report = run.report ?? { done: [], deviations: [], openQuestions: [], finishedAt: e.at }
+      return { ...run, status: "failed", finishedAt: e.at, report: { ...report, notes: [...(report.notes ?? []), e.reason] } }
+    }
     case "run.report":
       return { ...run, report: e.report }
     case "subtask.added":
       return { ...run, plan: [...run.plan, e.subtask] }
     case "subtask.state":
-      return patch(e.subtaskId, (s) => ({ ...s, state: e.state, progress: e.progress ?? s.progress, lastUpdate: e.at }))
+      return patch(e.subtaskId, (s) =>
+        e.state === "failed"
+          ? { ...s, state: e.state, progress: e.progress ?? s.progress, lastUpdate: e.at, summary: s.summary ?? e.error, attempts: s.attempts.map((a) => (a.outcome === "running" ? { ...a, outcome: "failure", finishedAt: e.at, error: e.error ?? "failed" } : a)) }
+          : { ...s, state: e.state, progress: e.progress ?? s.progress, lastUpdate: e.at },
+      )
     case "subtask.assigned":
       return patch(e.subtaskId, (s) => ({ ...s, assignedModelId: e.modelId, attempts: [...s.attempts.filter((a) => a.n !== e.attempt.n), e.attempt], lastUpdate: e.at }))
     case "subtask.retry":
@@ -362,9 +383,9 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     mark("run persisted")
     // DB writes for one run are serialized: the report upsert (large JSON) and the final status upsert used to
     // race on the connection pool and could leave the run "running" forever (seen 2026-09-24).
-    let chain: Promise<void> = Promise.resolve()
+    removedRuns.delete(run.id)
     const persist = (r: SilentCodeRun) => {
-      chain = chain.then(() => backend.db.runs.upsert(r)).catch((err: unknown) => console.error("run upsert failed", err))
+      void _persistChain(run.id, () => backend.db.runs.upsert(r))
     }
     if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: `${run.plan.length} subtasks`, ok: true }).catch(() => undefined)
 
@@ -454,17 +475,28 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     return live.length
   },
   async remove(runId) {
+    removedRuns.add(runId)
     get().cancel(runId)
     set({ runs: get().runs.filter((r) => r.id !== runId) })
+    // Let the queued upserts of this run land first, otherwise one of them would resurrect the deleted row.
+    await (persistChains.get(runId) ?? Promise.resolve())
+    persistChains.delete(runId)
     const backend = await getBackend()
     await backend.db.runs.delete(runId)
   },
   async removeAll() {
     const ids = get().runs.map((r) => r.id)
-    for (const id of ids) get().cancel(id)
+    for (const id of ids) {
+      removedRuns.add(id)
+      get().cancel(id)
+    }
     set({ runs: [] })
     const backend = await getBackend()
-    for (const id of ids) await backend.db.runs.delete(id)
+    for (const id of ids) {
+      await (persistChains.get(id) ?? Promise.resolve())
+      persistChains.delete(id)
+      await backend.db.runs.delete(id)
+    }
   },
   async loadTerminal(runId, subtaskId) {
     if (useTerminalStore.getState().lines[subtaskId]?.length || get().executors[runId]) return

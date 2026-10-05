@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Blueprint, SilentCodeRun as Run } from "@/domain"
-import { buildStatusSnapshot, isIdle } from "./status"
+import { STATUS_HEARTBEAT_MS, buildStatusSnapshot, isIdle, statusBody, statusWriteDue } from "./status"
 
 const bp: Blueprint = {
   id: "b1",
@@ -68,5 +68,18 @@ describe("Model Plus waiting boxes and blocked owners in the snapshot (2026-10-0
     expect(s.waiting).toEqual([{ blueprint: "Mario", blueprintId: "b2", node: "Model Plus", nodeId: "m", pending: [{ name: "mario", kind: "sprite-sheet", frames: 12, frameSize: "64x64", status: "pending" }], deliverCmd: 'silent bp deliver "Mario" "Model Plus" <file>' }])
     expect(s.blocked[0]).toMatchObject({ runId: "r2", subtaskId: "t1", blueprint: "Mario", node: "Bölücü 4C" })
     expect(s.blueprints[0]!.nodes[0]).toMatchObject({ type: "model", status: "waiting", tokens: 7 })
+  })
+})
+
+describe("status.json is written only on change or heartbeat (2026-10-05 perf)", () => {
+  it("statusWriteDue: first write, changes and the 30 s heartbeat", () => {
+    const a = buildStatusSnapshot({ blueprints: [bp], runs: [], pendingUpdate: null, now: 1 })
+    const b = buildStatusSnapshot({ blueprints: [bp], runs: [], pendingUpdate: null, now: 2 })
+    expect(statusBody(a)).toBe(statusBody(b)) // `at` is not a change
+    expect(statusWriteDue(undefined, statusBody(a), 0, 1000)).toBe(true)
+    expect(statusWriteDue(statusBody(a), statusBody(b), 1000, 6000)).toBe(false)
+    expect(statusWriteDue(statusBody(a), statusBody(b), 1000, 1000 + STATUS_HEARTBEAT_MS)).toBe(true)
+    const c = buildStatusSnapshot({ blueprints: [bp], runs: [], pendingUpdate: "/tmp/New.app", now: 3 })
+    expect(statusWriteDue(statusBody(a), statusBody(c), 1000, 2000)).toBe(true)
   })
 })

@@ -67,3 +67,20 @@ export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; h
 export function isIdle(i: { running: Record<string, unknown>; runs: Run[] }): boolean {
   return Object.keys(i.running).length === 0 && !i.runs.some((r) => r.status === "running")
 }
+
+/** At most this long between two status.json writes even when nothing changed (`silent wait` treats a 120 s old snapshot as a dead app). */
+export const STATUS_HEARTBEAT_MS = 30_000
+
+/**
+ * Whether the status mirror must be written: the snapshot changed (compared without its `at` stamp) or the heartbeat is
+ * due. 2026-10-05: an idle app serialised and wrote ~25 KB every 5 s for nothing.
+ */
+export function statusWriteDue(prevBody: string | undefined, nextBody: string, lastWriteAt: number, now: number): boolean {
+  if (prevBody === undefined || prevBody !== nextBody) return true
+  return now - lastWriteAt >= STATUS_HEARTBEAT_MS
+}
+
+/** The snapshot without the `at` stamp, for change detection. */
+export function statusBody(snap: StatusSnapshot): string {
+  return JSON.stringify({ ...snap, at: 0 })
+}

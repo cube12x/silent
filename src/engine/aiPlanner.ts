@@ -191,15 +191,21 @@ export async function requestAiPlan(runner: PlannerRunner, ctx: AiPlanContext, m
 
 /** Convert an AI plan into Subtasks (keys → ids, dependency wiring, hints preserved). */
 export function subtasksFromAiPlan(plan: AiPlan, runId: string): Subtask[] {
-  const ids = new Map(plan.subtasks.map((s) => [s.key, newId("st")]))
+  // One id per entry: a duplicated key (the planner repeats itself now and then) must not collapse two tasks into one;
+  // dependencies on a duplicated key resolve to its first occurrence.
+  const ids = plan.subtasks.map(() => newId("st"))
+  const firstIdByKey = new Map<string, string>()
+  plan.subtasks.forEach((s, i) => {
+    if (!firstIdByKey.has(s.key)) firstIdByKey.set(s.key, ids[i]!)
+  })
   const now = Date.now()
   return plan.subtasks.map((s, i) => ({
-    id: ids.get(s.key)!,
+    id: ids[i]!,
     runId,
     kind: s.kind,
     title: s.title,
     description: s.description,
-    dependsOn: s.dependsOn.map((k) => ids.get(k)).filter((x): x is string => Boolean(x) && x !== ids.get(s.key)),
+    dependsOn: Array.from(new Set(s.dependsOn.map((k) => firstIdByKey.get(k)).filter((x): x is string => Boolean(x) && x !== ids[i]))),
     state: "waiting",
     attempts: [],
     files: [],

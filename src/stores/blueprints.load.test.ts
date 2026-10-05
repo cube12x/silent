@@ -3,10 +3,15 @@ import type { Blueprint } from "@/domain"
 import { useBlueprintsStore } from "./blueprints"
 
 let dbRows: Blueprint[] = []
+const statsCalls: string[] = []
 vi.mock("@/services", () => ({
   getBackend: async () => ({
     db: { blueprints: { list: async () => dbRows.map((b) => structuredClone(b)), upsert: async () => undefined } },
     listDir: async () => [],
+    blueprintBuildStats: async (folder: string) => {
+      statsCalls.push(folder)
+      return { fileCount: 1, images: [], newestMs: 0 }
+    },
   }),
 }))
 
@@ -45,5 +50,20 @@ describe("blueprints.load() while boxes run (2026-10-02)", () => {
     dbRows = [{ ...bp("done", 50), name: "renamed" }]
     await useBlueprintsStore.getState().load()
     expect(useBlueprintsStore.getState().byId("b1")!.name).toBe("renamed")
+  })
+})
+
+describe("boot refreshes only the active blueprint's folders (2026-10-05 perf)", () => {
+  it("other blueprints' Build boxes are not scanned until they become active", async () => {
+    statsCalls.length = 0
+    const withBuild = (id: string, folder: string): Blueprint => ({ id, name: id, nodes: [{ id: `${id}-b`, type: "build", x: 0, y: 0, data: { type: "build", title: "x", folderPath: folder, kind: "code", fileCount: 0 } }], edges: [], createdAt: 1, updatedAt: 1 })
+    dbRows = [withBuild("b1", "/tmp/one"), withBuild("b2", "/tmp/two"), withBuild("b3", "/tmp/three")]
+    useBlueprintsStore.setState({ blueprints: [], logs: {}, running: {}, activeId: "b1" })
+    await useBlueprintsStore.getState().load()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(statsCalls).toEqual(["/tmp/one"])
+    useBlueprintsStore.getState().setActive("b3")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(statsCalls).toEqual(["/tmp/one", "/tmp/three"])
   })
 })

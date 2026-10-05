@@ -103,6 +103,15 @@ interface BlueprintsState {
 }
 
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let watchersBusy = false
+
+/** Refresh the folder counts / photo mirrors of one blueprint's Build boxes in the background (the screen the user looks at). */
+function refreshBuildsOf(bpId: string | undefined): void {
+  const st = useBlueprintsStore.getState()
+  const bp = bpId ? st.byId(bpId) : undefined
+  if (!bp) return
+  for (const n of bp.nodes) if (n.type === "build" || n.type === "buildPhoto") void st.refreshBuild(bp.id, n.id).catch(() => undefined)
+}
 const watchSince = new Map<string, number>()
 
 /** Settings › workspace folder (undefined = the backend default, ~/CubeCode). */
@@ -211,7 +220,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     })
     set({ blueprints, activeId: get().activeId ?? blueprints[0]?.id })
     if (!firstLoad) {
-      for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
+      refreshBuildsOf(get().activeId)
       return
     }
     // A node left "running" has no executor after a restart (its run is marked cancelled by the runs store on load).
@@ -227,8 +236,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         }
       }
     }
-    // Folder counts and photo mirrors are derived from disk; refresh them in the background.
-    for (const b of blueprints) for (const n of b.nodes) if (n.type === "build" || n.type === "buildPhoto") void get().refreshBuild(b.id, n.id).catch(() => undefined)
+    // Folder counts and photo mirrors are derived from disk; refresh them in the background — for the ACTIVE blueprint
+    // only (2026-10-05: every start walked the folders of all 18 blueprints, up to 20k entries each).
+    refreshBuildsOf(get().activeId)
   },
   setMeta(id, meta) {
     get().update(id, (bp) => ({ ...bp, meta: { ...(bp.meta ?? {}), ...(meta ?? {}) } }), { history: false })
@@ -327,7 +337,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     get().update(id, (bp) => ({ ...bp, name: name.trim() || bp.name }))
   },
   setActive(id) {
+    const changed = id !== get().activeId
     set({ activeId: id })
+    if (changed) refreshBuildsOf(id)
   },
   byId(id) {
     return id ? get().blueprints.find((b) => b.id === id) : undefined
@@ -819,6 +831,15 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     if (imported) log(set, nodeId, `${imported} image(s) collected`)
   },
   async tickWatchers(id) {
+    // One tick at a time: a wizard call inside can take minutes while the 3 s interval keeps firing (2026-10-05).
+    if (watchersBusy) return
+    watchersBusy = true
+    try {
+      await tick()
+    } finally {
+      watchersBusy = false
+    }
+    async function tick() {
     const bp = get().byId(id)
     if (!bp) return
     const backend = await getBackend()
@@ -853,6 +874,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
           void get().run(id, target.id, { extraPrompt: `Files changed in ${watched.data.folderPath}: ${hits.slice(0, 20).join(", ")}. Use them and continue.`, resume: true }).catch((e) => reportError(e, "blueprint"))
         }
       }
+    }
     }
   },
 }))
@@ -1008,6 +1030,8 @@ async function execSnapshotInner(bpId: string, nodeId: string): Promise<boolean>
     log(set, nodeId, "⚠ wire a Build (or an AI with a build) into this snapshot")
     return false
   }
+  // Hold the box while git runs: the busy guards, `isIdle` and cancel all key on this handle (2026-10-05).
+  useBlueprintsStore.setState((s) => ({ running: { ...s.running, [nodeId]: () => undefined } }))
   store.updateNode(bpId, nodeId, { status: "running", note: undefined })
   try {
     const ref = await (await getBackend()).gitSnapshot(cwd)

@@ -105,7 +105,8 @@ fn real_claude_print_transcript_normalizes_to_expected_sequence() {
     let msg = json.iter().find(|v| v["type"] == "agentMessage").unwrap();
     assert_eq!(msg["data"]["text"], "OK");
     let usage = json.iter().find(|v| v["type"] == "usage").unwrap();
-    assert_eq!(usage["data"]["inputTokens"], 2 + 30835);
+    // Claude: input INCLUDES the cache read (2026-10-05 R7) so the frontend's `input - cached + output` is the uncached work.
+    assert_eq!(usage["data"]["inputTokens"], 2 + 30835 + 10118);
     assert_eq!(usage["data"]["cachedInputTokens"], 10118);
     assert_eq!(usage["data"]["outputTokens"], 4);
     let cost = json.iter().find(|v| v["type"] == "cost").unwrap();

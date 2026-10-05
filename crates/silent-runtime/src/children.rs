@@ -79,9 +79,25 @@ pub fn process_command(pid: u32) -> Option<String> {
 /// A recorded child is ours when it is alive and its command line still starts with the program we spawned.
 pub fn is_ours(rec: &ChildRecord) -> bool {
     match process_command(rec.pid) {
-        Some(cmd) => cmd.starts_with(&rec.program) || cmd.contains(&rec.run_id),
+        Some(cmd) => command_is_ours(&cmd, rec),
         None => false,
     }
+}
+
+/// The command line belongs to the recorded program: it starts with it, carries the run id, or is an npm-shebang
+/// CLI that `ps` shows as `node <program> …` (2026-10-05 R9: those were never reaped).
+pub fn command_is_ours(cmd: &str, rec: &ChildRecord) -> bool {
+    if cmd.starts_with(&rec.program) || (!rec.run_id.is_empty() && cmd.contains(&rec.run_id)) {
+        return true;
+    }
+    let mut toks = cmd.split_whitespace();
+    let first = toks.next().unwrap_or("");
+    if first == rec.program {
+        return true;
+    }
+    // `node /opt/homebrew/bin/codex …`: an interpreter in front of the program we recorded.
+    let interpreter = first == "node" || first.ends_with("/node") || first == "python3" || first.ends_with("/python3") || first == "python" || first.ends_with("/python");
+    interpreter && toks.next() == Some(rec.program.as_str())
 }
 
 /// Terminate a child and everything it started (its process group on unix, the tree on Windows).
@@ -138,6 +154,17 @@ mod tests {
         assert_eq!(*killed.borrow(), vec![11]);
         assert!(load(&p).is_empty());
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn npm_shebang_clis_shown_as_node_program_are_ours() {
+        let rec = ChildRecord { pid: 1, program: "/opt/homebrew/bin/codex".into(), run_id: "run_x".into(), started_ms: 0 };
+        assert!(command_is_ours("node /opt/homebrew/bin/codex exec --json", &rec));
+        assert!(command_is_ours("/opt/homebrew/bin/node /opt/homebrew/bin/codex exec", &rec));
+        assert!(command_is_ours("/opt/homebrew/bin/codex exec", &rec));
+        assert!(command_is_ours("python3 worker.py --run run_x", &rec));
+        assert!(!command_is_ours("node /opt/homebrew/bin/codex-helper", &rec));
+        assert!(!command_is_ours("vim /opt/homebrew/bin/codex", &rec)); // third token: not the program being run
     }
 
     #[test]

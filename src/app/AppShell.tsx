@@ -14,7 +14,7 @@ import { useProvidersStore } from "@/stores/providers"
 import { useSettingsStore } from "@/stores/settings"
 import { useHostStore } from "@/stores/host"
 import { useUpdatesStore } from "@/stores/updates"
-import { buildStatusSnapshot } from "@/engine/status"
+import { buildStatusSnapshot , statusBody, statusWriteDue } from "@/engine/status"
 import { useT } from "@/i18n"
 import { PROVIDER_IDS } from "@/domain"
 import { shouldOpenSetup } from "@/providers/setup"
@@ -40,10 +40,16 @@ export function AppShell() {
   }, [])
   // `silent status` / `silent wait` read a mirror of the app state (2026-10-04): write it every 5 s.
   React.useEffect(() => {
+    let lastBody: string | undefined
+    let lastWriteAt = 0
     const write = async () => {
       try {
         const host = useHostStore.getState()
         const snap = buildStatusSnapshot({ blueprints: useBlueprintsStore.getState().blueprints, runs: useRunsStore.getState().runs, host: host.load ? { load: host.load, level: host.level } : undefined, pendingUpdate: useUpdatesStore.getState().pending })
+        const body = statusBody(snap)
+        if (!statusWriteDue(lastBody, body, lastWriteAt, Date.now())) return
+        lastBody = body
+        lastWriteAt = Date.now()
         await (await getBackend()).statusWrite(JSON.stringify(snap))
       } catch {
         /* dev backend or a transient fs error: the next tick retries */

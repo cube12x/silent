@@ -139,13 +139,23 @@ fn swap_bundle(src: &Path) -> Result<PathBuf, String> {
     if !out.status.success() {
         return Err(format!("ditto: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    let old = target.with_extension("app.old");
-    let _ = std::fs::remove_dir_all(&old);
-    std::fs::rename(&target, &old).map_err(|e| format!("move old bundle: {e}"))?;
-    std::fs::rename(&staging, &target).map_err(|e| format!("move new bundle: {e}"))?;
-    let _ = std::fs::remove_dir_all(&old);
+    swap_dirs(&target, &staging)?;
     log::info!("update applied from {} → relaunching", src.display());
     Ok(target)
+}
+
+/// Move `target` aside and put `staging` in its place; if the second move fails the old bundle is put back so the
+/// installed app never disappears (2026-10-05 bug hunt E9).
+pub fn swap_dirs(target: &Path, staging: &Path) -> Result<(), String> {
+    let old = target.with_extension("app.old");
+    let _ = std::fs::remove_dir_all(&old);
+    std::fs::rename(target, &old).map_err(|e| format!("move old bundle: {e}"))?;
+    if let Err(e) = std::fs::rename(staging, target) {
+        let rolled_back = std::fs::rename(&old, target).is_ok();
+        return Err(format!("move new bundle: {e} ({})", if rolled_back { "rolled back to the previous bundle" } else { "rollback FAILED — reinstall Silent.app from the dmg" }));
+    }
+    let _ = std::fs::remove_dir_all(&old);
+    Ok(())
 }
 
 /// Relaunch after this process has exited; `open` starts the new bundle detached from us.
@@ -162,7 +172,9 @@ fn relaunch(app: AppHandle, target: &Path) {
 /// a loaded host and Silent stayed closed until the user opened it).
 pub fn relaunch_script(target: &Path) -> String {
     let t = target.display().to_string();
-    format!("sleep 1.5; for i in 1 2 3 4 5 6 7 8 9 10; do open -a \"{t}\"; sleep 3; pgrep -x silent >/dev/null && exit 0; done")
+    // Only the GUI process matches: it runs the bundle binary with no arguments. `silent status|wait --once` invocations
+    // of the same binary carry arguments and must not satisfy the check (2026-10-05 E9).
+    format!("sleep 1.5; for i in 1 2 3 4 5 6 7 8 9 10; do open -a \"{t}\"; sleep 3; pgrep -f \"^{t}/Contents/MacOS/silent$\" >/dev/null && exit 0; done")
 }
 
 fn spawn_relauncher(target: &Path) {
@@ -178,17 +190,26 @@ fn spawn_relauncher(target: &Path) {
 /// CLI mode entry: returns `Some(exit code)` when argv was a status/wait/update verb, `None` otherwise.
 pub fn cli_mode(args: &[String], identifier: &str) -> Option<i32> {
     let mut it = args.iter().skip(1).peekable();
+    let mut cwd: Option<PathBuf> = None;
     if it.peek().map(|s| s.as_str()) == Some("--cwd") {
         it.next();
-        it.next();
+        cwd = it.next().map(PathBuf::from);
     }
     let verb = it.next()?;
     let rest: Vec<String> = it.cloned().collect();
     let dir = data_dir_for(identifier)?;
-    run_verb(&dir, verb, &rest)
+    run_verb(&dir, verb, &rest, cwd.as_deref())
 }
 
-fn run_verb(dir: &Path, verb: &str, rest: &[String]) -> Option<i32> {
+/// `silent update ./Silent.app` from a project folder: the launcher passes `--cwd`, so a relative bundle path is
+/// resolved against it (the GUI would otherwise resolve it from `/` and drop the queue, 2026-10-05 E11).
+pub fn resolve_update_source(src: &str, cwd: Option<&Path>) -> String {
+    let raw = PathBuf::from(src);
+    let abs = if raw.is_absolute() { raw } else if let Some(base) = cwd { base.join(raw) } else { raw };
+    abs.canonicalize().unwrap_or(abs).to_string_lossy().to_string()
+}
+
+fn run_verb(dir: &Path, verb: &str, rest: &[String], cwd: Option<&Path>) -> Option<i32> {
     match verb {
         "status" => {
             let json = rest.iter().any(|a| a == "--json");
@@ -207,7 +228,7 @@ fn run_verb(dir: &Path, verb: &str, rest: &[String]) -> Option<i32> {
             Some(0)
         }
         "update" => {
-            let src = rest.first().cloned().unwrap_or_else(|| default_update_source());
+            let src = rest.first().map(|r| resolve_update_source(r, cwd)).unwrap_or_else(|| default_update_source());
             let json = format!("{{\"path\":{},\"queuedAt\":{}}}", serde_json::to_string(&src).unwrap_or_default(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
             match write_atomic(&dir.join(PENDING_UPDATE_FILE), &json) {
                 Ok(()) => {
@@ -407,11 +428,19 @@ pub fn snapshot_age_secs(status_json: &str) -> Option<u64> {
 /// A running box whose snapshot is older than this means the app stopped writing status.
 pub const STALE_SNAPSHOT_SECS: u64 = 120;
 
+/// Case-insensitive name folding that survives Turkish dotted/dotless i: lowercase, drop the combining dot that
+/// `İ` lowercases to (U+0307), and treat `ı` as `i`.
+pub fn fold_name(s: &str) -> String {
+    s.to_lowercase().replace('\u{307}', "").replace('ı', "i")
+}
+
 pub fn node_status_in(status_json: &str, bp: &str, node: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(status_json).ok()?;
     let bps = v.get("blueprints")?.as_array()?;
-    let b = bps.iter().find(|b| b.get("id").and_then(|x| x.as_str()) == Some(bp) || b.get("name").and_then(|x| x.as_str()).is_some_and(|n| n.eq_ignore_ascii_case(bp)))?;
-    let n = b.get("nodes")?.as_array()?.iter().find(|n| n.get("id").and_then(|x| x.as_str()) == Some(node) || n.get("title").and_then(|x| x.as_str()).is_some_and(|t| t.eq_ignore_ascii_case(node)))?;
+    // Unicode-aware, like the TS side: "İdle Oyun" / "DİKİŞ" / "Dikiş" all match (2026-10-05 E10).
+    let same = |a: &str, b: &str| fold_name(a) == fold_name(b);
+    let b = bps.iter().find(|b| b.get("id").and_then(|x| x.as_str()) == Some(bp) || b.get("name").and_then(|x| x.as_str()).is_some_and(|n| same(n, bp)))?;
+    let n = b.get("nodes")?.as_array()?.iter().find(|n| n.get("id").and_then(|x| x.as_str()) == Some(node) || n.get("title").and_then(|x| x.as_str()).is_some_and(|t| same(t, node)))?;
     Some(n.get("status").and_then(|s| s.as_str()).unwrap_or("idle").to_string())
 }
 
@@ -433,7 +462,8 @@ mod tests {
     fn relaunch_script_retries_open_until_a_silent_process_exists() {
         let s = relaunch_script(Path::new("/Applications/Silent.app"));
         assert!(s.contains("open -a \"/Applications/Silent.app\""));
-        assert!(s.contains("pgrep -x silent"));
+        assert!(s.contains("pgrep -f \"^/Applications/Silent.app/Contents/MacOS/silent$\""), "{s}");
+        assert!(!s.contains("pgrep -x silent"));
         assert!(s.matches("sleep").count() >= 2, "{s}");
     }
 
@@ -502,7 +532,7 @@ mod tests {
         assert_eq!(read_pending(&tmp).unwrap(), None);
         clear_pending(&tmp); // idempotent
         write_atomic(&tmp.join(PENDING_UPDATE_FILE), "{\"path\":\"x\"}").unwrap();
-        assert_eq!(run_verb(&tmp, "update", &["--cancel".into()]), Some(0));
+        assert_eq!(run_verb(&tmp, "update", &["--cancel".into()], None), Some(0));
         assert_eq!(read_pending(&tmp).unwrap(), None);
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -541,6 +571,46 @@ mod tests {
         assert_eq!(read_pending(&tmp).unwrap().as_deref(), Some("/tmp/New.app"));
         assert!(cli_mode(&["silent".into(), "bp".into(), "x".into()], "x").is_none());
         assert!(cli_mode(&["silent".into()], "x").is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn swap_dirs_rolls_the_old_bundle_back_when_the_new_one_cannot_be_moved_in() {
+        let tmp = std::env::temp_dir().join(format!("silent-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let target = tmp.join("Silent.app");
+        std::fs::create_dir_all(target.join("Contents/MacOS")).unwrap();
+        std::fs::write(target.join("Contents/MacOS/silent"), b"old").unwrap();
+        // staging does not exist → the second rename fails after the first succeeded
+        let err = swap_dirs(&target, &tmp.join("Silent.app.staging")).unwrap_err();
+        assert!(err.contains("rolled back"), "{err}");
+        assert_eq!(std::fs::read(target.join("Contents/MacOS/silent")).unwrap(), b"old");
+        assert!(!tmp.join("Silent.app.old").exists());
+        // the happy path still swaps
+        let staging = tmp.join("Silent.app.staging");
+        std::fs::create_dir_all(staging.join("Contents/MacOS")).unwrap();
+        std::fs::write(staging.join("Contents/MacOS/silent"), b"new").unwrap();
+        swap_dirs(&target, &staging).unwrap();
+        assert_eq!(std::fs::read(target.join("Contents/MacOS/silent")).unwrap(), b"new");
+        assert!(!staging.exists() && !tmp.join("Silent.app.old").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn update_resolves_a_relative_bundle_path_against_cwd_and_names_match_in_unicode() {
+        let tmp = std::env::temp_dir().join(format!("silent-relupd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("out/Silent.app/Contents/MacOS")).unwrap();
+        let resolved = resolve_update_source("./out/Silent.app", Some(&tmp));
+        assert!(PathBuf::from(&resolved).is_absolute() && resolved.ends_with("out/Silent.app"), "{resolved}");
+        assert_eq!(resolve_update_source("/abs/Silent.app", Some(&tmp)), "/abs/Silent.app");
+        // run_verb writes the resolved path into the queue file
+        assert_eq!(run_verb(&tmp, "update", &["./out/Silent.app".into()], Some(&tmp)), Some(0));
+        assert_eq!(read_pending(&tmp).unwrap().as_deref(), Some(resolved.as_str()));
+        let status = r#"{"at":1,"blueprints":[{"id":"b","name":"İdle Oyun","nodes":[{"id":"n","title":"Dikiş","status":"done"}]}],"runs":[]}"#;
+        assert_eq!(node_status_in(status, "idle oyun", "dikiş").as_deref(), Some("done"));
+        assert_eq!(node_status_in(status, "İDLE OYUN", "DİKİŞ").as_deref(), Some("done"));
+        assert_eq!(node_status_in(status, "ıdle oyun", "DIKIŞ").as_deref(), Some("done"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

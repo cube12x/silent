@@ -307,11 +307,20 @@ pub fn parse_line(line: &str, state: &mut ParseState) -> Vec<RuntimeEvent> {
                 }
             }
             if let Some(usage) = value.get("usage") {
-                events.push(RuntimeEvent::usage(
-                    u64_at(usage, "/input_tokens") + u64_at(usage, "/cache_creation_input_tokens"),
-                    u64_at(usage, "/cache_read_input_tokens"),
-                    u64_at(usage, "/output_tokens"),
-                ));
+                // Anthropic semantics: `input_tokens` EXCLUDES cache reads/creation. The frontend subtracts
+                // `cached_input_tokens` from `input_tokens` (Codex semantics), so input must INCLUDE the cache read
+                // for the subtraction to leave the uncached work (2026-10-05 R7: Claude usage used to collapse to
+                // output tokens only).
+                let input = u64_at(usage, "/input_tokens");
+                let creation = u64_at(usage, "/cache_creation_input_tokens");
+                let read = u64_at(usage, "/cache_read_input_tokens");
+                let output = u64_at(usage, "/output_tokens");
+                events.push(RuntimeEvent::Usage {
+                    input_tokens: input + creation + read,
+                    cached_input_tokens: read,
+                    output_tokens: output,
+                    total_tokens: input + creation + output,
+                });
             }
             if let Some(usd) = value.get("total_cost_usd").and_then(Value::as_f64) {
                 events.push(RuntimeEvent::Cost { usd });
@@ -583,6 +592,27 @@ mod schema_tests {
         assert!(only_result
             .iter()
             .any(|e| matches!(e, RuntimeEvent::AgentMessage { text } if text.contains("summary"))));
+    }
+
+    #[test]
+    fn claude_usage_counts_cache_creation_and_survives_the_frontend_cached_subtraction() {
+        let adapter = Claude;
+        let mut state = ParseState::default();
+        let r = adapter.parse_line(
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"u","usage":{"input_tokens":50,"cache_creation_input_tokens":20000,"cache_read_input_tokens":500000,"output_tokens":8000}}"#,
+            &mut state,
+        );
+        let usage = r
+            .iter()
+            .find_map(|e| match e {
+                RuntimeEvent::Usage { input_tokens, cached_input_tokens, output_tokens, total_tokens } => Some((*input_tokens, *cached_input_tokens, *output_tokens, *total_tokens)),
+                _ => None,
+            })
+            .expect("usage event");
+        // what the frontend shows: max(0, input - cached) + output
+        let shown = usage.0.saturating_sub(usage.1) + usage.2;
+        assert_eq!(shown, 28050, "{usage:?}");
+        assert_eq!(usage.3, 28050);
     }
 
     #[test]

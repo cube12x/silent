@@ -1,33 +1,46 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { TestBackend } from "@/services/testBackend"
+import { UPDATE_IDLE_MS, useUpdatesStore } from "./updates"
 import { useBlueprintsStore } from "./blueprints"
 import { useRunsStore } from "./runs"
-import { UPDATE_IDLE_MS, useUpdatesStore } from "./updates"
 
-const backend = new TestBackend()
-vi.mock("@/services", () => ({ getBackend: async () => backend }))
+let applyError: string | null = null
+const applied: string[] = []
+vi.mock("@/services", () => ({
+  getBackend: async () => ({
+    updatePending: async () => "/tmp/New.app",
+    updateApply: async (p: string) => {
+      applied.push(p)
+      if (applyError) throw new Error(applyError)
+    },
+  }),
+}))
 
-describe("`silent update`: install when idle, drain meanwhile (2026-10-04)", () => {
+describe("queued update: retry vs drop (2026-10-05 E8)", () => {
   beforeEach(() => {
-    backend.pendingUpdate = null
-    backend.applied = []
-    useUpdatesStore.setState({ pending: null, idleSince: undefined, applying: false })
+    applied.length = 0
     useBlueprintsStore.setState({ running: {} })
     useRunsStore.setState({ runs: [] })
+    useUpdatesStore.setState({ pending: null, idleSince: undefined, applying: false })
   })
-  it("does nothing without a queued update", async () => {
-    expect(await useUpdatesStore.getState().tick(1000)).toBe(false)
+  it("a `retry:` error keeps the queue (the bundle is still being built) and retries on a later tick", async () => {
+    applyError = "retry: bundle written 10 s ago"
+    const t0 = 1_000_000
+    await useUpdatesStore.getState().tick(t0)
+    await useUpdatesStore.getState().tick(t0 + UPDATE_IDLE_MS + 1)
+    expect(applied).toHaveLength(1)
+    const s = useUpdatesStore.getState()
+    expect(s.pending).toBe("/tmp/New.app")
+    expect(s.applying).toBe(false)
+    expect(s.idleSince).toBe(t0)
+    await useUpdatesStore.getState().tick(t0 + UPDATE_IDLE_MS + 2)
+    expect(applied).toHaveLength(2)
+  })
+  it("any other error drops the queue so the drain gate opens", async () => {
+    applyError = "/tmp/New.app is not an app bundle"
+    const t0 = 1_000_000
+    await useUpdatesStore.getState().tick(t0)
+    await useUpdatesStore.getState().tick(t0 + UPDATE_IDLE_MS + 1)
     expect(useUpdatesStore.getState().pending).toBeNull()
-  })
-  it("waits for two idle minutes, resets the idle clock when something runs, then applies", async () => {
-    backend.pendingUpdate = "/tmp/New.app"
-    expect(await useUpdatesStore.getState().tick(0)).toBe(false)
-    expect(useUpdatesStore.getState().pending).toBe("/tmp/New.app")
-    useBlueprintsStore.setState({ running: { n1: () => undefined } })
-    expect(await useUpdatesStore.getState().tick(UPDATE_IDLE_MS)).toBe(false)
-    useBlueprintsStore.setState({ running: {} })
-    expect(await useUpdatesStore.getState().tick(UPDATE_IDLE_MS + 1)).toBe(false) // idle clock restarted
-    expect(await useUpdatesStore.getState().tick(2 * UPDATE_IDLE_MS + 2)).toBe(true)
-    expect(backend.applied).toEqual(["/tmp/New.app"])
+    expect(useUpdatesStore.getState().applying).toBe(false)
   })
 })

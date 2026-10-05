@@ -28,7 +28,21 @@ export class TauriBackend implements Backend {
   private storePromise?: Promise<Store>
 
   private conn(): Promise<Database> {
-    this.dbPromise ??= Database.load("sqlite:silent.db")
+    this.dbPromise ??= Database.load("sqlite:silent.db").then(async (db) => {
+      // Reclaim space once after migrations that delete or clip rows (0008 clipped 17 MB of terminal lines): a large free
+      // list keeps the file big and every scan slower. A few thousand free pages ≈ 10 MB; VACUUM on a 60 MB file takes < 1 s.
+      try {
+        const rows = await db.select<Array<{ freelist_count: number }>>("PRAGMA freelist_count")
+        const free = Number(rows[0]?.freelist_count ?? 0)
+        if (free > 2048) {
+          await db.execute("VACUUM")
+          console.warn(`[db] vacuumed ${free} free pages`)
+        }
+      } catch (e) {
+        console.warn("[db] vacuum skipped", e instanceof Error ? e.message : String(e))
+      }
+      return db
+    })
     return this.dbPromise
   }
 

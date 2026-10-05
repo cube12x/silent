@@ -256,7 +256,9 @@ export interface AutorunRef {
 }
 
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {
-  const norm = (v: string) => v.trim().toLocaleLowerCase("tr")
+  // Locale-independent fold (NFC + Unicode lowercase): the Turkish locale turned "I" into "ı", so "Idle Game" never
+  // matched "idle game" from the shell, while the Rust side (`silent wait`) matched it (2026-10-05).
+  const norm = (v: string) => v.trim().normalize("NFC").toLowerCase()
   const bp = blueprints.find((b) => b.id === req.ref) ?? blueprints.find((b) => norm(b.name) === norm(req.ref))
   if (!bp) return undefined
   const titleOf = (n: BpNode) => ("title" in n.data && typeof n.data.title === "string" ? n.data.title : "")

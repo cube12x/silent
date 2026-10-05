@@ -57,7 +57,7 @@ const MENU: Array<{ type: BpNodeType; data?: Record<string, unknown>; key: strin
   { type: "stub", data: { kinds: ["image", "sprite", "sfx", "music"], folder: "assets/uydurma" }, key: "stub" },
 ]
 
-function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nodeId: string) => void }) {
+function Canvas({ bpId, onNodeQuadClick, bare = false }: { bpId: string; onNodeQuadClick: (nodeId: string) => void; /** Sade tam ekran: only the canvas, no side panel (2026-10-05). */ bare?: boolean }) {
   const t = useT()
   const bp = useBlueprintsStore((s) => s.byId(bpId))
   const logs = useBlueprintsStore((s) => s.logs)
@@ -302,9 +302,11 @@ function Canvas({ bpId, onNodeQuadClick }: { bpId: string; onNodeQuadClick: (nod
         )}
         {toast && <div className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-sm border border-line bg-ink-2 px-3 py-1.5 text-xs text-text-1">{toast}</div>}
       </div>
+      {!bare && (
       <aside className="flex w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-ink-1 p-3">
         {selected ? <NodePanel bpId={bpId} node={selected} log={logs[selected.id] ?? []} onTrigger={() => trigger(selected)} onRemove={() => { removeNode(bpId, selected.id); setSelectedId(undefined) }} /> : <div className="text-xs text-text-3">{t("bp.panelHint")}</div>}
       </aside>
+      )}
     </div>
   )
 }
@@ -762,6 +764,17 @@ export function BlueprintScreen() {
   }, [loaded, autorun, navigate, t])
 
   const bp = blueprints.find((b) => b.id === id)
+  // ⌘⇧F / Ctrl+Shift+F toggles the bare fullscreen canvas from anywhere on the screen (2026-10-05).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f" && bp) {
+        e.preventDefault()
+        setFull((v) => !v)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [bp])
   // Σ tokens: persisted per AI node + live subtask tokens of orchestration runs in flight (number selector).
   const liveTokens = useRunsStore((s) => (bp ? bp.nodes.reduce((acc, n) => acc + (n.status === "running" && n.executionId && !n.executionId.startsWith("session:") ? (s.byId(n.executionId)?.plan ?? []).reduce((a, st) => a + (st.tokens ?? 0), 0) : 0), 0) : 0))
   const totalTokens = (bp?.nodes.reduce((acc, n) => acc + (n.data.type === "ai" || n.data.type === "verify" || n.data.type === "model" ? (n.data.tokens ?? 0) : 0), 0) ?? 0) + liveTokens
@@ -771,6 +784,14 @@ export function BlueprintScreen() {
   }
   return (
     <div className={cn("flex h-full min-h-0 flex-col", full && "fixed inset-0 z-50 bg-ink-0")}>
+      {full && bp && (
+        // Sade tam ekran: nothing but the canvas; a small floating exit (Esc works too).
+        <div className="pointer-events-none absolute top-2 right-3 z-[60] flex items-center gap-2">
+          <span className="mono pointer-events-auto rounded-sm border border-line bg-ink-1/90 px-2 py-0.5 text-[11px] text-text-3">{bp.name} · {t("bp.totalTokens", { n: formatTokens(totalTokens) })}</span>
+          <button type="button" onClick={() => setFull(false)} title={`${t("bp.exitFullscreen")} (Esc)`} aria-label={t("bp.exitFullscreen")} className="pointer-events-auto flex items-center gap-1 rounded-sm border border-line bg-ink-1/90 px-2 py-1 text-xs text-text-2 hover:text-text-1 [&_svg]:size-3.5"><Minimize2 />Esc</button>
+        </div>
+      )}
+      {!full && (
       <div className="flex items-center gap-3 border-b border-line px-4 py-2">
         <PageHeader eyebrow={t("bp.title")} title="" description="" className="mb-0" />
         {bp && (
@@ -791,7 +812,8 @@ export function BlueprintScreen() {
         {bp && <button type="button" onClick={() => setFull((v) => !v)} title={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} aria-label={full ? t("bp.exitFullscreen") : t("bp.fullscreen")} className="flex shrink-0 items-center gap-1 rounded-sm border border-line px-2 py-1 text-xs text-text-2 hover:text-text-1 [&_svg]:size-3.5">{full ? <Minimize2 /> : <Maximize2 />}{full ? t("bp.exitFullscreen") : t("bp.fullscreen")}</button>}
         <span className="text-[11px] text-text-3">{t("bp.hint", { mod: modKey() })}</span>
       </div>
-      {autoOpen && (
+      )}
+      {!full && autoOpen && (
         <div className="flex flex-col gap-2 border-b border-line bg-ink-1 px-4 py-3">
           <div className="text-[10px] font-semibold tracking-[0.18em] text-text-3 uppercase">{t("bp.auto")}</div>
           <Textarea value={autoText} onChange={(e) => setAutoText(e.target.value)} rows={4} placeholder={t("bp.autoPlaceholder")} className="text-[12px]" disabled={Boolean(autoStatus)} />
@@ -803,7 +825,7 @@ export function BlueprintScreen() {
           </div>
         </div>
       )}
-      {autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
+      {!full && autoSummary && bp && <div className="border-b border-line bg-ink-1 px-4 py-2 text-[11px] text-text-2">{autoSummary}</div>}
       {bp && view === "files" ? (
         <FilesTab bp={bp} initialFix={pendingFix} onFixConsumed={() => setPendingFix(null)} />
       ) : bp ? (
@@ -811,6 +833,7 @@ export function BlueprintScreen() {
           <Canvas
             key={bp.id}
             bpId={bp.id}
+            bare={full}
             onNodeQuadClick={(id) => {
               const node = bp.nodes.find((n) => n.id === id)
               if (node && (node.data.type === "build" || node.data.type === "buildPhoto")) {

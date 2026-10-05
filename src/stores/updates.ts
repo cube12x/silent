@@ -45,6 +45,13 @@ export const useUpdatesStore = create<UpdatesState>((set, get) => ({
       await backend.updateApply(pending)
       return true
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.startsWith("retry:")) {
+        // The bundle was written moments ago (a build in progress): keep the queue, retry after the next idle window.
+        console.warn("[update] postponed", msg)
+        set({ applying: false })
+        return false
+      }
       console.warn("[update] apply failed", e)
       set({ applying: false, pending: null })
       return false

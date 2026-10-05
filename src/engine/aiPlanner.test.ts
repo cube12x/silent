@@ -154,3 +154,17 @@ describe("dosage in the planner prompt", () => {
     expect(buildPlannerPrompt({ ...ctx, dosage: "MODEL DOSAGE: codex: minimal" })).toMatch(/MODEL DOSAGE: codex: minimal/)
   })
 })
+
+describe("plan hygiene (2026-10-05 R10)", () => {
+  it("duplicate keys become unique subtasks and unknown/self dependencies are dropped", () => {
+    const plan = parseAiPlan(JSON.stringify({ ...PLAN, subtasks: [...PLAN.subtasks, { ...PLAN.subtasks[0], title: "API again", dependsOn: ["a", "zzz"] }, { ...PLAN.subtasks[1], key: "c", dependsOn: ["c", "a"] }] }))!
+    const subs = subtasksFromAiPlan(plan, "run_x")
+    expect(subs).toHaveLength(4)
+    expect(new Set(subs.map((s) => s.id)).size).toBe(4)
+    // the second "a" depends on the first "a" (resolved to the first id), not on itself; "zzz" is dropped
+    const second = subs[2]!
+    expect(second.dependsOn).toEqual([subs[0]!.id])
+    const c = subs[3]!
+    expect(c.dependsOn).toEqual([subs[0]!.id])
+  })
+})

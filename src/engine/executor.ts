@@ -253,6 +253,14 @@ export class Executor {
       if (running.size === 0) break
       await Promise.race(running.values())
     }
+    // Nothing runs and something still waits: a cycle or a dangling dependency would otherwise hang the run forever.
+    if (!this.cancelled) {
+      for (const s of this.snapshot) {
+        if (isTerminalState(s.state)) continue
+        const why = this.deadlockReason(s)
+        this.setState(s, "failed", s.progress, why)
+      }
+    }
   }
 
   private finish(): "completed" | "failed" | "cancelled" {
@@ -678,6 +686,26 @@ export class Executor {
     if (progress !== undefined) subtask.progress = progress
     subtask.lastUpdate = this.now()
     if (error && state === "failed") subtask.summary = subtask.summary ?? error
-    this.bus.emit({ type: "subtask.state", runId: this.run.id, subtaskId: subtask.id, state, progress: subtask.progress, at: this.now() })
+    this.bus.emit({ type: "subtask.state", runId: this.run.id, subtaskId: subtask.id, state, progress: subtask.progress, at: this.now(), error: state === "failed" ? (error ?? subtask.summary ?? "failed") : undefined })
+  }
+
+  /** Why a non-terminal subtask can never start: a dependency cycle (named by titles) or a dependency that is not in the plan. */
+  private deadlockReason(start: Subtask): string {
+    const missing = start.dependsOn.filter((d) => !this.subtasks.has(d))
+    if (missing.length) return `unresolved dependency: ${missing.join(", ")}`
+    const path: string[] = []
+    const seen = new Set<string>()
+    const walk = (id: string): boolean => {
+      if (id === start.id && path.length) return true
+      if (seen.has(id)) return false
+      seen.add(id)
+      const s = this.subtasks.get(id)
+      if (!s) return false
+      path.push(s.title)
+      for (const d of s.dependsOn) if (walk(d)) return true
+      path.pop()
+      return false
+    }
+    return walk(start.id) ? `dependency cycle: ${[...path, start.title].join(" → ")}` : "blocked by a dependency that never completed"
   }
 }

@@ -496,3 +496,13 @@ describe("Model Plus (model) wiring and walk (2026-10-05)", () => {
     expect(lintBlueprint(lone)["m"]).toEqual(expect.arrayContaining(["model.noSource", "model.noModel", "model.noTarget"]))
   })
 })
+
+describe("resolveAutorun folds names locale-independently (2026-10-05 E10)", () => {
+  it("'IDLE GAME' from the shell matches the blueprint 'Idle Game' and 'DİKİŞ 9' matches 'Dikiş 9'", () => {
+    const g = bp()
+    g.name = "Idle Game"
+    g.nodes.push({ id: "d9", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:sonnet", mode: "single", title: "Dikiş 9" } })
+    expect(resolveAutorun([g], { ref: "IDLE GAME", node: "dikiş 9" })?.node.id).toBe("d9")
+    expect(resolveAutorun([g], { ref: "idle game" })?.bp.id).toBe("bp1")
+  })
+})
