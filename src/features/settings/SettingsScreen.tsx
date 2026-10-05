@@ -210,6 +210,10 @@ export function SettingsScreen() {
                 <span className="flex flex-col"><span>{t("settings.warmSessions")}</span><span className="text-[11px] text-text-3">{t("settings.warmSessionsHint")}</span></span>
                 <input type="checkbox" checked={settings.warmSessions !== false} onChange={(e) => void update((s) => ({ ...s, warmSessions: e.target.checked }))} />
               </label>
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-line bg-ink-2/50 px-3 py-2 text-sm">
+                <span className="flex flex-col"><span>{t("settings.autoAnswer")}</span><span className="text-[11px] text-text-3">{t("settings.autoAnswerHint")}</span></span>
+                <input type="number" min={0} max={240} value={settings.autoAnswerAfterMin ?? 10} onChange={(e) => void update((s) => ({ ...s, autoAnswerAfterMin: Math.max(0, Math.min(240, Number(e.target.value) || 0)) }))} className="mono h-7 w-20 rounded-sm border border-line bg-ink-2 px-1.5 text-[11px] text-text-1" />
+              </label>
             </GlowCard>
           )}
 

@@ -728,3 +728,122 @@ describe("failure reasons reach the store (2026-10-05 R6) and deadlocked plans n
     expect(rf?.reason.length).toBeGreaterThan("Failed: ".length)
   })
 })
+
+describe("stall fixes (2026-10-05): dead sessions, foreground rule, auto-answer", () => {
+  class Recorder implements Worker {
+    readonly id = "rec"
+    jobs: WorkerJob[] = []
+    private readonly results: Array<(job: WorkerJob, sink: WorkerSink) => Promise<import("./workers/Worker").WorkerResult>>
+    constructor(results: Array<(job: WorkerJob, sink: WorkerSink) => Promise<import("./workers/Worker").WorkerResult>>) {
+      this.results = results
+    }
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.jobs.push(job)
+      sink.session(job.resumeSessionId ?? `sess-${this.jobs.length}`)
+      const fn = this.results[Math.min(this.jobs.length - 1, this.results.length - 1)]!
+      return { done: fn(job, sink), cancel: async () => {} }
+    }
+  }
+  const oneTask = () => {
+    const run = makeRun("Build the backend API", ["codex:gpt-6-astra"], "sequential")
+    run.plan = [run.plan[0]!].map((s) => ({ ...s, dependsOn: [] }))
+    return run
+  }
+  it("F3: a dead session is retried fresh (no resume), never continued", async () => {
+    const run = oneTask()
+    const worker = new Recorder([
+      async () => ({ ok: false, summary: "dead", error: "codex produced no output for 900 s (dead session)", retryable: true, timedOut: false, activity: { messages: 0, commands: 0, events: 0 } }),
+      async () => ({ ok: true, summary: "done" }),
+    ])
+    const bus = new EventBus()
+    const logs: string[] = []
+    const reasons: string[] = []
+    bus.subscribe((e: RunEvent) => {
+      if (e.type === "worker.log") logs.push(e.line.text)
+      if (e.type === "subtask.retry") reasons.push(e.reason)
+    })
+    const causes: string[] = []
+    bus.subscribe((e: RunEvent) => {
+      if (e.type === "subtask.assigned") causes.push(e.attempt.cause)
+    })
+    expect(await new Executor(run, () => worker, bus, { models: TEST_MODELS }).start()).toBe("completed")
+    expect(causes).toEqual(["initial", "retry"])
+    expect(worker.jobs[1]!.resumeSessionId).toBeUndefined()
+    expect(logs.some((l) => /produced nothing/.test(l))).toBe(true)
+    expect(reasons.some((r) => /continue/.test(r))).toBe(false)
+  })
+  it("F3: a continuation reason carries the activity summary", async () => {
+    const run = oneTask()
+    const worker = new Recorder([
+      async () => ({ ok: false, summary: "timeout", error: "process exceeded limit", retryable: false, timedOut: true, activity: { messages: 12, commands: 7, events: 40 } }),
+      async () => ({ ok: true, summary: "done" }),
+    ])
+    const bus = new EventBus()
+    const reasons: string[] = []
+    bus.subscribe((e: RunEvent) => {
+      if (e.type === "subtask.retry") reasons.push(e.reason)
+    })
+    expect(await new Executor(run, () => worker, bus, { models: TEST_MODELS }).start()).toBe("completed")
+    expect(reasons[0]).toMatch(/timeout → continue session \(12 msgs, 7 cmds\)/)
+    expect(worker.jobs[1]!.resumeSessionId).toBe("sess-1")
+  })
+  it("F4: the worker brief forbids background jobs and sleep polling", async () => {
+    const run = oneTask()
+    const worker = new Recorder([async () => ({ ok: true, summary: "done" })])
+    await new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS }).start()
+    const brief = worker.jobs[0]!.brief
+    expect(brief).toMatch(/foreground/i)
+    expect(brief).toMatch(/sleep/)
+    expect(brief).toMatch(/timeout 1200/)
+  })
+  it("F5: a blocked worker is auto-answered after autoAnswerMs with the standard answer", async () => {
+    const { AUTO_ANSWER } = await import("./executor")
+    const run = oneTask()
+    const worker = new Recorder([
+      async () => ({ ok: false, blocked: true, question: "Which colour?", summary: "q", retryable: false }),
+      async () => ({ ok: true, summary: "done" }),
+    ])
+    const bus = new EventBus()
+    const events: RunEvent[] = []
+    bus.subscribe((e: RunEvent) => events.push(e))
+    expect(await new Executor(run, () => worker, bus, { models: TEST_MODELS, autoAnswerMs: 50 }).start()).toBe("completed")
+    expect(worker.jobs[1]!.brief).toContain(AUTO_ANSWER)
+    expect(events.filter((e) => e.type === "subtask.assigned").map((e) => (e.type === "subtask.assigned" ? e.attempt.cause : ""))).toEqual(["initial", "answer"])
+    const answered = events.find((e) => e.type === "subtask.answered")
+    expect(answered && "auto" in answered && answered.auto).toBe(true)
+    expect(events.some((e) => e.type === "worker.log" && /auto-answered/.test(e.line.text))).toBe(true)
+  })
+  it("F5: with autoAnswerMs 0 the worker stays blocked; a real answer before the timer wins and the timer is cleared", async () => {
+    const { AUTO_ANSWER } = await import("./executor")
+    const run = oneTask()
+    const worker = new Recorder([
+      async () => ({ ok: false, blocked: true, question: "Which colour?", summary: "q", retryable: false }),
+      async () => ({ ok: true, summary: "done" }),
+    ])
+    const exec = new Executor(run, () => worker, new EventBus(), { models: TEST_MODELS, autoAnswerMs: 0 })
+    const started = exec.start()
+    await new Promise((r) => setTimeout(r, 120))
+    expect(exec.pendingQuestions().length).toBe(1)
+    expect(worker.jobs).toHaveLength(1)
+    exec.cancel()
+    await started
+    // real answer first
+    const run2 = oneTask()
+    const worker2 = new Recorder([
+      async () => ({ ok: false, blocked: true, question: "Which colour?", summary: "q", retryable: false }),
+      async () => ({ ok: true, summary: "done" }),
+    ])
+    const exec2 = new Executor(run2, () => worker2, new EventBus(), { models: TEST_MODELS, autoAnswerMs: 80 })
+    const p = exec2.start()
+    await new Promise((r) => setTimeout(r, 20))
+    exec2.answer(run2.plan[0]!.id, "blue")
+    expect(await p).toBe("completed")
+    await new Promise((r) => setTimeout(r, 120))
+    expect(worker2.jobs).toHaveLength(2)
+    expect(worker2.jobs[1]!.brief).toContain("blue")
+    expect(worker2.jobs[1]!.brief).not.toContain(AUTO_ANSWER)
+  })
+})

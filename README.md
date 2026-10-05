@@ -45,6 +45,7 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 | `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
 
 Denetçi kutusu (2026-10-04): `softCommands` (ör. `npm run e2e`) kırmızı olsa da yalnız uyarı yazar, düzeltici çağrılmaz ve zincir devam eder; `continueOnFail` kırmızıda bile devam ettirir. Denetçi'den sonra bağlanan **Eylem** düzelticidir (yalnız kırmızıda koşar); **başka bir kutu** (ör. sonraki Bölücü ya da bir Deploy Denetçisi) zincirin devamıdır ve yeşilde koşar.
+Zaman sınırları (05.10): bir CLI oturumunun **yumuşak** sınırı görev başına (`timeoutSecs`, varsayılan 900 s; tarayıcı görevleri ≥ 2400 s) dolunca 3 dk'lık bir **sessiz** anda durdurulur ve aynı oturum devam ettirilir; **hard** sınır 2× (hiç susmayan işçi); **idle** sınır 15 dk hiç satır yok (heartbeat/tool_progress satırları canlılık sayılır, ilerleme sayılmaz). Hiç çıktı üretmeyen (ölü) oturum devam ettirilmez: taze deneme, sonra yedek model. İşçi sorusu (SILENT_QUESTION) **Ayarlar → Soruya otomatik yanıt** süresi dolunca "kendin karar ver, belgele" ile yanıtlanır (varsayılan 10 dk; `silent status` geri sayımı ve 10 dk çıktı vermeyen görevleri `⚠ STALLED` ile gösterir).
 Koşan kutu (2026-10-04): bir tetikleme yalnız **ilk** kutusu zaten koşuyorsa reddedilir; yürüyüşün ilerisinde koşan bir kutu (ör. hub'daki Tamirci) beklenir, yeşil bitince atlanıp zincir sürer, kırmızı bitince zincir durur.
 
 ## Desteklenen CLI'lar

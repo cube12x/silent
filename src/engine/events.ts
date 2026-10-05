@@ -10,7 +10,7 @@ export type RunEvent =
   | { type: "subtask.fallback"; runId: string; subtaskId: string; fromModelId: string; toModelId: string; cause: "fallback" | "escalation" | "handover"; reason: string; at: number }
   | { type: "subtask.summary"; runId: string; subtaskId: string; summary: string; at: number }
   | { type: "subtask.question"; runId: string; subtaskId: string; question: string; at: number }
-  | { type: "subtask.answered"; runId: string; subtaskId: string; answer: string; at: number }
+  | { type: "subtask.answered"; runId: string; subtaskId: string; answer: string; at: number; /** Nobody answered in time: the executor sent the standard "decide yourself" answer. */ auto?: boolean }
   | { type: "subtask.deviations"; runId: string; subtaskId: string; deviations: string[]; notes?: string[]; at: number }
   | { type: "subtask.session"; runId: string; subtaskId: string; sessionId: string; at: number }
   | { type: "run.report"; runId: string; report: RunReport; at: number }

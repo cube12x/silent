@@ -255,3 +255,26 @@ describe("signal death, split intro lines and question false positives (2026-10-
     expect(res.ok).toBe(true)
   })
 })
+
+describe("dead sessions and activity (2026-10-05 stall fixes F2)", () => {
+  it("an idle kill is a dead session: retryable, NOT a timeout to resume", async () => {
+    const res = await new CliWorker(new ScriptRunner([ev("sessionStarted", { sessionId: "s1" }), ev("failed", { code: "idle", message: "process exceeded 900 s timeout (no output for 900 s)", retryable: true }), ev("exited", { code: null })])).start(job(), sink).done
+    expect(res.ok).toBe(false)
+    expect(res.timedOut).toBeFalsy()
+    expect(res.retryable).toBe(true)
+    expect(res.error).toMatch(/dead session/)
+    expect(res.activity).toEqual({ messages: 0, commands: 0, events: 0 })
+  })
+  it("a soft-limit timeout with no activity at all is a dead session too", async () => {
+    const res = await new CliWorker(new ScriptRunner([ev("sessionStarted", { sessionId: "s1" }), ev("failed", { code: "timeout", message: "process exceeded 900 s timeout (900 s limit reached, stopped at a quiet moment)", retryable: false }), ev("exited", { code: 143 })])).start(job(), sink).done
+    expect(res.timedOut).toBeFalsy()
+    expect(res.retryable).toBe(true)
+    expect(res.error).toMatch(/dead session/)
+  })
+  it("a timeout after real activity is still a resumable timeout and reports the activity", async () => {
+    const res = await new CliWorker(new ScriptRunner([ev("sessionStarted", { sessionId: "s1" }), ev("agentMessage", { text: "working on it" }), ev("commandStarted", { command: "npm test" }), ev("commandCompleted", { exitCode: 0 }), ev("failed", { code: "timeout", message: "process exceeded 900 s timeout (900 s limit reached, stopped at a quiet moment)", retryable: false }), ev("exited", { code: 143 })])).start(job(), sink).done
+    expect(res.timedOut).toBe(true)
+    expect(res.activity).toMatchObject({ messages: 1, commands: 1 })
+    expect(res.activity!.events).toBeGreaterThanOrEqual(3)
+  })
+})

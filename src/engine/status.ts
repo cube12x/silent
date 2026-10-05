@@ -9,16 +9,34 @@ export interface StatusSnapshot {
   host?: { load1: number; cpus: number; swapUsedPct?: number; level: LoadLevel }
   pendingUpdate: string | null
   blueprints: Array<{ id: string; name: string; updatedAt: number; nodes: Array<{ id: string; title: string; type: string; status: string; note?: string; tokens?: number }> }>
-  runs: Array<{ id: string; status: string; done: number; total: number; tokens: number; createdAt: number }>
+  runs: Array<{ id: string; status: string; done: number; total: number; tokens: number; createdAt: number; stalled?: StalledTask[] }>
   /** Subtasks waiting on a SILENT_QUESTION answer (`silent bp answer …`), so a stalled chain is visible from the shell. */
-  blocked: Array<{ runId: string; subtaskId: string; title: string; question: string; blueprint?: string; node?: string }>
+  blocked: Array<{ runId: string; subtaskId: string; title: string; question: string; blueprint?: string; node?: string; /** When Silent will answer it itself (ms), if auto-answer is on. */ autoAnswerAt?: number }>
   /** Model Plus boxes waiting for the user's asset deliveries (2026-10-05). */
   waiting: Array<{ blueprint: string; blueprintId: string; node: string; nodeId: string; pending: Array<{ name: string; kind: string; frames: number; frameSize?: string; status: string }>; deliverCmd: string }>
 }
 
-export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; host?: { load: HostLoad; level: LoadLevel }; pendingUpdate: string | null; now?: number }): StatusSnapshot {
+/** A running subtask that has printed nothing (heartbeats aside) for `STALL_MS`. */
+export interface StalledTask {
+  subtaskId: string
+  title: string
+  sinceMs: number
+}
+export const STALL_MS = 10 * 60_000
+
+/** Running subtasks silent for longer than `thresholdMs`; a task without any output yet is measured from its last state change. */
+export function stalledOf(run: Run, lastOutputAt: Record<string, number>, now: number, thresholdMs = STALL_MS): StalledTask[] {
+  const active = new Set(["planning", "coding", "testing", "reviewing", "running"])
+  return run.plan
+    .filter((s) => active.has(s.state))
+    .map((s) => ({ subtaskId: s.id, title: s.title, sinceMs: now - (lastOutputAt[s.id] ?? s.lastUpdate ?? now) }))
+    .filter((s) => s.sinceMs >= thresholdMs)
+}
+
+export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; host?: { load: HostLoad; level: LoadLevel }; pendingUpdate: string | null; now?: number; lastOutputAt?: Record<string, number>; autoAnswerMs?: number }): StatusSnapshot {
+  const now = i.now ?? Date.now()
   return {
-    at: i.now ?? Date.now(),
+    at: now,
     host: i.host ? { load1: i.host.load.load1, cpus: i.host.load.cpus, swapUsedPct: i.host.load.swapUsedPct, level: i.host.level } : undefined,
     pendingUpdate: i.pendingUpdate,
     blueprints: i.blueprints.map((b) => ({
@@ -43,13 +61,14 @@ export function buildStatusSnapshot(i: { blueprints: Blueprint[]; runs: Run[]; h
         total: r.plan.length,
         tokens: r.plan.reduce((a, s) => a + (s.tokens ?? 0), 0),
         createdAt: r.createdAt,
+        stalled: r.status === "running" ? (() => { const st = stalledOf(r, i.lastOutputAt ?? {}, now); return st.length ? st : undefined })() : undefined,
       })),
     blocked: i.runs
       .filter((r) => r.status === "running")
       .flatMap((r) => {
         // The box that owns the run, so the hint can print the CLI's real shape: `silent bp answer "<bp>" "<box>" "…"`.
         const owner = i.blueprints.flatMap((b) => b.nodes.filter((n) => n.executionId === r.id).map((n) => ({ blueprint: b.name, node: ("title" in n.data && typeof n.data.title === "string" && n.data.title) || n.id })))[0]
-        return r.plan.filter((s) => s.state === "blocked").map((s) => ({ runId: r.id, subtaskId: s.id, title: s.title, question: s.question ?? "", blueprint: owner?.blueprint, node: owner?.node }))
+        return r.plan.filter((s) => s.state === "blocked").map((s) => ({ runId: r.id, subtaskId: s.id, title: s.title, question: s.question ?? "", blueprint: owner?.blueprint, node: owner?.node, autoAnswerAt: i.autoAnswerMs && s.lastUpdate ? s.lastUpdate + i.autoAnswerMs : undefined }))
       }),
     waiting: i.blueprints.flatMap((b) =>
       b.nodes

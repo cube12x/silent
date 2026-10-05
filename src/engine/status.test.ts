@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Blueprint, SilentCodeRun as Run } from "@/domain"
-import { STATUS_HEARTBEAT_MS, buildStatusSnapshot, isIdle, statusBody, statusWriteDue } from "./status"
+import { STATUS_HEARTBEAT_MS, buildStatusSnapshot, isIdle, stalledOf, statusBody, statusWriteDue } from "./status"
 
 const bp: Blueprint = {
   id: "b1",
@@ -81,5 +81,26 @@ describe("status.json is written only on change or heartbeat (2026-10-05 perf)",
     expect(statusWriteDue(statusBody(a), statusBody(b), 1000, 1000 + STATUS_HEARTBEAT_MS)).toBe(true)
     const c = buildStatusSnapshot({ blueprints: [bp], runs: [], pendingUpdate: "/tmp/New.app", now: 3 })
     expect(statusWriteDue(statusBody(a), statusBody(c), 1000, 2000)).toBe(true)
+  })
+})
+
+describe("stalled tasks and the auto-answer countdown (2026-10-05 terminal review)", () => {
+  const running = { id: "r9", status: "running", createdAt: 5, plan: [
+    { id: "a", title: "Playwright smoke", state: "testing", lastUpdate: 1_000_000 },
+    { id: "b", title: "Fast task", state: "coding", lastUpdate: 1_000_000 },
+    { id: "c", title: "Done task", state: "completed", lastUpdate: 1_000_000 },
+    { id: "q", title: "Portal", state: "blocked", question: "Which id?", lastUpdate: 1_500_000 },
+  ] } as unknown as Run
+  it("stalledOf flags running tasks silent for 10 min (last output or last state change), never finished ones", () => {
+    const now = 1_000_000 + 11 * 60_000
+    expect(stalledOf(running, { b: now - 1000 }, now)).toEqual([{ subtaskId: "a", title: "Playwright smoke", sinceMs: 11 * 60_000 }])
+    expect(stalledOf(running, { a: now - 1000, b: now - 1000 }, now)).toEqual([])
+  })
+  it("the snapshot carries stalled[] on the run and autoAnswerAt on blocked entries", () => {
+    const now = 1_000_000 + 11 * 60_000
+    const s = buildStatusSnapshot({ blueprints: [], runs: [running], pendingUpdate: null, now, lastOutputAt: { b: now }, autoAnswerMs: 10 * 60_000 })
+    expect(s.runs[0]!.stalled).toEqual([{ subtaskId: "a", title: "Playwright smoke", sinceMs: 11 * 60_000 }])
+    expect(s.blocked[0]).toMatchObject({ subtaskId: "q", autoAnswerAt: 1_500_000 + 10 * 60_000 })
+    expect(buildStatusSnapshot({ blueprints: [], runs: [running], pendingUpdate: null, now, autoAnswerMs: 0 }).blocked[0]!.autoAnswerAt).toBeUndefined()
   })
 })

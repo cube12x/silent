@@ -43,6 +43,8 @@ export interface Settings {
   warmSessions?: boolean
   /** Model dosage (2026-10-01): how much of each CLI's quota Silent may use; routing, planning and handover order follow it. Missing = high. */
   providerDosage?: Partial<Record<ProviderId, Dosage>>
+  /** Minutes a worker's SILENT_QUESTION may wait before Silent answers it with "decide yourself, document it" (0 = never; default 10). 2026-10-05: questions waited 37–44 min with nobody at the screen. */
+  autoAnswerAfterMin?: number
 }
 export type Dosage = "none" | "minimal" | "low" | "medium" | "high"
 export const DOSAGE_LEVELS: Dosage[] = ["none", "minimal", "low", "medium", "high"]
@@ -61,4 +63,5 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultPermissions: DEFAULT_PERMISSIONS,
   logs: { level: "info", keepTerminalLines: 5000 },
   warmSessions: true,
+  autoAnswerAfterMin: 10,
 }

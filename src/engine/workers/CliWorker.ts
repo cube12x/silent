@@ -81,9 +81,12 @@ export class CliWorker implements Worker {
     const deviations: string[] = []
     const notes: string[] = []
     const split: string[] = []
-    let failure: { message: string; retryable: boolean; timedOut: boolean } | undefined
-    let resolveDone!: (r: WorkerResult) => void
-    const done = new Promise<WorkerResult>((r) => (resolveDone = r))
+    let failure: { message: string; retryable: boolean; timedOut: boolean; dead?: boolean } | undefined
+    // What the session did: a limit hit with no activity is a dead session (2026-10-05: one was "continued" 5× for 1.5 h).
+    const activity = { messages: 0, commands: 0, events: 0 }
+    let resolveRaw!: (r: WorkerResult) => void
+    const done = new Promise<WorkerResult>((r) => (resolveRaw = r))
+    const resolveDone = (r: WorkerResult) => resolveRaw({ ...r, activity: { ...activity } })
 
     const request: CliRunRequest = {
       runId: `${job.runId}:${job.subtask.id}:${job.attempt}`,
@@ -104,6 +107,8 @@ export class CliWorker implements Worker {
     sink.log(`▶ ${providerId}${modelId ? ` · ${modelId}` : ""} · ${request.sandbox}${job.network ? "+net" : ""} · effort ${job.effort} · ${Math.round(job.timeoutSecs / 60)} min${job.resumeSessionId ? ` · resume ${job.resumeSessionId.slice(0, 8)}…` : ""}${request.cwd ? ` · ${request.cwd}` : ""}`, "system")
 
     const onEvent = (e: RuntimeEvent) => {
+      // Progress events only: a session id or a heartbeat is not work.
+      if (e.type === "agentMessage" || e.type === "commandStarted" || e.type === "commandCompleted" || e.type === "fileChanged" || e.type === "textDelta" || e.type === "reasoningStatus" || e.type === "turnStarted" || e.type === "turnCompleted" || e.type === "usage") activity.events += 1
       switch (e.type) {
         case "sessionStarted":
           sink.session(e.data.sessionId)
@@ -117,6 +122,7 @@ export class CliWorker implements Worker {
           sink.log(e.data.status, "system")
           break
         case "commandStarted":
+          activity.commands += 1
           sink.state(/test|vitest|jest|pytest|cargo test|go test/.test(e.data.command) ? "testing" : "coding")
           sink.command(clipText(e.data.command, COMMAND_TEXT_MAX))
           for (const f of filesFromCommand(e.data.command)) sink.file(f)
@@ -136,6 +142,7 @@ export class CliWorker implements Worker {
         case "agentMessage": {
           const text = e.data.text
           if (!text.trim()) break
+          activity.messages += 1
           // Markers may arrive wrapped in markdown bold (**SILENT_QUESTION:** …); "none" is not a question. A marker
           // quoted in backticks or a code fence is the agent talking ABOUT the marker, and a later message without a
           // question means the agent answered it itself (2026-10-05: both used to block a finished attempt).
@@ -193,7 +200,11 @@ export class CliWorker implements Worker {
         case "failed":
           // SIGTERM/SIGKILL from outside (a `pkill claude`, an updater, the OS) is not the model's failure: resume the session
           // like a time limit instead of failing the task (2026-10-01: two Opus workers died with 143 in the same second).
-          if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable || isModelRejected(e.data.message) || isKilled(e.data.message), timedOut: e.data.code === "timeout" || isKilled(e.data.message) }
+          if (e.data.code === "idle" || (e.data.code === "timeout" && activity.events === 0)) {
+            // No output at all (idle kill) or a limit hit before the session ever did anything: the session is dead.
+            // Resuming it would only burn the same minutes again — a fresh attempt instead (2026-10-05).
+            failure = { message: `${providerId} produced no output (${e.data.message.replace(/^process exceeded \d+ s timeout \(?/, "").replace(/\)$/, "")}) — dead session`, retryable: true, timedOut: false, dead: true }
+          } else if (e.data.code !== "cancelled") failure = { message: e.data.message, retryable: e.data.retryable || isModelRejected(e.data.message) || isKilled(e.data.message), timedOut: e.data.code === "timeout" || isKilled(e.data.message) }
           sink.log(`${e.data.code}: ${e.data.message}`, "stderr")
           break
         case "turnCompleted":

@@ -347,7 +347,7 @@ export const en: Dictionary = {
     logLevel: "Log level",
     keepLines: "Terminal lines kept per subtask",
     dosage: "Model dosage (quota plan)", dosageHint: "How much of each CLI's quota Silent may use: routing, the planner, pool order and handover order follow it. \"None\" = only when pinned by hand.", dosageLevels: { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "Free" },
-    warmSessions: "Warm sessions (orchestration)", warmSessionsHint: "The next task on the same model resumes the finished task's CLI session: files already read stay in cached context, no repo re-scan. A session past 120k tokens is not reused.",
+    autoAnswer: "Auto-answer questions (min)", autoAnswerHint: "When a worker asks a SILENT_QUESTION and nobody answers within this many minutes, Silent answers \"decide yourself, document it under SILENT_NOTES\"; 0 = off, wait forever. `silent status` shows the countdown.", warmSessions: "Warm sessions (orchestration)", warmSessionsHint: "The next task on the same model resumes the finished task's CLI session: files already read stay in cached context, no repo re-scan. A session past 120k tokens is not reused.",
     runsStored: "Runs stored",
     database: "Database",
     settingsFile: "Settings file",

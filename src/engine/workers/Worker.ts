@@ -46,6 +46,8 @@ export interface WorkerResult {
   split?: string[]
   /** The agent's last message when the attempt failed (quota, cancel, crash): the next model continues from it (handover). */
   lastMessage?: string
+  /** What the session actually did (2026-10-05): a timed-out session with no activity is dead and is never resumed. */
+  activity?: { messages: number; commands: number; events: number }
 }
 
 export interface WorkerHandle {

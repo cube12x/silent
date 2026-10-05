@@ -268,11 +268,17 @@ where
     // at the soft limit (2026-09-24: a 40-min limit cut a Claude worker mid-command; the session resumed
     // but the in-flight work was lost).
     let last_output = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    // Two clocks (2026-10-05): `last_alive` moves on EVERY line, heartbeats included — it feeds the idle limit, so a
+    // long tool call that only sends `"heartbeat":true` is a live process, not a hung one. `last_output` moves on
+    // real output only — it feeds the quiet rule after the soft limit (a worker sitting in a 30-minute test run must
+    // still look quiet there).
+    let last_alive = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let last_error_line: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let out_sink = Arc::clone(&sink);
     let out_failed = Arc::clone(&failed_emitted);
     let out_last = Arc::clone(&last_output);
+    let out_alive = Arc::clone(&last_alive);
     let max_line = config.max_line_bytes;
     let raw = Arc::new(Mutex::new(config.raw_log.as_ref().and_then(|p| {
         if let Some(dir) = p.parent() {
@@ -291,6 +297,7 @@ where
             // Heartbeats of a long tool call ("tool_progress" every 30 s) are not progress: a worker sitting in a
             // 30-minute test run must still look quiet after the soft limit (2026-10-04: one task ran 2 h 42 min
             // because heartbeats kept resetting the clock; only the hard limit could end it).
+            out_alive.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             if !is_heartbeat(&line) {
                 out_last.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             }
@@ -308,9 +315,11 @@ where
     let err_last = Arc::clone(&last_error_line);
     let raw_err = Arc::clone(&raw);
     let err_last_out = Arc::clone(&last_output);
+    let err_alive = Arc::clone(&last_alive);
     let stderr_task = tokio::spawn(async move {
         pump_lines(stderr, max_line, |line| {
             err_last_out.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+            err_alive.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
             raw_append(&raw_err, &line, "!! ");
             if !line.trim().is_empty() {
                 let lower = line.to_ascii_lowercase();
@@ -335,22 +344,27 @@ where
         .min(config.timeout / 4)
         .max(Duration::from_millis(50));
     let watch_last = Arc::clone(&last_output);
+    let watch_alive = Arc::clone(&last_alive);
+    // Returns (failure code, reason): "idle" when nothing at all arrived for `idle_timeout` (a dead session the
+    // frontend must not resume), "timeout" for the soft and hard limits.
     let deadline = async move {
         loop {
             tokio::time::sleep(tick).await;
             let elapsed = started.elapsed();
+            let silent =
+                elapsed.saturating_sub(Duration::from_millis(watch_alive.load(Ordering::Relaxed)));
             let idle =
                 elapsed.saturating_sub(Duration::from_millis(watch_last.load(Ordering::Relaxed)));
-            if idle >= config.idle_timeout {
-                return format!("no output for {} s", idle.as_secs());
+            if silent >= config.idle_timeout {
+                return ("idle", format!("no output for {} s", silent.as_secs()));
             }
             if elapsed >= hard {
-                return format!("hard limit {} s", hard.as_secs());
+                return ("timeout", format!("hard limit {} s", hard.as_secs()));
             }
             if elapsed >= config.timeout && idle >= quiet {
-                return format!(
-                    "{} s limit reached, stopped at a quiet moment",
-                    config.timeout.as_secs()
+                return (
+                    "timeout",
+                    format!("{} s limit reached, stopped at a quiet moment", config.timeout.as_secs()),
                 );
             }
         }
@@ -374,12 +388,13 @@ where
                 RunExit::Exited(None)
             }
         },
-        reason = deadline => {
+        (code, reason) = deadline => {
             terminate(&mut child, config.shutdown_grace).await;
             sink(RuntimeEvent::Failed {
-                code: "timeout".into(),
-                message: format!("process exceeded {} s timeout ({reason})", config.timeout.as_secs()),
-                retryable: false,
+                code: code.into(),
+                message: if code == "idle" { reason.clone() } else { format!("process exceeded {} s timeout ({reason})", config.timeout.as_secs()) },
+                // An idle (dead) session is worth one fresh attempt; a soft/hard limit is resumed by the executor instead.
+                retryable: code == "idle",
             });
             RunExit::TimedOut
         },
@@ -496,6 +511,51 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let writer = Arc::clone(&events);
         (events, move |event| writer.lock().unwrap().push(event))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn heartbeats_keep_a_process_alive_for_the_idle_limit() {
+        // A long tool call prints only `"heartbeat":true` lines: that is a LIVE process (2026-10-05: with the idle
+        // clock keyed on non-heartbeat output, a 20-minute e2e tool call was killed as "no output"). It must survive
+        // 3× the idle limit and be stopped by the soft limit + quiet instead.
+        let (events, sink) = collector();
+        let (_handle, rx) = RunHandle::new();
+        let mut config = SpawnConfig::new(
+            "/bin/sh",
+            vec!["-c".into(), "while true; do echo '{\"type\":\"tool_progress\",\"heartbeat\":true}'; sleep 0.1; done".into()],
+        );
+        config.idle_timeout = Duration::from_millis(500);
+        // Heartbeats never count as progress, so the soft limit (1200 ms) ends it at once ("already quiet") — well
+        // past 2× the idle limit, which is the point of the test.
+        config.timeout = Duration::from_millis(1200);
+        config.hard_factor = 4;
+        config.shutdown_grace = Duration::from_secs(2);
+        let started = Instant::now();
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx).await.unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(exit, RunExit::TimedOut);
+        assert!(elapsed >= Duration::from_millis(1100), "killed as idle too early: {elapsed:?}");
+        assert!(elapsed < Duration::from_millis(4000), "ran to the hard limit: {elapsed:?}");
+        let events = events.lock().unwrap().clone();
+        assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, .. } if code == "timeout" && message.contains("quiet moment"))), "{events:?}");
+        assert!(!events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, .. } if code == "idle")), "{events:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_silent_process_is_killed_with_the_idle_code() {
+        let (events, sink) = collector();
+        let (_handle, rx) = RunHandle::new();
+        let mut config = SpawnConfig::new("/bin/sh", vec!["-c".into(), "sleep 30".into()]);
+        config.idle_timeout = Duration::from_millis(300);
+        config.timeout = Duration::from_secs(10);
+        config.shutdown_grace = Duration::from_secs(2);
+        let exit = run_streaming(config, line_parser(ProviderId::Codex), sink, rx).await.unwrap();
+        assert_eq!(exit, RunExit::TimedOut);
+        let events = events.lock().unwrap().clone();
+        assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, retryable } if code == "idle" && message.contains("no output for") && *retryable)), "{events:?}");
+        assert_eq!(events.last(), Some(&RuntimeEvent::Exited { code: None }));
     }
 
     #[cfg(unix)]

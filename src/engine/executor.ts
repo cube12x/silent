@@ -12,6 +12,17 @@ import { clampEffort, effortFor, timeoutFor } from "./effort"
 import type { Worker, WorkerHandle, WorkerJob, WorkerResult, WorkerSink } from "./workers/Worker"
 
 /** Continuation hint (Faz 3): a long task hands its remaining work back as parallel sub-briefs instead of running alone for another hour. */
+/** The answer the executor sends when a worker's question stays unanswered past `autoAnswerMs` (2026-10-05: questions waited 37–44 min with nobody at the screen). */
+export const AUTO_ANSWER = "Decide yourself using best judgment and continue; document the decision under SILENT_NOTES."
+
+/** When an unanswered question will be auto-answered (ms epoch), or undefined when auto-answer is off. */
+export function autoAnswerAtFor(blockedSince: number, autoAnswerMs: number | undefined): number | undefined {
+  return autoAnswerMs && autoAnswerMs > 0 ? blockedSince + autoAnswerMs : undefined
+}
+
+/** Worker rule against the stalls seen in the terminals (2026-10-05): background jobs polled with sleep loops burned 10-minute tool calls 11 times. */
+export const WORKER_FOREGROUND_RULE = "Run every command in the foreground and wait for it to finish; give long commands their own cap (e.g. `timeout 1200 npm run e2e`); never start a job in the background and poll it with `sleep`/`until` loops — one tool call per command. Never leave a server running when you finish, and never end your turn while something you started still runs."
+
 export const SPLIT_HINT = "If more than ~20 min of work remain, do NOT continue alone: reply with `SILENT_SPLIT:` followed by 2–3 independent sub-briefs (one per line, each with its own `Owns:` paths, disjoint from each other), then stop; they will run in parallel as separate tasks."
 /** `# HANDOVER` block shared by orchestration workers and Blueprint single sessions: what the previous model already did. */
 export function handoverBlock(i: { fromModel: string; reason: string; files?: string[]; commands?: string[]; lastMessage?: string }): string {
@@ -51,6 +62,8 @@ export interface ExecutorOptions {
   maxContinuations?: number
   /** Questions a single subtask may ask before it is failed. Default 5. */
   maxQuestions?: number
+  /** Unattended runs: a SILENT_QUESTION nobody answers within this many ms gets `AUTO_ANSWER` (0/undefined = wait forever). */
+  autoAnswerMs?: number
   /** Shared project context (e.g. docs/ARCHITECTURE-BRIEF.md) prepended to every brief; updatable while running. */
   context?: string
   /** English product spec from the planner; every worker builds against it. */
@@ -324,7 +337,21 @@ export class Executor {
         subtask.question = result.question
         this.setState(subtask, "blocked", subtask.progress)
         this.bus.emit({ type: "subtask.question", runId: this.run.id, subtaskId, question: result.question ?? "", at: this.now() })
-        const answer = await new Promise<string | null>((resolve) => this.waiters.set(subtaskId, resolve))
+        // Unattended: after `autoAnswerMs` the standard answer goes out and the session resumes (a real answer first wins).
+        const autoMs = this.opts.autoAnswerMs ?? 0
+        let autoTimer: ReturnType<typeof setTimeout> | undefined
+        let auto = false
+        const answer = await new Promise<string | null>((resolve) => {
+          this.waiters.set(subtaskId, resolve)
+          if (autoMs > 0) autoTimer = setTimeout(() => {
+            if (this.waiters.get(subtaskId) !== resolve || this.cancelled) return
+            this.waiters.delete(subtaskId)
+            auto = true
+            this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `🤖 no answer for ${Math.max(1, Math.round(autoMs / 60000))} min — auto-answered: decide yourself and document` } })
+            resolve(AUTO_ANSWER)
+          }, autoMs)
+        })
+        if (autoTimer) clearTimeout(autoTimer)
         if (answer === null) {
           if (!this.handoverTo.has(subtaskId)) return
           result = { ok: false, summary: "handover", error: "handover requested", retryable: false, lastMessage: result.question }
@@ -332,7 +359,7 @@ export class Executor {
         }
         subtask.answers.push(answer)
         subtask.question = undefined
-        this.bus.emit({ type: "subtask.answered", runId: this.run.id, subtaskId, answer, at: this.now() })
+        this.bus.emit({ type: "subtask.answered", runId: this.run.id, subtaskId, answer, at: this.now(), ...(auto ? { auto: true } : {}) })
         attemptNo += 1
         result = await this.attempt(subtask, modelId, attemptNo, "answer", sessionId, answer)
       }
@@ -351,7 +378,8 @@ export class Executor {
         if (!sessionId) break
         continuations += 1
         attemptNo += 1
-        this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: "timeout → continue session", at: this.now() })
+        const act = result.activity ? ` (${result.activity.messages} msgs, ${result.activity.commands} cmds)` : ""
+        this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: `timeout → continue session${act}`, at: this.now() })
         this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `⏱ time limit reached — not a failure: resuming the same session where it left off (continuation ${continuations}/${maxContinuations})` } })
         result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId)
       }
@@ -376,6 +404,8 @@ export class Executor {
       while (!result.ok && result.retryable && !result.timedOut && !rejected(result) && retriesOnModel < maxRetries && !this.cancelled) {
         retriesOnModel += 1
         attemptNo += 1
+        // A dead session (idle kill / limit with zero activity) is never resumed: the retry below starts a fresh session.
+        if (result.activity && result.activity.events === 0 && /dead session|no output/i.test(result.error ?? "")) this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: "⚠ session produced nothing — not resuming it; starting a fresh attempt" } })
         this.bus.emit({ type: "subtask.retry", runId: this.run.id, subtaskId, modelId, attempt: attemptNo, reason: result.error ?? "failed", at: this.now() })
         result = await this.attempt(subtask, modelId, attemptNo, "retry")
       }
@@ -656,6 +686,7 @@ export class Executor {
       this.opts.context ? `PROJECT CONTEXT (already discovered — do not re-scan the repository for this):\n${this.opts.context.slice(0, 14000)}` : "",
       (this.opts.network ?? (this.opts.sandbox ?? "workspace-write") === "workspace-write") ? "Environment: the shell has outbound network access (package installs, git fetch and HTTP work)." : "Environment: the shell has NO network access. Do not attempt installs or downloads; if the task needs them, ask with SILENT_QUESTION.",
       "Scratch files (bots, probes, screenshots): write them under <repo>/.silent/tmp/ (git-ignored) or the OS temp dir; writes elsewhere are denied.",
+      WORKER_FOREGROUND_RULE,
       "Editing: prefer your native file-edit tool (Codex: apply_patch; Claude: Edit/Write) over shell heredocs, so every changed file is tracked and reviewable.",
       "Module shadowing: a file `x.ts` beside a folder `x/` wins the import `./x` and silently replaces `x/index.ts`. Never create such a file; when you integrate or review, look for these pairs and for dead scaffold that shadows a real module, and delete them.",
       CONVERTER_TOOLKIT,

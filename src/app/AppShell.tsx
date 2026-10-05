@@ -45,7 +45,7 @@ export function AppShell() {
     const write = async () => {
       try {
         const host = useHostStore.getState()
-        const snap = buildStatusSnapshot({ blueprints: useBlueprintsStore.getState().blueprints, runs: useRunsStore.getState().runs, host: host.load ? { load: host.load, level: host.level } : undefined, pendingUpdate: useUpdatesStore.getState().pending })
+        const snap = buildStatusSnapshot({ blueprints: useBlueprintsStore.getState().blueprints, runs: useRunsStore.getState().runs, lastOutputAt: useRunsStore.getState().lastOutputAt, autoAnswerMs: Math.max(0, useSettingsStore.getState().settings.autoAnswerAfterMin ?? 10) * 60_000, host: host.load ? { load: host.load, level: host.level } : undefined, pendingUpdate: useUpdatesStore.getState().pending })
         const body = statusBody(snap)
         if (!statusWriteDue(lastBody, body, lastWriteAt, Date.now())) return
         lastBody = body

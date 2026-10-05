@@ -278,8 +278,14 @@ pub fn render_status(text: &str) -> String {
             (Some(bp), Some(node)) => format!("\"{bp}\" \"{node}\""),
             _ => s("subtaskId").unwrap_or("?").to_string(),
         };
+        let auto = b
+            .get("autoAnswerAt")
+            .and_then(|x| x.as_i64())
+            .filter(|at| now > 0 && *at > now)
+            .map(|at| format!(" · auto-answer in {} min", ((at - now) / 60_000).max(1)))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "❓ BLOCKED {} — {}\n   answer: silent bp answer {target} \"…\"\n",
+            "❓ BLOCKED {} — {}{auto}\n   answer: silent bp answer {target} \"…\"\n",
             s("title").unwrap_or("?"),
             s("question").unwrap_or("").lines().next().unwrap_or("")
         ));
@@ -346,6 +352,13 @@ pub fn render_status(text: &str) -> String {
             r.get("total").and_then(|x| x.as_i64()).unwrap_or(0),
             r.get("tokens").and_then(|x| x.as_i64()).unwrap_or(0)
         ));
+        for st in r.get("stalled").and_then(|x| x.as_array()).unwrap_or(&empty) {
+            out.push_str(&format!(
+                "  ⚠ STALLED {} — {} min without output (cancel it or wait for the idle limit)\n",
+                st.get("title").and_then(|x| x.as_str()).unwrap_or("?"),
+                st.get("sinceMs").and_then(|x| x.as_i64()).unwrap_or(0) / 60_000
+            ));
+        }
     }
     if out.lines().count() <= 1 {
         out.push_str("idle — nothing running\n");
@@ -465,6 +478,18 @@ mod tests {
         assert!(s.contains("pgrep -f \"^/Applications/Silent.app/Contents/MacOS/silent$\""), "{s}");
         assert!(!s.contains("pgrep -x silent"));
         assert!(s.matches("sleep").count() >= 2, "{s}");
+    }
+
+    #[test]
+    fn render_status_prints_stalled_tasks_and_the_auto_answer_countdown() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let text = format!(
+            r#"{{"at":{now},"blueprints":[],"runs":[{{"id":"r1","status":"running","done":1,"total":3,"tokens":5,"stalled":[{{"subtaskId":"t2","title":"Playwright smoke","sinceMs":840000}}]}}],"blocked":[{{"runId":"r1","subtaskId":"t3","title":"Portal","question":"Which id?","blueprint":"Mario","node":"Bölücü","autoAnswerAt":{}}}]}}"#,
+            now + 4 * 60_000 + 30_000
+        );
+        let out = render_status(&text);
+        assert!(out.contains("⚠ STALLED Playwright smoke — 14 min without output"), "{out}");
+        assert!(out.contains("❓ BLOCKED Portal — Which id? · auto-answer in 4 min"), "{out}");
     }
 
     #[test]
