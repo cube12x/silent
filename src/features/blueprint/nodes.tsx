@@ -5,7 +5,9 @@ import { roleHint, roleLabel } from "./roles"
 import { Bot, Eye, FileText, FolderGit2, Hammer, Image, Play, Send, RotateCcw, Sparkles, Wand2, Variable, Package, Split, ShieldCheck, Compass, ListOrdered, Camera, Globe, Wallet, Link2, Palette } from "lucide-react"
 import type { BpAiData, BpNode, BpNodeStatus, BpVariableData, ProviderId } from "@/domain"
 import { useRunsStore } from "@/stores/runs"
-import { formatTokens } from "@/lib/format"
+import { formatCountdown, formatTokens } from "@/lib/format"
+import { useNow } from "@/lib/useNow"
+import { useBlueprintsStore } from "@/stores/blueprints"
 import { ModelLogo } from "@/design-system"
 import { PROVIDERS } from "@/providers/registry"
 import { useT } from "@/i18n"
@@ -73,6 +75,15 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   const poolRefs = React.useMemo(() => Array.from(new Set([d.modelRef, ...(d.pool ?? [])].filter(Boolean))), [d.modelRef, d.pool])
   // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
   const roster = React.useMemo(() => (plan && (d.mode === "orchestration" || d.mode === "lite") ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
+  // Quota waits tick every second on the box itself (2026-10-05): the timer runs only while something waits.
+  const quotaWaiting = n.status === "running" && plan ? plan.filter((st) => st.state === "waiting" && st.waitingUntil) : []
+  const now = useNow(1000, quotaWaiting.length > 0)
+  const nextReset = quotaWaiting.length ? Math.min(...quotaWaiting.map((st) => st.waitingUntil!)) : 0
+  const bpId = useBlueprintsStore((s) => s.activeId)
+  const openHandover = (subtaskId: string) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (bpId) useBlueprintsStore.getState().setFocusTask({ bpId, nodeId: n.id, subtaskId })
+  }
   return (
     <Shell node={n} icon={d.role === "bilinc" ? <Eye /> : d.role === "eylem" ? <Hammer /> : d.role === "donusturucu" ? <Wand2 /> : d.role === "kesifci" ? <Compass /> : d.role === "dikis" ? <Link2 /> : d.mode === "lite" ? <Split /> : <Bot />} title={n.data.type === "ai" && n.data.title ? n.data.title : (roleLabel(d.role, t as never) ?? (d.mode === "lite" ? t("bp.node.bolucu") : t("bp.node.ai")))} warnings={data.warnings} accent={providerColor(d.modelRef)} className={cn(roster.length && "w-[280px]", (d.role === "bilinc" || d.role === "kesifci") && "border-dotted")}>
       <div className="flex items-center gap-2">
@@ -81,6 +92,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
         {tokens > 0 && <span className="mono ml-auto shrink-0 text-[10px] text-text-3">{formatTokens(tokens)} tok</span>}
       </div>
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
+      {quotaWaiting.length > 0 && <div className="mono mt-1 text-[10px] font-semibold text-warn" title={t("bp.quotaWaitTip")}>⏳ {t("bp.quotaWaits", { n: quotaWaiting.length, t: formatCountdown(nextReset - now) })}</div>}
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
       {d.role && <div className="mt-0.5 text-[10px] text-text-3">{roleHint(d.role, t as never)}{d.role !== "eylem" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}
@@ -106,11 +118,16 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
                   <span className="mono ml-auto shrink-0 text-[9px] text-text-3">{row.tasks.length ? `${done}/${row.tasks.length}` : t("bp.rosterIdle")}</span>
                 </div>
                 {row.tasks.map((task) => {
-                  const g = rosterGlyph(task.state)
+                  const waiting = n.status === "running" && task.state === "waiting" && task.waitingUntil ? task.waitingUntil : 0
+                  const g = rosterGlyph(task.state, waiting || undefined)
                   return (
-                    <div key={task.id} className="flex items-start gap-1 pl-4 text-[10px] leading-4" title={`${task.title} — ${task.state}`}>
+                    <div key={task.id} className="flex items-center gap-1 pl-4 text-[10px] leading-4" title={waiting ? `${task.title} — ${t("bp.quotaWaitTip")}` : `${task.title} — ${task.state}`}>
                       <span className={cn("shrink-0", g.className)}>{g.glyph}</span>
-                      <span className="truncate text-text-2">{task.title}</span>
+                      <span className="min-w-0 truncate text-text-2">{task.title}</span>
+                      {waiting ? <span className="mono ml-auto shrink-0 text-warn tabular-nums">{formatCountdown(waiting - now)}</span> : null}
+                      {waiting || (n.status === "running" && task.state !== "completed" && task.state !== "failed") ? (
+                        <button type="button" onClick={openHandover(task.id)} onDoubleClick={(e) => e.stopPropagation()} title={t("bp.devretHint")} className={cn("nodrag nopan shrink-0 rounded-sm border px-1 leading-4", waiting ? "ml-1 border-warn/50 text-warn hover:bg-warn/10" : "ml-auto border-line text-text-3 hover:text-text-1")}>↪ {t("bp.devret")}</button>
+                      ) : null}
                     </div>
                   )
                 })}

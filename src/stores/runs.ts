@@ -82,7 +82,7 @@ interface RunsState {
   plan(input: DraftInput): Promise<PlanResult>
   start(run: SilentCodeRun): Promise<void>
   /** Kaldığı yerden devam: start a failed/cancelled run again with its completed tasks kept; only the rest runs. False when there is nothing to resume. */
-  resume(runId: string): Promise<boolean>
+  resume(runId: string, overrides?: Record<string, string>): Promise<boolean>
   /** Answer a blocked subtask's question; its CLI session resumes. */
   answer(runId: string, subtaskId: string, text: string): boolean
   /** Görevi böl: stop the running attempt and let the worker hand the rest back as parallel sub-tasks. */
@@ -218,6 +218,27 @@ function finishDraft(id: string, plan: Subtask[], input: DraftInput, agent: Repo
     turbo: input.turbo || input.lite || undefined,
     lite: input.lite || undefined,
     mechanical: input.mechanical || undefined,
+  }
+}
+
+/** Shell-quote one path for `git diff -- <paths>`. */
+function shq(path: string): string {
+  return `'${path.replace(/'/g, "'\\''")}'`
+}
+
+/**
+ * Repository state for a handover brief (2026-10-05): a safety snapshot ref (the state right before the handover,
+ * restorable) plus `git status`, `git diff --stat` and the diff of the task's own files (capped).
+ */
+export async function readRepoState(backend: { gitSnapshot(cwd: string): Promise<string>; runCheck(cwd: string, command: string, timeoutSecs?: number, maxLines?: number): Promise<{ ok: boolean; tail: string }> }, repoPath: string, files: string[]): Promise<{ text: string; snapshot?: string }> {
+  const snapshot = await backend.gitSnapshot(repoPath).catch(() => undefined)
+  const paths = files.slice(-30).map(shq).join(" ")
+  const cmd = `git status --short | head -60; echo ---; git diff --stat | tail -40; echo ---; ${paths ? `git diff -- ${paths} | head -c 8000` : "echo '(no files recorded for this task)'"}`
+  try {
+    const r = await backend.runCheck(repoPath, cmd, 60, 400)
+    return { text: r.tail.trim() || "(clean working tree)", snapshot }
+  } catch (e) {
+    return { text: `(git state unavailable: ${e instanceof Error ? e.message : String(e)})`, snapshot }
   }
 }
 
@@ -370,7 +391,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     // The polish reviewer must be able to launch a browser (it play-tests); only then the strongest tier.
     const pw = dosageWeights(useSettingsStore.getState().settings)
     const polishModel = [...poolModels].filter((m) => pw[m.providerId] > 0).sort((a, b) => Number(providerInfo(b.providerId).capabilities.browser) - Number(providerInfo(a.providerId).capabilities.browser) || TIER_RANK[b.tier] - TIER_RANK[a.tier] || pw[b.providerId] - pw[a.providerId])[0]
-    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap(), warmSessions: useSettingsStore.getState().settings.warmSessions !== false, autoAnswerMs: Math.max(0, useSettingsStore.getState().settings.autoAnswerAfterMin ?? 10) * 60_000, browserFallbackOutsidePool: useSettingsStore.getState().settings.browserFallbackOutsidePool === true })
+    const executor = new Executor(run, () => worker, bus, { gatewayBrief: agent ? renderGatewayBrief(agent.gatewayProfile) : undefined, sandbox, network, spec: run.spec, kitBrief, polish: run.polish !== false, polishModelId: polishModel ? modelRef(polishModel.providerId, polishModel.id) : undefined, maxRetriesPerModel: 1, maxContinuations: 2, models: useProvidersStore.getState().availableModels(), concurrency: () => useHostStore.getState().cap(), warmSessions: useSettingsStore.getState().settings.warmSessions !== false, autoAnswerMs: Math.max(0, useSettingsStore.getState().settings.autoAnswerAfterMin ?? 10) * 60_000, browserFallbackOutsidePool: useSettingsStore.getState().settings.browserFallbackOutsidePool === true , repoState: run.repoPath ? (files) => readRepoState(backend, run.repoPath!, files) : undefined })
 
     // Workers get the architecture brief (if the repo has one) instead of rediscovering the codebase.
     const loadContext = async () => {
@@ -440,7 +461,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ runs: get().runs.map((r) => (r.id === run.id ? final : r)), executors })
         persist(final)
         if (agent) void useAgentsStore.getState().recordAction(agent.id, { kind: "run", title: run.title, detail: e.type.replace("run.", ""), ok: e.type === "run.completed" }).catch(() => undefined)
-      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked")) || e.type === "subtask.assigned" || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
+      } else if ((e.type === "subtask.state" && (e.state === "completed" || e.state === "failed" || e.state === "blocked" || e.state === "waiting")) || e.type === "subtask.deferred" || e.type === "subtask.assigned" || e.type === "subtask.question" || e.type === "subtask.deviations" || e.type === "run.report" || e.type === "subtask.added") {
         persist(updated)
         if (e.type === "subtask.state" && e.state === "completed") {
           void loadContext().catch((e) => reportError(e, "context"))
@@ -465,13 +486,16 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     void executor.start().catch((e) => reportError(e, "run"))
   },
 
-  async resume(runId) {
+  async resume(runId, overrides) {
     const run = get().byId(runId)
     if (!run || run.status === "running" || get().executors[runId]) return false
     if (run.plan.every((s) => s.state === "completed")) return false
-    // Completed tasks keep their state, summary and files; every other task starts fresh (its attempts stay as history).
+    // Completed tasks keep their state, summary and files; every other task starts fresh (its attempts stay as history,
+    // so the executor opens its first attempt with a handover brief).
     const plan = run.plan.map((s) => (s.state === "completed" ? s : { ...s, state: "waiting" as const, progress: 0, question: undefined, waitingUntil: undefined }))
-    await get().start({ ...run, plan, status: "planned", finishedAt: undefined })
+    // Devret on a stopped run: the chosen model becomes the task's primary model (no pool fallbacks behind it).
+    const routing = run.routing.map((r) => (overrides?.[r.subtaskId] ? { ...r, primaryModelId: overrides[r.subtaskId]!, fallbackModelIds: [], reason: "handover (user)" } : r))
+    await get().start({ ...run, plan, routing, status: "planned", finishedAt: undefined })
     return true
   },
   answer(runId, subtaskId, text) {

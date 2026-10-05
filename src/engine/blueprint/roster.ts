@@ -3,7 +3,7 @@ import type { Subtask, WorkerState } from "@/domain"
 /** One line per model under an orchestration AI node: the model and the run tasks it is (or will be) working on. */
 export interface RosterRow {
   modelRef: string
-  tasks: Array<{ id: string; title: string; state: WorkerState }>
+  tasks: Array<{ id: string; title: string; state: WorkerState; /** Set while the task waits for a quota reset (ms). */ waitingUntil?: number }>
 }
 
 /**
@@ -18,13 +18,15 @@ export function teamRoster(plan: readonly Subtask[], pool: readonly string[]): R
     const ref = st.assignedModelId || st.modelHint
     if (!ref) continue
     if (!rows.has(ref)) rows.set(ref, { modelRef: ref, tasks: [] })
-    rows.get(ref)!.tasks.push({ id: st.id, title: st.title, state: st.state })
+    rows.get(ref)!.tasks.push({ id: st.id, title: st.title, state: st.state, waitingUntil: st.waitingUntil })
   }
   return Array.from(rows.values())
 }
 
 /** Glyph + colour class for a task state in the roster. */
-export function rosterGlyph(state: WorkerState): { glyph: string; className: string } {
+export function rosterGlyph(state: WorkerState, waitingUntil?: number): { glyph: string; className: string } {
+  // A queued task and a task waiting for a quota reset share the "waiting" state; only the reset time tells them apart.
+  if (state === "waiting" && waitingUntil) return { glyph: "⏳", className: "text-warn" }
   switch (state) {
     case "completed":
       return { glyph: "✓", className: "text-success" }

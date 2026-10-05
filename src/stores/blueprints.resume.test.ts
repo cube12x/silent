@@ -91,3 +91,37 @@ describe("Kaldığı yerden devam (2026-10-05)", () => {
     expect(st.running).toEqual({})
   })
 })
+
+describe("Devret: hand one task to another model (2026-10-05)", () => {
+  beforeEach(() => {
+    resumed = undefined
+    singleCalls.length = 0
+    useBlueprintsStore.setState({ logs: {}, blueprints: [bp()], running: {} })
+  })
+  it("a running run hands the task over live", async () => {
+    const calls: unknown[][] = []
+    useRunsStore.setState({ runs: [{ ...run(), status: "running" }], executors: {}, handover: (...a: unknown[]) => { calls.push(a); return true } } as never)
+    expect(await useBlueprintsStore.getState().handoverTask("b1", "main", "b", "claude:sonnet")).toBe(true)
+    expect(calls).toEqual([["run_r", "b", "claude:sonnet"]])
+  })
+  it("a stopped run resumes with that task re-routed to the chosen model", async () => {
+    const seen: Array<Record<string, string> | undefined> = []
+    useRunsStore.setState({
+      runs: [run()],
+      executors: {},
+      resume: async (_id: string, overrides?: Record<string, string>) => {
+        seen.push(overrides)
+        useRunsStore.setState({ runs: [{ ...run(), status: "running" }] } as never)
+        setTimeout(() => useRunsStore.setState({ runs: [{ ...run(), status: "completed", plan: run().plan.map((x) => ({ ...x, state: "completed" })) }] } as never), 20)
+        return true
+      },
+    } as never)
+    expect(await useBlueprintsStore.getState().handoverTask("b1", "main", "b", "claude:sonnet")).toBe(true)
+    expect(seen).toEqual([{ b: "claude:sonnet" }])
+    expect(useBlueprintsStore.getState().byId("b1")!.nodes.find((n) => n.id === "main")!.status).toBe("done")
+  })
+  it("a finished task cannot be handed over", async () => {
+    useRunsStore.setState({ runs: [{ ...run(), status: "running" }], executors: {} } as never)
+    expect(await useBlueprintsStore.getState().handoverTask("b1", "main", "a", "claude:sonnet")).toBe(false)
+  })
+})

@@ -253,6 +253,8 @@ export interface AutorunRef {
   deliver?: { paths: string[]; for?: string }
   /** `silent bp resume …`: continue the box's failed orchestration run (completed tasks kept). */
   resume?: boolean
+  /** `silent bp handover …`: hand one task of the box's run to another model. */
+  handover?: { task: string; to: string }
   /** `silent bp edit "<blueprint>" "<change>"`: let the designer modify that blueprint in place. */
   edit?: string
 }

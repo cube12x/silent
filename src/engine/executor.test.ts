@@ -957,3 +957,80 @@ describe("quota exhaustion on the only browser-capable model (2026-10-05)", () =
     expect(worker.jobs[0]!.brief).toMatch(/manage_task/)
   })
 })
+
+describe("Devret: handover in every state with a repo-aware brief (2026-10-05)", () => {
+  const MODELS = [
+    { id: "gemini-3.8-flash-high", providerId: "antigravity" as const, displayName: "Gemini 3.8 Flash", source: "catalog" as const, tier: "fast" as const },
+    { id: "gpt-5.6-terra", providerId: "codex" as const, displayName: "Terra", source: "catalog" as const, tier: "strong" as const },
+    { id: "sonnet", providerId: "claude" as const, displayName: "Claude Sonnet", source: "alias" as const, tier: "strong" as const },
+  ]
+  const POOL = ["antigravity:gemini-3.8-flash-high", "codex:gpt-5.6-terra"]
+  const mkRun = (n: number, opts: { browser?: boolean; attempts?: boolean } = {}): SilentCodeRun => {
+    const plan = Array.from({ length: n }, (_, i) => ({ id: `t${i}`, runId: "run_h", kind: "testing" as SubtaskKind, title: `Task ${i}`, description: "do it", dependsOn: [], state: "waiting" as const, attempts: opts.attempts ? [{ n: 1, modelId: "antigravity:gemini-3.8-flash-high", startedAt: 1, finishedAt: 2, outcome: "failure" as const, cause: "initial" as const, error: "Individual quota reached. Resets in 3h" }] : [], files: ["src/a.ts"], commands: [], weight: 1 as const, progress: 0, lastUpdate: 0, answers: [], deviations: [], needsBrowser: opts.browser ?? true, summary: opts.attempts ? "half done" : undefined }))
+    const routing = plan.map((p) => ({ subtaskId: p.id, kind: p.kind, primaryModelId: POOL[0]!, fallbackModelIds: [], reason: "x", score: 1 }))
+    return { id: "run_h", title: "h", prompt: "h", modelPool: POOL, executionMode: "parallel", costMode: "balanced", plan, routing, status: "planned", estimate: { minutes: 1, tokens: 1, costUsd: 0 } as never, createdAt: 0 } as SilentCodeRun
+  }
+  class W implements Worker {
+    readonly id = "w"
+    jobs: WorkerJob[] = []
+    readonly agyQuotaOut: boolean
+    constructor(agyQuotaOut: boolean) {
+      this.agyQuotaOut = agyQuotaOut
+    }
+    supports() {
+      return true
+    }
+    start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+      this.jobs.push(job)
+      sink.session(`s-${this.jobs.length}`)
+      const out = this.agyQuotaOut && job.modelId.startsWith("antigravity:")
+      const done = new Promise<import("./workers/Worker").WorkerResult>((resolve) => setTimeout(() => resolve(out ? { ok: false, summary: "quota", error: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 0h0m30s.", retryable: false } : { ok: true, summary: "done" }), 15))
+      return { done, cancel: async () => {} }
+    }
+  }
+  const repoState = async (files: string[]) => ({ text: `M ${files.join(", ")}\n--- 1 file changed`, snapshot: "refs/silent/snapshots/42" })
+
+  it("a task waiting for a quota reset is handed over at once, with earlier attempts, repo state and the safety snapshot in the brief", async () => {
+    const worker = new W(true)
+    const bus = new EventBus()
+    const events = collect(bus)
+    const exec = new Executor(mkRun(1), () => worker, bus, { models: MODELS, repoState })
+    const started = Date.now()
+    const done = exec.start()
+    // wait until the task is in its quota wait, then hand it over to Claude
+    for (let i = 0; i < 100 && !events.some((e) => e.type === "subtask.deferred" && e.until > 0); i++) await new Promise((r) => setTimeout(r, 10))
+    expect(exec.requestHandover("t0", "claude:sonnet")).toBe(true)
+    expect(await done).toBe("completed")
+    expect(Date.now() - started).toBeLessThan(10_000)
+    const last = worker.jobs.at(-1)!
+    expect(last.modelId).toBe("claude:sonnet")
+    expect(last.brief).toContain("# HANDOVER")
+    expect(last.brief).toMatch(/antigravity:gemini-3\.8-flash-high · initial · failure/)
+    expect(last.brief).toContain("## Repository state")
+    expect(last.brief).toContain("M src/a.ts")
+    expect(last.brief).toContain("Safety snapshot: refs/silent/snapshots/42")
+    expect(events.some((e) => e.type === "worker.log" && /handed over "Task 0" → claude:sonnet \(repo snapshot refs\/silent\/snapshots\/42\)/.test(e.line.text))).toBe(true)
+  }, 15_000)
+  it("a queued task handed over starts on the chosen model", async () => {
+    const worker = new W(false)
+    const exec = new Executor(mkRun(2, { browser: false }), () => worker, new EventBus(), { models: MODELS, concurrency: () => 1 })
+    const done = exec.start()
+    expect(exec.requestHandover("t1", "claude:sonnet")).toBe(true)
+    expect(await done).toBe("completed")
+    expect(worker.jobs.map((j) => j.modelId)).toEqual(["antigravity:gemini-3.8-flash-high", "claude:sonnet"])
+  })
+  it("a browser task cannot be handed to a CLI that cannot open a browser; unknown models are refused", () => {
+    const exec = new Executor(mkRun(1), () => new W(false), new EventBus(), { models: MODELS })
+    expect(exec.requestHandover("t0", "codex:gpt-5.6-terra")).toBe(false)
+    expect(exec.requestHandover("t0", "nope:model")).toBe(false)
+  })
+  it("a resumed task with earlier attempts continues with a handover brief", async () => {
+    const worker = new W(false)
+    const exec = new Executor(mkRun(1, { attempts: true }), () => worker, new EventBus(), { models: MODELS, repoState })
+    expect(await exec.start()).toBe("completed")
+    const first = worker.jobs[0]!
+    expect(first.brief).toContain("# HANDOVER")
+    expect(first.brief).toContain("resumed after failure on antigravity:gemini-3.8-flash-high")
+    expect(first.brief).toContain("half done")
+  })
+})

@@ -60,7 +60,12 @@ interface BlueprintsState {
   /** Execute from a node forward (Start/Enter): every AI reachable through wires, in order. */
   run(id: string, nodeId: string, opts?: { purpose?: string; extraPrompt?: string; resume?: boolean; only?: boolean; modelRef?: string; /** Walk on from this node without running the node itself. */ skipHead?: boolean }): Promise<void>
   /** Kaldığı yerden devam: an orchestration box whose run failed or was cancelled resumes that run (completed tasks kept) and, when it completes, walks on to the boxes behind it. */
-  resumeBox(id: string, nodeId: string): Promise<boolean>
+  resumeBox(id: string, nodeId: string, overrides?: Record<string, string>): Promise<boolean>
+  /** Devret: hand one task of the box's run to `toRef` and continue it from where it stopped (running run → live handover; stopped run → resume with that task re-routed). */
+  handoverTask(id: string, nodeId: string, subtaskId: string, toRef: string): Promise<boolean>
+  /** The box + task the user asked to hand over from the canvas (opens that row in the side panel). */
+  focusTask?: { bpId: string; nodeId: string; subtaskId: string; at: number }
+  setFocusTask(focus: { bpId: string; nodeId: string; subtaskId: string } | undefined): void
   cancel(id: string, nodeId: string): Promise<void>
   /** `silent cancel`: stop every running box of every blueprint; returns how many were stopped. */
   cancelAll(): Promise<number>
@@ -573,7 +578,33 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
       }
     }
   },
-  async resumeBox(id, nodeId) {
+  setFocusTask(focus) {
+    set({ focusTask: focus ? { ...focus, at: Date.now() } : undefined })
+  },
+  async handoverTask(id, nodeId, subtaskId, toRef) {
+    const bp = get().byId(id)
+    const node = bp && nodeById(bp, nodeId)
+    if (!bp || !node || node.data.type !== "ai") return false
+    const runId = node.executionId && !node.executionId.startsWith("session:") ? node.executionId : undefined
+    const run = runId ? useRunsStore.getState().byId(runId) : undefined
+    const task = run?.plan.find((st) => st.id === subtaskId)
+    if (!runId || !run || !task) {
+      log(set, nodeId, "⚠ handover: task not found in this box's run")
+      return false
+    }
+    if (task.state === "completed") {
+      log(set, nodeId, `⚠ handover: "${task.title}" is already done`)
+      return false
+    }
+    if (run.status === "running") {
+      const ok = useRunsStore.getState().handover(runId, subtaskId, toRef)
+      log(set, nodeId, ok ? `↪ "${task.title}" → ${toRef}: continues from where it stopped` : `⚠ handover of "${task.title}" to ${toRef} was refused (see the task log)`)
+      return ok
+    }
+    log(set, nodeId, `↪ "${task.title}" → ${toRef}: resuming the run with this task on the new model`)
+    return get().resumeBox(id, nodeId, { [subtaskId]: toRef })
+  },
+  async resumeBox(id, nodeId, overrides) {
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!bp || !node || node.data.type !== "ai") return false
@@ -596,7 +627,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     try {
       get().updateNode(id, nodeId, { status: "running", note: `resuming · ${done}/${run.plan.length} done` })
       log(set, nodeId, `↻ resuming ${runId}: ${done}/${run.plan.length} tasks already done, the rest runs now`)
-      const started = await useRunsStore.getState().resume(runId)
+      const started = await useRunsStore.getState().resume(runId, overrides)
       if (!started) {
         get().updateNode(id, nodeId, { status: run.plan.every((s) => s.state === "completed") ? "done" : "failed", note: undefined })
         log(set, nodeId, "⚠ nothing left to resume")

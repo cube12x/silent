@@ -34,3 +34,17 @@ describe("teamRoster", () => {
     expect(teamRoster([st("a", "x", "waiting")], pool).every((r) => r.tasks.length === 0)).toBe(true)
   })
 })
+
+describe("quota waits in the roster (2026-10-05)", () => {
+  it("a task waiting for a quota reset carries its time and shows ⏳; a queued one stays ○", async () => {
+    const { teamRoster, rosterGlyph } = await import("./roster")
+    const plan = [
+      { id: "a", title: "check", state: "waiting", assignedModelId: "antigravity:g", waitingUntil: 99 },
+      { id: "b", title: "queued", state: "waiting", assignedModelId: "antigravity:g" },
+    ] as never
+    const rows = teamRoster(plan, ["antigravity:g"])
+    expect(rows[0]!.tasks[0]!.waitingUntil).toBe(99)
+    expect(rosterGlyph("waiting", 99).glyph).toBe("⏳")
+    expect(rosterGlyph("waiting").glyph).toBe("○")
+  })
+})

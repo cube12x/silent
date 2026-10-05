@@ -10,7 +10,7 @@ import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useT } from "@/i18n"
 
 /** CLI · model dropdown grouped by CLI, with a quick "add model id" row per CLI. */
-export function ModelPicker({ providerId, modelId, onChange, className, size = "sm" }: { providerId: ProviderId; modelId: string; onChange: (providerId: ProviderId, modelId: string) => void; className?: string; size?: "xs" | "sm" }) {
+export function ModelPicker({ providerId, modelId, onChange, className, size = "sm", allowed, note }: { providerId: ProviderId; modelId: string; onChange: (providerId: ProviderId, modelId: string) => void; className?: string; size?: "xs" | "sm"; /** Greys out models that cannot take the job (with the reason as a tooltip). */ allowed?: (providerId: ProviderId, modelId: string) => true | string; /** A short tag per model (e.g. "outside the pool"). */ note?: (providerId: ProviderId, modelId: string) => string | undefined }) {
   const t = useT()
   const providers = useProvidersStore((s) => s.providers)
   const addCustomModel = useProvidersStore((s) => s.addCustomModel)
@@ -43,9 +43,11 @@ export function ModelPicker({ providerId, modelId, onChange, className, size = "
               </div>
               {byProvider[pid]!.map((m) => {
                 const on = m.providerId === providerId && m.id === modelId
+                const ok = allowed ? allowed(m.providerId, m.id) : true
+                const tag = note?.(m.providerId, m.id)
                 return (
-                  <button key={m.id} type="button" onClick={() => { onChange(m.providerId, m.id); setOpen(false) }} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-ink-3", on && "bg-cyan/[0.08] text-cyan")}>
-                    <span className="min-w-0 flex-1 truncate">{m.displayName}</span>
+                  <button key={m.id} type="button" disabled={ok !== true} title={ok === true ? undefined : ok} onClick={() => { onChange(m.providerId, m.id); setOpen(false) }} className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-ink-3 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent", on && "bg-cyan/[0.08] text-cyan")}>
+                    <span className="min-w-0 flex-1 truncate">{m.displayName}{tag ? <span className="ml-1 text-[10px] text-warn">· {tag}</span> : null}</span>
                     <span className="mono truncate text-[10px] text-text-3">{m.id}</span>
                     <TacticalChip size="xs" tone={m.tier === "frontier" ? "violet" : m.tier === "fast" ? "success" : "neutral"}>{m.tier}</TacticalChip>
                   </button>

@@ -7,7 +7,9 @@ import { Plus, Play, Send, Trash2, FolderOpen, Sparkles, Loader2, Maximize2, Min
 import { useBlueprintsStore, startBlueprintWatchers } from "@/stores/blueprints"
 import { useProvidersStore, selectAvailableModels } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
-import { formatTokens } from "@/lib/format"
+import { formatCountdown, formatTokens } from "@/lib/format"
+import { useNow } from "@/lib/useNow"
+import { rosterGlyph } from "@/engine/blueprint/roster"
 import { ModelSelectorGrid } from "@/design-system/tactical/ModelSelectorGrid"
 import { lintBlueprint, resolveAutorun } from "@/engine/blueprint/graph"
 import { NODE_TYPES, type BpFlowNode } from "./nodes"
@@ -70,6 +72,14 @@ function Canvas({ bpId, onNodeQuadClick, bare = false }: { bpId: string; onNodeQ
   const importFiles = useBlueprintsStore((s) => s.importFiles)
   const { screenToFlowPosition, fitView } = useReactFlow()
   const [selectedId, setSelectedId] = React.useState<string | undefined>(undefined)
+  // ↪ Devret on a box selects it so the side panel shows that task's handover row.
+  const focusTask = useBlueprintsStore((s) => s.focusTask)
+  const [seenFocusAt, setSeenFocusAt] = React.useState(0)
+  if (focusTask && focusTask.bpId === bpId && focusTask.at !== seenFocusAt) {
+    // Adjust state while rendering (no effect): each new focus request selects its box once.
+    setSeenFocusAt(focusTask.at)
+    setSelectedId(focusTask.nodeId)
+  }
   const [menu, setMenu] = React.useState<{ x: number; y: number; left: number; top: number } | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
   // Four quick clicks open the terminal/folder; a double click runs the node only when no 3rd click follows.
@@ -311,6 +321,71 @@ function Canvas({ bpId, onNodeQuadClick, bare = false }: { bpId: string; onNodeQ
   )
 }
 
+/** Görevler + Devret (2026-10-05): every task of the box's run, live quota countdowns, and a per-task handover to a chosen model. */
+function TaskHandoverList({ bpId, nodeId, runId }: { bpId: string; nodeId: string; runId: string }) {
+  const t = useT()
+  const run = useRunsStore((s) => s.byId(runId))
+  const focus = useBlueprintsStore((s) => s.focusTask)
+  const providers = useProvidersStore((s) => s.providers)
+  const unavailable = useProvidersStore((s) => s.unavailable)
+  const available = React.useMemo(() => new Set(selectAvailableModels(providers, unavailable).map((m) => modelRef(m.providerId, m.id))), [providers, unavailable])
+  const [openId, setOpenId] = React.useState<string | undefined>(undefined)
+  const [target, setTarget] = React.useState("")
+  const [seenFocusAt, setSeenFocusAt] = React.useState(0)
+  if (focus && focus.nodeId === nodeId && focus.at !== seenFocusAt) {
+    setSeenFocusAt(focus.at)
+    setOpenId(focus.subtaskId)
+    setTarget("")
+  }
+  const waiting = (run?.plan ?? []).filter((st) => st.state === "waiting" && st.waitingUntil)
+  const now = useNow(1000, waiting.length > 0 && run?.status === "running")
+  if (!run) return null
+  const dead = new Set(run.status === "running" ? useRunsStore.getState().deadModels(run.id) : [])
+  const pool = new Set(run.modelPool)
+  return (
+    <div className="flex flex-col gap-1 rounded-sm border border-line bg-ink-0 p-2 text-xs">
+      <div className="text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("bp.tasks")} · {run.plan.filter((st) => st.state === "completed").length}/{run.plan.length}</div>
+      {run.plan.map((st) => {
+        const until = run.status === "running" && st.state === "waiting" && st.waitingUntil ? st.waitingUntil : 0
+        const g = rosterGlyph(st.state, until || undefined)
+        const canHand = st.state !== "completed"
+        const open = openId === st.id
+        return (
+          <div key={st.id} className={cn("flex flex-col gap-1 border-t border-line/60 pt-1 first:border-t-0 first:pt-1", open && "rounded-sm bg-ink-2/60 px-1")}>
+            <div className="flex items-center gap-1.5">
+              <span className={cn("shrink-0", g.className)}>{g.glyph}</span>
+              <span className="min-w-0 flex-1 truncate text-text-2" title={st.title}>{st.title}</span>
+              {st.assignedModelId ? <span className="mono shrink-0 text-[10px] text-text-3">{st.assignedModelId.split(":")[1]}</span> : null}
+              {until ? <span className="mono shrink-0 text-[11px] font-semibold text-warn tabular-nums" title={t("bp.quotaWaitTip")}>⏳ {formatCountdown(until - now)}</span> : null}
+              {canHand && <button type="button" onClick={() => { setOpenId(open ? undefined : st.id); setTarget("") }} title={t("bp.devretHint")} className={cn("shrink-0 rounded-sm border px-1.5 text-[10px]", until ? "border-warn/50 text-warn" : "border-line text-text-3 hover:text-text-1")}>↪ {t("bp.devret")}</button>}
+            </div>
+            {open && (
+              <div className="flex flex-col gap-1 pb-1">
+                <div className="text-[10px] text-text-3">{t("bp.devretPick")}</div>
+                <ModelPicker
+                  size="xs"
+                  providerId={(parseModelRef(target || st.assignedModelId || run.modelPool[0] || "codex:").providerId || "codex") as ProviderId}
+                  modelId={parseModelRef(target || "").modelId}
+                  onChange={(p, m) => setTarget(modelRef(p, m))}
+                  allowed={(p, m) => {
+                    const ref = modelRef(p, m)
+                    if (st.needsBrowser && !PROVIDERS[p]?.capabilities.browser) return t("bp.noBrowser")
+                    if (dead.has(ref) || !available.has(ref)) return t("bp.modelDead")
+                    return true
+                  }}
+                  note={(p, m) => (pool.has(modelRef(p, m)) ? undefined : t("bp.outsidePool"))}
+                />
+                <div className="text-[10px] text-text-3">{t("bp.devretHint")}</div>
+                <NeonButton size="sm" disabled={!target || target === st.assignedModelId} onClick={() => { setOpenId(undefined); void useBlueprintsStore.getState().handoverTask(bpId, nodeId, st.id, target) }}>↪ {t("bp.devretGo")}</NeonButton>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; node: BpNode; log: TerminalLine[]; onTrigger: () => void; onRemove: () => void }) {
   const t = useT()
   const lang = useI18nStore((s) => s.language)
@@ -459,6 +534,7 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
               </div>
             </>
           )}
+          {run && d.type === "ai" && (d.mode === "orchestration" || d.mode === "lite") && run.plan.length > 0 && <TaskHandoverList bpId={bpId} nodeId={node.id} runId={run.id} />}
           {blocked.length > 0 && (
             <div className="flex flex-col gap-2 rounded-sm border border-warn/50 bg-warn/5 p-2 text-xs">
               <div className="text-[10px] font-semibold tracking-[0.16em] text-warn uppercase">❓ {t("bp.questions", { n: blocked.length })}</div>
@@ -749,6 +825,18 @@ export function BlueprintScreen() {
         return
       }
       navigate(`/blueprint/${target.bp.id}`)
+      if (autorun.handover) {
+        const run = target.node.executionId ? useRunsStore.getState().byId(target.node.executionId) : undefined
+        const want = autorun.handover.task.trim().toLowerCase()
+        const task = run?.plan.find((st) => st.id === autorun.handover!.task || st.title.trim().toLowerCase() === want) ?? run?.plan.find((st) => st.title.toLowerCase().includes(want))
+        if (!task) {
+          console.warn("[autostart] handover: task not found", autorun.handover.task)
+          return
+        }
+        console.warn("[autostart] handover", target.bp.id, target.node.id, task.id, autorun.handover.to)
+        void st.handoverTask(target.bp.id, target.node.id, task.id, autorun.handover.to)
+        return
+      }
       if (autorun.resume) {
         console.warn("[autostart] blueprint resume", target.bp.id, target.node.id)
         void st.resumeBox(target.bp.id, target.node.id)

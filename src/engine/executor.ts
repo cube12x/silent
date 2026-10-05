@@ -25,14 +25,36 @@ export const WORKER_FOREGROUND_RULE = "Run every command in the foreground and w
 
 export const SPLIT_HINT = "If more than ~20 min of work remain, do NOT continue alone: reply with `SILENT_SPLIT:` followed by 2–3 independent sub-briefs (one per line, each with its own `Owns:` paths, disjoint from each other), then stop; they will run in parallel as separate tasks."
 /** `# HANDOVER` block shared by orchestration workers and Blueprint single sessions: what the previous model already did. */
-export function handoverBlock(i: { fromModel: string; reason: string; files?: string[]; commands?: string[]; lastMessage?: string }): string {
+export function handoverBlock(i: {
+  fromModel: string
+  reason: string
+  files?: string[]
+  commands?: string[]
+  lastMessage?: string
+  /** One line per earlier attempt (model · cause · outcome — error). */
+  attempts?: string[]
+  /** Questions the worker asked and the answers it got. */
+  qa?: Array<{ question: string; answer?: string }>
+  notes?: string[]
+  deviations?: string[]
+  /** `git status` / `git diff --stat` / diff of the task's files at handover time. */
+  repoState?: string
+  /** Git ref of the safety snapshot taken right before the handover. */
+  snapshot?: string
+}): string {
   const files = (i.files ?? []).slice(-40)
   return [
     "# HANDOVER",
-    `A previous worker (${i.fromModel}) started this task and stopped: ${i.reason.slice(0, 300)}. The repository already contains its work — verify the current state first (git status/diff, run the checks), then continue from there; do not redo what exists and do not revert its files.`,
+    `A previous worker (${i.fromModel}) started this task and stopped: ${i.reason.slice(0, 300)}. The repository already contains its work — verify the current state first (git status/diff, run the checks), then continue from there; do not redo or revert what is already done, finish from where it stopped.`,
+    i.attempts?.length ? `Earlier attempts:\n${i.attempts.join("\n")}` : "",
+    i.qa?.length ? `Questions and answers so far:\n${i.qa.map((x) => `- Q: ${x.question}${x.answer ? `\n  A: ${x.answer}` : ""}`).join("\n")}` : "",
+    i.notes?.length ? `Its notes:\n${i.notes.map((n) => `- ${n}`).join("\n")}` : "",
+    i.deviations?.length ? `Its deviations from the request:\n${i.deviations.map((d) => `- ${d}`).join("\n")}` : "",
     files.length ? `Files it touched:\n${files.map((f) => `- ${f}`).join("\n")}` : "",
     i.commands?.length ? `Its last commands:\n${i.commands.map((c) => `- ${c}`).join("\n")}` : "",
     i.lastMessage?.trim() ? `Its last message:\n${i.lastMessage.trim().slice(-1500)}` : "",
+    i.repoState?.trim() ? `## Repository state\n${i.repoState.trim().slice(0, 12000)}` : "",
+    i.snapshot ? `Safety snapshot: ${i.snapshot} (the state before this handover; restorable)` : "",
   ]
     .filter(Boolean)
     .join("\n\n")
@@ -40,6 +62,9 @@ export function handoverBlock(i: { fromModel: string; reason: string; files?: st
 
 /** Brief for a user-requested split: stop now and hand the rest back. */
 export const SPLIT_BRIEF = "STOP: the user wants the remaining work of this task split. Finish only the edit you are in the middle of (leave the checks green for your paths), then reply with a short summary of what is done so far, followed by `SILENT_SPLIT:` and 2–3 independent sub-briefs for the remaining work (one per line, each with its own `Owns:` paths, disjoint from each other), then `SILENT_DEVIATIONS: none`."
+
+/** Where a handover comes from: the stopped model, why, its last words and where its commands start. */
+type HandoverFrom = { modelId: string; reason: string; lastMessage?: string; commandsFrom: number }
 
 export interface ExecutorOptions {
   /** Retries of the same model before falling back. Default 1. */
@@ -68,6 +93,8 @@ export interface ExecutorOptions {
   maxQuotaWaitMs?: number
   /** Browser tasks may fall back to a browser-capable catalog model outside the pool when the pool has none left. */
   browserFallbackOutsidePool?: boolean
+  /** Repo state for a handover brief (git status/stat/diff of the given files) and a safety snapshot ref; filled by the runs store. */
+  repoState?: (files: string[]) => Promise<{ text: string; snapshot?: string }>
   /** Shared project context (e.g. docs/ARCHITECTURE-BRIEF.md) prepended to every brief; updatable while running. */
   context?: string
   /** English product spec from the planner; every worker builds against it. */
@@ -188,15 +215,37 @@ export class Executor {
   requestHandover(subtaskId: string, toModelId?: string): boolean {
     const subtask = this.subtasks.get(subtaskId)
     if (!subtask || isTerminalState(subtask.state)) return false
+    const log = (text: string) => this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text } })
+    if (toModelId) {
+      // The user may pick a model outside the pool, but it must exist and a browser task needs a CLI that can open one.
+      const model = this.models.get(toModelId)
+      if (!model) {
+        log(`⚠ handover refused: ${toModelId} is not a known model`)
+        return false
+      }
+      if (subtask.needsBrowser && !providerInfo(model.providerId).capabilities.browser) {
+        log(`⚠ handover refused: this task drives a browser and ${toModelId} cannot launch one`)
+        return false
+      }
+    }
     const handle = this.handles.get(subtaskId)
     const waiter = this.waiters.get(subtaskId)
-    if (!handle && !waiter) return false
+    const quota = this.quotaWaiters.get(subtaskId)
     this.handoverTo.set(subtaskId, toModelId ?? "auto")
-    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ handover requested → ${toModelId ?? "next model"}: stopping this attempt; the next model continues from the repository state` } })
-    if (handle) handle.cancel()
-    else if (waiter) {
+    if (handle) {
+      log(`↪ handover requested → ${toModelId ?? "next model"}: stopping this attempt; the next model continues from the repository state`)
+      handle.cancel()
+    } else if (waiter) {
+      log(`↪ handover requested → ${toModelId ?? "next model"}: the question goes with the task; the next model continues from the repository state`)
       this.waiters.delete(subtaskId)
       waiter(null)
+    } else if (quota) {
+      // Waiting for a quota reset: stop waiting and continue on the chosen model now (2026-10-05).
+      log(`↪ handover requested → ${toModelId ?? "next model"}: no more waiting for the quota reset`)
+      quota()
+    } else {
+      // Queued / between attempts: the task starts (or continues) on the chosen model.
+      log(`↪ handover requested → ${toModelId ?? "next model"}: the task will start on it`)
     }
     return true
   }
@@ -340,24 +389,53 @@ export class Executor {
     let cause: Attempt["cause"] = "initial"
     const tried: string[] = []
     let attemptNo = 0
+    let handoverFrom: HandoverFrom | undefined
+    // A task with attempts from an earlier run (Kaldığı yerden devam / resume): its first attempt here continues that
+    // work with a handover brief instead of starting from the task text alone.
+    const prev = subtask.attempts.at(-1)
+    if (prev) {
+      handoverFrom = { modelId: prev.modelId, reason: `resumed after ${prev.outcome} on ${prev.modelId}`, lastMessage: subtask.summary ?? prev.error, commandsFrom: 0 }
+      cause = "handover"
+    }
+    // Handed over while still queued: start on the chosen model.
+    const queued = this.handoverTo.get(subtaskId)
+    if (queued !== undefined) {
+      this.handoverTo.delete(subtaskId)
+      const target = this.handoverTarget(subtask, decision, [], modelId, queued)
+      if (target) {
+        if (prev) handoverFrom = { ...handoverFrom!, reason: `handed over by the user (earlier: ${prev.outcome} on ${prev.modelId})` }
+        this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId, fromModelId: modelId, toModelId: target, cause: "handover", reason: "handover requested", at: this.now() })
+        modelId = target
+      }
+    }
     if (this.dead.has(modelId)) {
       const alt = nextModel(decision, [], this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true }) ?? this.outsidePoolBrowser(subtask, [modelId])
       if (alt) {
         this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId, line: { ts: this.now(), stream: "system", text: `↪ ${modelId} is out of quota in this run — starting on ${alt.modelId}` } })
         modelId = alt.modelId
-      } else if (!(await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId)))) {
-        if (!this.cancelled) this.setState(subtask, "failed", 0, `no usable model: ${modelId} is out of quota`)
-        return
+      } else {
+        const w = await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))
+        if (w === "handover") {
+          const h = this.takeHandover(subtask, decision, tried, modelId, `handed over by the user while waiting for ${modelId}'s quota`, subtask.summary)
+          if (!h) return
+          handoverFrom = prev ? { ...h.from, lastMessage: h.from.lastMessage ?? prev.error } : h.from
+          modelId = h.to
+          cause = prev ? "handover" : cause
+        } else if (!w) {
+          if (!this.cancelled) this.setState(subtask, "failed", 0, `no usable model: ${modelId} is out of quota`)
+          return
+        }
       }
     }
-    let handoverFrom: { modelId: string; reason: string; lastMessage?: string; commandsFrom: number } | undefined
 
     while (!this.cancelled) {
       attemptNo += 1
       let retriesOnModel = 0
       let continuations = 0
       const warm = cause === "initial" ? this.takeWarm(modelId) : undefined
-      let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm, undefined, cause === "handover" && handoverFrom ? this.handoverBrief(subtask, modelId, handoverFrom) : undefined)
+      const briefOverride = cause === "handover" && handoverFrom ? await this.handoverBrief(subtask, modelId, handoverFrom) : undefined
+      if (this.cancelled) return
+      let result = await this.attempt(subtask, modelId, attemptNo, warm ? "warm" : cause, warm, undefined, briefOverride)
       // A warm session that could not be resumed (expired, CLI refused) costs one fresh attempt, never a model change.
       if (warm && !result.ok && !result.blocked && !result.timedOut && !this.cancelled) {
         attemptNo += 1
@@ -420,18 +498,12 @@ export class Executor {
         result = await this.attempt(subtask, modelId, attemptNo, "continue", sessionId)
       }
       // Görev aktarımı (manual): the user stopped this attempt; continue on the chosen model.
-      const manual = this.handoverTo.get(subtaskId)
-      if (manual !== undefined && !this.cancelled) {
-        this.handoverTo.delete(subtaskId)
+      if (this.handoverTo.has(subtaskId) && !this.cancelled) {
         tried.push(modelId)
-        const target = manual !== "auto" && manual !== modelId ? manual : nextModel(decision, tried, this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true })?.modelId
-        if (!target) {
-          this.setState(subtask, "failed", subtask.progress, "handover: no other model available")
-          return
-        }
-        handoverFrom = { modelId, reason: "handed over by the user", lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
-        this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId, fromModelId: modelId, toModelId: target, cause: "handover", reason: "handover requested", at: this.now() })
-        modelId = target
+        const h = this.takeHandover(subtask, decision, tried, modelId, "handed over by the user", result.lastMessage)
+        if (!h) return
+        handoverFrom = h.from
+        modelId = h.to
         cause = "handover"
         continue
       }
@@ -475,8 +547,17 @@ export class Executor {
       // No other model can take it (2026-10-05: both browser checks of a run failed when the only browser-capable CLI in
       // the pool hit its quota): wait for the reset the error announced, then continue on the same model.
       if (isReject && !next && !result.blocked) {
-        if (await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))) {
+        const w = await this.waitForQuota(subtask, modelId, this.deadUntil.get(modelId))
+        if (w === true) {
           handoverFrom = { modelId, reason: `quota reset — continuing after "${(result.error ?? "").slice(0, 120)}"`, lastMessage: result.lastMessage, commandsFrom: this.attemptCommandStart.get(subtaskId) ?? 0 }
+          cause = "handover"
+          continue
+        }
+        if (w === "handover") {
+          const h = this.takeHandover(subtask, decision, tried, modelId, `handed over by the user while waiting for ${modelId}'s quota ("${(result.error ?? "").slice(0, 120)}")`, result.lastMessage)
+          if (!h) return
+          handoverFrom = h.from
+          modelId = h.to
           cause = "handover"
           continue
         }
@@ -518,7 +599,7 @@ export class Executor {
   }
 
   /** Wait (state "waiting") until `modelId`'s quota resets; false when no reset time is known, it is too far away, or the run was cancelled. */
-  private async waitForQuota(subtask: Subtask, modelId: string, until: number | undefined): Promise<boolean> {
+  private async waitForQuota(subtask: Subtask, modelId: string, until: number | undefined): Promise<boolean | "handover"> {
     const now = this.now()
     const max = this.opts.maxQuotaWaitMs ?? 6 * 3_600_000
     if (!until || until - now > max || this.cancelled) return false
@@ -540,17 +621,55 @@ export class Executor {
     })
     this.quotaWaiters.delete(subtask.id)
     subtask.waitingUntil = undefined
-    this.bus.emit({ type: "subtask.deferred", runId: this.run.id, subtaskId: subtask.id, until: 0, reason: "quota reset", at: this.now() })
+    const handedOver = this.handoverTo.has(subtask.id)
+    this.bus.emit({ type: "subtask.deferred", runId: this.run.id, subtaskId: subtask.id, until: 0, reason: handedOver ? "handed over" : "quota reset", at: this.now() })
     if (this.cancelled) return false
+    // The user handed the task over while it waited: the model stays dead until its own reset.
+    if (handedOver) return "handover"
     this.dead.delete(modelId)
     this.deadUntil.delete(modelId)
     return true
   }
 
-  /** HANDOVER brief: the normal brief plus what the previous worker already did, so the new model continues instead of restarting. */
-  private handoverBrief(subtask: Subtask, modelId: string, from: { modelId: string; reason: string; lastMessage?: string; commandsFrom: number }): string {
-    const commands = subtask.commands.slice(from.commandsFrom).slice(-5)
-    return `${this.brief(subtask, modelId)}\n\n${handoverBlock({ fromModel: from.modelId, reason: from.reason, files: subtask.files, commands, lastMessage: from.lastMessage })}`
+  /** Where a requested handover goes: the user's model, else (auto) the next usable model of the pool. */
+  private handoverTarget(subtask: Subtask, decision: RoutingDecision, tried: string[], current: string, requested: string): string | undefined {
+    if (requested !== "auto" && requested !== current) return requested
+    return nextModel(decision, [...tried, current], this.run.modelPool, this.models.all(), Boolean(subtask.needsBrowser), { exclude: this.dead, lateral: true })?.modelId
+  }
+
+  /**
+   * Consume a pending handover request (Görev aktarımı) for `subtask`: resolves the target, emits the fallback event and
+   * returns where to continue. Fails the subtask when no model can take it (returns null).
+   */
+  private takeHandover(subtask: Subtask, decision: RoutingDecision, tried: string[], from: string, reason: string, lastMessage?: string): { to: string; from: HandoverFrom } | null {
+    const requested = this.handoverTo.get(subtask.id) ?? "auto"
+    this.handoverTo.delete(subtask.id)
+    const target = this.handoverTarget(subtask, decision, tried, from, requested)
+    if (!target) {
+      this.setState(subtask, "failed", subtask.progress, "handover: no other model available")
+      return null
+    }
+    this.bus.emit({ type: "subtask.fallback", runId: this.run.id, subtaskId: subtask.id, fromModelId: from, toModelId: target, cause: "handover", reason: "handover requested", at: this.now() })
+    return { to: target, from: { modelId: from, reason, lastMessage, commandsFrom: this.attemptCommandStart.get(subtask.id) ?? 0 } }
+  }
+
+  /**
+   * HANDOVER brief: the normal brief plus everything the next model needs to finish the task from where it stopped —
+   * earlier attempts, questions and answers, notes, touched files, last commands and message, and the live repository
+   * state (git status / diff stat / diff of the task's files) with a safety snapshot ref taken right now.
+   */
+  private async handoverBrief(subtask: Subtask, modelId: string, from: HandoverFrom): Promise<string> {
+    const commands = subtask.commands.slice(from.commandsFrom).slice(-10)
+    let repo: { text: string; snapshot?: string } | undefined
+    try {
+      repo = await this.opts.repoState?.(subtask.files.slice(-30))
+    } catch (e) {
+      repo = { text: `(repository state unavailable: ${e instanceof Error ? e.message : String(e)})` }
+    }
+    const attempts = subtask.attempts.slice(-5).map((a) => `- ${a.modelId} · ${a.cause} · ${a.outcome}${a.error ? ` — ${a.error.replace(/\s+/g, " ").slice(0, 200)}` : ""}`)
+    const qa = [...subtask.answers.map((answer, idx) => ({ question: idx === subtask.answers.length - 1 && subtask.question ? subtask.question : `question ${idx + 1}`, answer })), ...(subtask.question && !subtask.answers.length ? [{ question: subtask.question }] : [])]
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: subtask.id, line: { ts: this.now(), stream: "system", text: `↪ handed over "${subtask.title}" → ${modelId}${repo?.snapshot ? ` (repo snapshot ${repo.snapshot})` : ""}` } })
+    return `${this.brief(subtask, modelId)}\n\n${handoverBlock({ fromModel: from.modelId, reason: from.reason, files: subtask.files, commands, lastMessage: from.lastMessage, attempts, qa, notes: subtask.notes, deviations: subtask.deviations, repoState: repo?.text, snapshot: repo?.snapshot })}`
   }
 
   /** Materialize a worker's SILENT_SPLIT: sibling tasks on the same model; whoever depended on the parent now also waits for them. */

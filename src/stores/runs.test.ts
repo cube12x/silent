@@ -57,3 +57,14 @@ describe("remove() waits for the run's pending persistence (2026-10-05 R11)", ()
     expect(calls).toEqual(["upsert:r1", "delete:r1"])
   })
 })
+
+describe("resume with a handover override (2026-10-05)", () => {
+  it("the chosen model becomes the task's primary model; finished tasks stay finished", async () => {
+    let started: SilentCodeRun | undefined
+    const failed = { ...run(), status: "failed", routing: [{ subtaskId: "t1", kind: "backend", primaryModelId: "antigravity:x", fallbackModelIds: ["codex:y"], reason: "r", score: 1 }] } as unknown as SilentCodeRun
+    useRunsStore.setState({ runs: [failed], executors: {}, start: async (r: SilentCodeRun) => { started = r } } as never)
+    expect(await useRunsStore.getState().resume("r1", { t1: "claude:sonnet" })).toBe(true)
+    expect(started!.routing[0]).toMatchObject({ primaryModelId: "claude:sonnet", fallbackModelIds: [] })
+    expect(started!.plan[0]!.state).toBe("waiting")
+  })
+})

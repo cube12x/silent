@@ -110,6 +110,17 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "deliver": { "paths": paths, "for": for_name } } }));
         }
+        Some("handover") => {
+            // silent bp handover <blueprint> <box> <task title|id> <provider:model>  → Devret from the terminal.
+            let bpref = rest.get(i + 1).cloned().unwrap_or_default();
+            let node = rest.get(i + 2).cloned().unwrap_or_default();
+            let task = rest.get(i + 3).cloned().unwrap_or_default();
+            let to = rest.get(i + 4).cloned().unwrap_or_default();
+            if bpref.is_empty() || node.is_empty() || task.is_empty() || !to.contains(':') {
+                return Err("usage: silent bp handover <blueprint> <box> <task title|id> <provider:model>".into());
+            }
+            return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "handover": { "task": task, "to": to } } }));
+        }
         Some("resume") => {
             // silent bp resume <blueprint> <box>  → continue the box's failed orchestration run from where it stopped.
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
@@ -130,7 +141,7 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box>".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box> | silent bp handover <blueprint> <box> <task> <provider:model>".into())
         }
     };
     Ok(json!({
@@ -385,6 +396,15 @@ mod tests {
         assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), Some(json!({"n": 3})));
         assert_eq!(take_request(&dir, Some(&legacy)).unwrap(), None);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn parses_handover() {
+        let v = parse_argv(&argv("bp handover Mario Build smoke claude:sonnet"), None).unwrap().unwrap();
+        assert_eq!(v["blueprint"]["handover"]["task"], "smoke");
+        assert_eq!(v["blueprint"]["handover"]["to"], "claude:sonnet");
+        assert!(parse_argv(&argv("bp handover Mario Build smoke sonnet"), None).is_err());
+        assert!(parse_argv(&argv("bp handover Mario Build"), None).is_err());
     }
 
     #[test]
