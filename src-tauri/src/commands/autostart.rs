@@ -310,9 +310,10 @@ mod tests {
         std::fs::create_dir_all(&base).unwrap();
         std::fs::write(base.join("mario-sheet.png"), b"png").unwrap();
         std::fs::write(base.join("coin.wav"), b"wav").unwrap();
-        let v = parse_argv(&argv("bp deliver Mario \"Model Plus\" mario-sheet.png coin.wav --for mario"), Some(&base)).unwrap().unwrap();
+        // (the shell hands a quoted title as ONE argv entry; the helper splits on spaces, so use a single-word title here)
+        let v = parse_argv(&argv("bp deliver Mario ModelPlus mario-sheet.png coin.wav --for mario"), Some(&base)).unwrap().unwrap();
         assert_eq!(v["blueprint"]["ref"], "Mario");
-        assert_eq!(v["blueprint"]["node"], "\"Model Plus\"");
+        assert_eq!(v["blueprint"]["node"], "ModelPlus");
         let paths = v["blueprint"]["deliver"]["paths"].as_array().unwrap();
         assert_eq!(paths.len(), 2);
         assert!(PathBuf::from(paths[0].as_str().unwrap()).is_absolute() && paths[0].as_str().unwrap().ends_with("mario-sheet.png"));

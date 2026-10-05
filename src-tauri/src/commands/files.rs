@@ -48,8 +48,22 @@ pub fn read_project_file(
 
 #[cfg(test)]
 mod tests {
+    use super::write_project_file;
     use super::safe_join;
     use std::path::Path;
+    #[test]
+    fn write_project_file_creates_parents_and_stays_inside_root() {
+        let root = std::env::temp_dir().join(format!("silent-wpf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        write_project_file(root.to_string_lossy().to_string(), ".silent/model-plus/requests.json".into(), "{}".into()).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join(".silent/model-plus/requests.json")).unwrap(), "{}");
+        write_project_file(root.to_string_lossy().to_string(), ".silent/model-plus/requests.json".into(), "[]".into()).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join(".silent/model-plus/requests.json")).unwrap(), "[]");
+        assert!(write_project_file(root.to_string_lossy().to_string(), "../escape.txt".into(), "x".into()).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn rejects_traversal_and_absolute() {
         assert!(safe_join(Path::new("/r"), "../x").is_none());
