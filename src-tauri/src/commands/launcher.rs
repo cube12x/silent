@@ -62,6 +62,7 @@ pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
             "B=\"{t}/Contents/MacOS/silent\"\n",
             "case \"$1\" in\n",
             "  status|update) exec \"$B\" \"$@\";;\n",
+            "  bp|run) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;\n",
             "  wait)\n",
             "    m=600; p=\"\"; for a in \"$@\"; do [ \"$p\" = \"--timeout\" ] && m=\"$a\"; p=\"$a\"; done\n",
             "    end=$(( $(date +%s) + m * 60 ))\n",
@@ -154,6 +155,7 @@ mod tests {
         assert!(mac.starts_with("#!/bin/sh\n"));
         assert!(mac.contains("exec open -n -a \"/Applications/Silent.app\" --args --cwd \"$PWD\" \"$@\""));
         assert!(mac.contains("status|update) exec \"$B\" \"$@\""));
+        assert!(mac.contains("bp|run) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;"));
         assert!(mac.contains("B=\"/Applications/Silent.app/Contents/MacOS/silent\""));
         assert!(mac.contains("--once; rc=$?; [ $rc -ne 3 ] && exit $rc"));
         let unix = launcher_script(LauncherKind::UnixExe, Path::new("/home/a/Silent.AppImage"));

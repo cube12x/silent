@@ -222,6 +222,18 @@ fn run_verb(dir: &Path, verb: &str, rest: &[String], cwd: Option<&Path>) -> Opti
             Some(0)
         }
         "wait" => Some(wait_for(dir, rest, Instant::now())),
+        // `silent bp …` / `silent run …` reach the app through `open`, so a usage error used to vanish in the app log
+        // with exit 0 (2026-10-06). The launcher asks here first: a bad command prints its usage and exits 2.
+        "check-args" => {
+            let argv: Vec<String> = std::iter::once("silent".to_string()).chain(rest.iter().cloned()).collect();
+            match crate::commands::autostart::parse_argv(&argv, cwd) {
+                Ok(_) => Some(0),
+                Err(e) => {
+                    eprintln!("{e}");
+                    Some(2)
+                }
+            }
+        }
         "update" if rest.iter().any(|a| a == "--cancel") => {
             clear_pending(dir);
             println!("update queue cleared — Silent accepts new runs again");
@@ -690,5 +702,16 @@ mod tests {
     fn data_dir_follows_the_identifier() {
         let d = data_dir_for("com.silent.workstation").unwrap();
         assert!(d.ends_with("com.silent.workstation"));
+    }
+
+    #[test]
+    fn check_args_reports_usage_errors_with_exit_2() {
+        let tmp = std::env::temp_dir().join(format!("silent-check-args-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let args = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        assert_eq!(run_verb(&tmp, "check-args", &args("bp fix"), None), Some(2));
+        assert_eq!(run_verb(&tmp, "check-args", &args("bp handover Mario Box"), None), Some(2));
+        assert_eq!(run_verb(&tmp, "check-args", &args("bp Mario Box"), None), Some(0));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
