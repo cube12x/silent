@@ -80,7 +80,7 @@ interface BlueprintsState {
   /** Anlık Görüntü "Geri al": restore the wired folder to the node's last snapshot. */
   restoreSnapshot(id: string, nodeId: string): Promise<boolean>
   /** Görev aktarımı for a box: stop it (if running) and continue on `toRef` from the folder's current state. */
-  handover(id: string, nodeId: string, toRef: string): Promise<void>
+  handover(id: string, nodeId: string, toRef: string, opts?: { chain?: boolean }): Promise<void>
   /** "AI ile oluştur": a planner-capable CLI (Claude first) designs a whole blueprint from a description. */
   autoCreate(description: string): Promise<Blueprint>
   /** "AI ile düzenle": the designer modifies the active blueprint in place (kept nodes keep ids and history). */
@@ -688,7 +688,7 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     return n
   },
-  async handover(id, nodeId, toRef) {
+  async handover(id, nodeId, toRef, opts) {
     const bp = get().byId(id)
     const node = bp && nodeById(bp, nodeId)
     if (!node || node.data.type !== "ai") return
@@ -703,7 +703,8 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
     }
     log(set, nodeId, `↪ handover ${from} → ${toRef} (requested by the user)`)
     const extra = handoverBlock({ fromModel: from, reason: "handed over by the user", lastMessage: tail || undefined })
-    await get().run(id, nodeId, { only: true, modelRef: toRef, extraPrompt: extra })
+    // The UI's Aktar re-runs only this box; the CLI (`silent bp handover <bp> <box> <model>`) continues the chain after it.
+    await get().run(id, nodeId, { only: !opts?.chain, modelRef: toRef, extraPrompt: extra })
   },
   async restoreSnapshot(id, nodeId) {
     const bp = get().byId(id)

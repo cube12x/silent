@@ -114,10 +114,15 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
             // silent bp handover <blueprint> <box> <task title|id> <provider:model>  → Devret from the terminal.
             let bpref = rest.get(i + 1).cloned().unwrap_or_default();
             let node = rest.get(i + 2).cloned().unwrap_or_default();
-            let task = rest.get(i + 3).cloned().unwrap_or_default();
-            let to = rest.get(i + 4).cloned().unwrap_or_default();
-            if bpref.is_empty() || node.is_empty() || task.is_empty() || !to.contains(':') {
-                return Err("usage: silent bp handover <blueprint> <box> <task title|id> <provider:model>".into());
+            // A single-mode box has no tasks: `silent bp handover <blueprint> <box> <provider:model>` hands the whole box over.
+            let third = rest.get(i + 3).cloned().unwrap_or_default();
+            let (task, to) = match rest.get(i + 4) {
+                Some(to) => (third, to.clone()),
+                None if third.contains(':') => (String::new(), third),
+                None => (third, String::new()),
+            };
+            if bpref.is_empty() || node.is_empty() || !to.contains(':') {
+                return Err("usage: silent bp handover <blueprint> <box> [task title|id] <provider:model>".into());
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": node, "answer": null, "only": false, "auto": null, "handover": { "task": task, "to": to } } }));
         }
@@ -141,7 +146,7 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box> | silent bp handover <blueprint> <box> <task> <provider:model>".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box> | silent bp handover <blueprint> <box> [task] <provider:model>".into())
         }
     };
     Ok(json!({
@@ -405,6 +410,9 @@ mod tests {
         assert_eq!(v["blueprint"]["handover"]["to"], "claude:sonnet");
         assert!(parse_argv(&argv("bp handover Mario Build smoke sonnet"), None).is_err());
         assert!(parse_argv(&argv("bp handover Mario Build"), None).is_err());
+        let single = parse_argv(&argv("bp handover Mario Build codex:gpt-5.6-terra"), None).unwrap().unwrap();
+        assert_eq!(single["blueprint"]["handover"]["task"], "");
+        assert_eq!(single["blueprint"]["handover"]["to"], "codex:gpt-5.6-terra");
     }
 
     #[test]

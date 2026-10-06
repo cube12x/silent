@@ -27,7 +27,7 @@ import { modKey } from "@/lib/platform"
 import { NodeTerminal } from "./NodeTerminal"
 import { DOUBLE_CLICK_RUN_DELAY_MS, createClickGate } from "./clickGate"
 import { FilesTab } from "./FilesTab"
-import { type TerminalLine, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
+import { type TerminalLine, isOrchestration, modelRef, parseModelRef, BP_STUB_KINDS, type BpNode, type BpNodeType, type ProviderId } from "@/domain"
 import { STUB_KIND_LABELS } from "@/engine/blueprint/uydurma"
 import { useI18nStore, useT } from "@/i18n"
 import { reportError } from "@/stores/notify"
@@ -852,6 +852,12 @@ export function BlueprintScreen() {
       }
       navigate(`/blueprint/${target.bp.id}`)
       if (autorun.handover) {
+        // A single-mode box (no task given): hand the whole box over and let the chain continue after it (2026-10-06).
+        if (!autorun.handover.task.trim() || (target.node.data.type === "ai" && !isOrchestration(target.node.data.mode))) {
+          console.warn("[autostart] box handover", target.bp.id, target.node.id, autorun.handover.to)
+          void st.handover(target.bp.id, target.node.id, autorun.handover.to, { chain: true })
+          return
+        }
         const run = target.node.executionId ? useRunsStore.getState().byId(target.node.executionId) : undefined
         const want = autorun.handover.task.trim().toLowerCase()
         const task = run?.plan.find((st) => st.id === autorun.handover!.task || st.title.trim().toLowerCase() === want) ?? run?.plan.find((st) => st.title.toLowerCase().includes(want))
