@@ -34,3 +34,19 @@ describe("Çoklu Tarayıcı lane verdicts (2026-10-02)", () => {
     expect(laneCap("critical", 1)).toBe(1)
   })
 })
+
+describe("verify box note says why lanes could not run (2026-10-06: Kimi's quota showed as 'host overloaded')", () => {
+  it("a model rejection is named, with a hand-over hint, never 'host overloaded'", async () => {
+    const { verifyNote } = await import("./verify")
+    const note = verifyNote({ lanes: 4, findings: 0, inconclusive: 4, rejected: { ref: "kimi:kimi-code/kimi-for-coding", error: "provider.auth_error: 403 You've reached your 5-hour usage limit." } })
+    expect(note).toMatch(/kimi-for-coding/)
+    expect(note).toMatch(/5-hour usage limit/)
+    expect(note).toMatch(/hand over/)
+    expect(note).not.toMatch(/overloaded/)
+  })
+  it("plain inconclusive lanes keep the replay note; findings are counted", async () => {
+    const { verifyNote } = await import("./verify")
+    expect(verifyNote({ lanes: 4, findings: 0, inconclusive: 2 })).toMatch(/2\/4 lanes inconclusive/)
+    expect(verifyNote({ lanes: 4, findings: 1, inconclusive: 1 })).toBe("1/4 lanes with findings, 1 inconclusive")
+  })
+})

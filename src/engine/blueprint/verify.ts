@@ -49,3 +49,13 @@ export function isInconclusiveLane(text: string): boolean {
   // Same rule as judgeLanes: a lane with real findings is never "could not be driven".
   return !FINDING_RE.test(t) && !OK_RE.test(t) && INCONCLUSIVE_RE.test(t)
 }
+
+/**
+ * The red verify box's note. A lane whose model rejected the work (quota, plan limit) is named as such with a hand-over
+ * hint — 2026-10-06: four Kimi lanes hit the 5-hour limit and the box said "host overloaded".
+ */
+export function verifyNote(i: { lanes: number; findings: number; inconclusive: number; rejected?: { ref: string; error: string } }): string {
+  if (i.findings) return `${i.findings}/${i.lanes} lanes with findings${i.inconclusive ? `, ${i.inconclusive} inconclusive` : ""}`
+  if (i.rejected) return `${i.inconclusive}/${i.lanes} lanes not run: ${i.rejected.ref} rejected (${i.rejected.error.replace(/\s+/g, " ").slice(0, 100)}) — hand over the box to a browser-capable model with quota, or re-run later`
+  return `${i.inconclusive}/${i.lanes} lanes inconclusive (host overloaded or app did not start) — re-run later`
+}

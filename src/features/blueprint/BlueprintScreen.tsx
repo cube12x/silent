@@ -443,11 +443,11 @@ function NodePanel({ bpId, node, log, onTrigger, onRemove }: { bpId: string; nod
           {(node.type === "ai" || node.type === "prompt" || node.type === "button" || node.type === "wizard" || node.type === "check" || node.type === "queue" || node.type === "snapshot" || node.type === "verify" || node.type === "model") && (running ? <NeonButton size="sm" variant="outline" onClick={() => void cancel(bpId, node.id)}>{t("common.cancel")}</NeonButton> : <NeonButton size="sm" onClick={onTrigger}>{node.type === "button" && d.type === "button" && d.kind === "send" ? <Send /> : <Play />}{t("bp.run")}</NeonButton>)}
           {node.type === "ai" && !running && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().run(bpId, node.id, { only: true })} title={t("bp.runOnlyHint")}>{t("bp.runOnly")}</NeonButton>}
           {node.type === "ai" && !running && node.status === "failed" && run && run.status !== "running" && run.plan.some((st) => st.state === "completed") && <NeonButton size="sm" variant="outline" onClick={() => void useBlueprintsStore.getState().resumeBox(bpId, node.id)} title={t("bp.resumeHint")}>↻ {t("bp.resume")}</NeonButton>}
-          {node.type === "ai" && d.type === "ai" && (running || node.status === "failed") && <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen((v) => !v)} title={t("bp.handoverHint")}>↪ {t("bp.handover")}</NeonButton>}
+          {((node.type === "ai" && d.type === "ai") || (node.type === "verify" && d.type === "verify")) && (running || node.status === "failed") && <NeonButton size="sm" variant="outline" onClick={() => setHandoverOpen((v) => !v)} title={t("bp.handoverHint")}>↪ {t("bp.handover")}</NeonButton>}
           <button type="button" onClick={onRemove} className="rounded-sm border border-line px-2 text-text-3 hover:text-danger" aria-label={t("common.delete")}><Trash2 className="size-3.5" /></button>
         </div>
       </div>
-      {handoverOpen && d.type === "ai" && (
+      {handoverOpen && (d.type === "ai" || d.type === "verify") && (
         <div className="flex flex-col gap-2 rounded-sm border border-line bg-ink-0 p-2 text-xs">
           <div className="text-[10px] font-semibold tracking-[0.16em] text-text-3 uppercase">{t("bp.handoverTarget")}</div>
           <ModelPicker providerId={(parseModelRef(handoverRef || d.modelRef || `${models[0]?.providerId ?? "codex"}:${models[0]?.id ?? ""}`).providerId || "codex") as ProviderId} modelId={parseModelRef(handoverRef || "").modelId} onChange={(p, m) => setHandoverRef(modelRef(p, m))} />
@@ -853,7 +853,7 @@ export function BlueprintScreen() {
       navigate(`/blueprint/${target.bp.id}`)
       if (autorun.handover) {
         // A single-mode box (no task given): hand the whole box over and let the chain continue after it (2026-10-06).
-        if (!autorun.handover.task.trim() || (target.node.data.type === "ai" && !isOrchestration(target.node.data.mode))) {
+        if (!autorun.handover.task.trim() || target.node.data.type === "verify" || (target.node.data.type === "ai" && !isOrchestration(target.node.data.mode))) {
           console.warn("[autostart] box handover", target.bp.id, target.node.id, autorun.handover.to)
           void st.handover(target.bp.id, target.node.id, autorun.handover.to, { chain: true })
           return
