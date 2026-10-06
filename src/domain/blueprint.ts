@@ -55,6 +55,10 @@ export interface BpAiData {
   keepSession?: boolean
   /** Folder the stored session ran in: a session is only resumed in the same folder (2026-10-01: a Dikiş resumed a session from a stray empty build). */
   sessionCwd?: string
+  /** Model that produced the stored session: it is resumed only on that model. */
+  sessionModelRef?: string
+  /** Single box waiting for a quota reset (ms): the box shows a live countdown. */
+  quotaWaitUntil?: number
 }
 /** kesifci = cheap read-only scout whose `# RECON` report spares the next (expensive) AI from re-scanning the repo. */
 /** dikis = stitch step (Faz 4): full suite + cross-area seams after a Bölücü, never a new feature. */

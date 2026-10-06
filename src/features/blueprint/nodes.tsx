@@ -77,9 +77,11 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
   // Who is doing what: one row per model, its tasks underneath (orchestration runs only).
   const roster = React.useMemo(() => (plan && (d.mode === "orchestration" || d.mode === "lite") ? teamRoster(plan, poolRefs) : []), [plan, poolRefs, d.mode])
   // Quota waits tick every second on the box itself (2026-10-05): the timer runs only while something waits.
+  const singleWait = n.status === "running" && !runId && d.quotaWaitUntil ? d.quotaWaitUntil : 0
   const quotaWaiting = n.status === "running" && plan ? plan.filter((st) => st.state === "waiting" && st.waitingUntil) : []
-  const now = useNow(1000, quotaWaiting.length > 0)
-  const nextReset = quotaWaiting.length ? Math.min(...quotaWaiting.map((st) => st.waitingUntil!)) : 0
+  const waitCount = quotaWaiting.length + (singleWait ? 1 : 0)
+  const now = useNow(1000, waitCount > 0)
+  const nextReset = waitCount ? Math.min(...quotaWaiting.map((st) => st.waitingUntil!), ...(singleWait ? [singleWait] : [])) : 0
   const bpId = useBlueprintsStore((s) => s.activeId)
   const openHandover = (subtaskId: string) => (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -93,7 +95,7 @@ export function AiNode({ data }: NodeProps<BpFlowNode>) {
         {tokens > 0 && <span className="mono ml-auto shrink-0 text-[10px] text-text-3">{formatTokens(tokens)} tok</span>}
       </div>
       {questions > 0 && <div className="mt-1 text-[10px] font-semibold text-warn">❓ {t("bp.questions", { n: questions })}</div>}
-      {quotaWaiting.length > 0 && <div className="mono mt-1 text-[10px] font-semibold text-warn" title={t("bp.quotaWaitTip")}>⏳ {t("bp.quotaWaits", { n: quotaWaiting.length, t: formatCountdown(nextReset - now) })}</div>}
+      {waitCount > 0 && <div className="mono mt-1 text-[10px] font-semibold text-warn" title={t("bp.quotaWaitTip")}>⏳ {t("bp.quotaWaits", { n: waitCount, t: formatCountdown(nextReset - now) })}</div>}
       {extra.length > 0 && !roster.length && <div className="mono mt-0.5 truncate text-[10px] text-text-3">+ {extra.map((p) => p.split(":")[1]).join(", ")}</div>}
       <div className="mt-1 text-[10px] text-text-3">{t(`bp.mode.${d.mode}` as never)}{data.log ? ` · ${data.log}` : ""}</div>
       {d.role && <div className="mt-0.5 text-[10px] text-text-3">{roleHint(d.role, t as never)}{d.role !== "eylem" && d.report ? ` · 📄 ${t("bp.report")}` : ""}</div>}

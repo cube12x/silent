@@ -11,6 +11,8 @@ export function isModelRejected(message: string): boolean {
     // 2026-10-05: Antigravity's final error line "Individual quota reached. Please upgrade your subscription … Resets in
     // 3h51m" was not recognised (only its stderr AGY_ERROR line was), so the task failed without trying another model.
     /\bquota (reached|exhausted|exceeded)|individual quota|upgrade your subscription|resets? in \d/i.test(message) ||
+    // 2026-10-05: Claude's "You've reached your Fable limit. Switch to another model" ended a box without a handover.
+    /(reached|hit) your [\w .-]{0,30}limit|switch to another model/i.test(message) ||
     // HTTP status codes only when they look like a status, never a bare number (2026-10-05: `src/api.ts:401:5` and the
     // runtime's "2400 s limit reached, stopped at a quiet moment" timeout text used to mark the model dead).
     /\b(?:http|status(?: code)?|error|code)[ :]*(401|403|429)\b|\b(401|403|429) (unauthorized|forbidden|too many)/i.test(message)

@@ -17,6 +17,7 @@ import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
 import { composeAiInput, downstreamOf, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
+import { runSingleChain } from "@/engine/blueprint/singleChain"
 import { pickPlannerModel } from "@/engine/aiPlanner"
 import { blueprintFromAuto, materializeAutoBlueprint, pickAutoBlueprintModel, requestAutoBlueprint } from "@/engine/blueprint/autoBlueprint"
 import { BUILTIN_KITS } from "@/domain/kits"
@@ -24,9 +25,8 @@ import { UYDURMA_TOOL_NAME, UYDURMA_TOOL_SOURCE } from "@/engine/blueprint/uydur
 import { DONUSTURUCU_TOOL_NAME, DONUSTURUCU_TOOL_SOURCE } from "@/engine/blueprint/donusturucu"
 import { defaultTaskForRole, effectivePurpose, type BpReportKind, aiTaskText, buildAiPrompt, extractReport, isRepoUrl, repoName, verifyLanePrompt, type RefPath } from "@/engine/blueprint/prompt"
 import { clampEffort } from "@/engine/effort"
-import { isModelRejected } from "@/engine/modelErrors"
 import { handoverBlock } from "@/engine/executor"
-import { dosageWeights, orderByDosage, pickHandoverTarget } from "@/engine/dosage"
+import { dosageWeights, orderByDosage } from "@/engine/dosage"
 import { useI18nStore } from "@/i18n"
 import { formatTokens } from "@/lib/format"
 
@@ -1686,7 +1686,11 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
   let ok: boolean
   let used: number
   let executionId: string | undefined
-  let sessionId: string | undefined = ai.executionId?.startsWith("session:") && (!ai.data.sessionCwd || ai.data.sessionCwd === cwd) ? ai.executionId.slice(8) : undefined
+  // A stored session is resumed only in its folder and on the model that produced it (2026-10-05: after a handover the
+  // box held Claude's session id while its main model was Gemini).
+  let sessionId: string | undefined = ai.executionId?.startsWith("session:") && (!ai.data.sessionCwd || ai.data.sessionCwd === cwd) && (!ai.data.sessionModelRef || ai.data.sessionModelRef === mainRef) ? ai.executionId.slice(8) : undefined
+  /** Why the box failed, shown on the red box (2026-10-05: a bare "failed" hid a plan-limit error). */
+  let failNote = "failed"
   // Bütçe: the guard wired into this box; an orchestration is cancelled live once its tokens pass the limit.
   const budget = incoming(bp, aiId).find((n) => n.data.type === "budget")
   const maxTokens = budget?.data.type === "budget" ? budget.data.maxTokens : undefined
@@ -1723,26 +1727,18 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
         { runId: `bp:${aiId}:${Date.now()}`, modelRef: ref, prompt: extra ? `${singlePrompt}\n\n${extra}` : singlePrompt, cwd, readOnly: role === "bilinc" || role === "kesifci", resumeSessionId: !extra && (opts?.resume || keepSession) ? sessionId : undefined, effort: clampEffort(parseModelRef(ref).providerId as ProviderId, boxEffort) },
         (line, stream) => log(set, aiId, line, stream),
       )
-    let handle = startSingle(mainRef)
-    useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
-    let res = await handle.done
-    let usedRef = mainRef
-    // Görev aktarımı: a dead quota/limit hands the session to the next backup model (dosage order), once.
-    if (!res.ok && res.error && res.error !== "cancelled" && isModelRejected(res.error)) {
-      useProvidersStore.getState().markUnavailable(mainRef, res.error)
-      const target = pickHandoverTarget({ current: mainRef, pool: ai.data.pool ?? [], unavailable: useProvidersStore.getState().unavailable, weights: dosage, fallbackRef: useSettingsStore.getState().settings.fallbackModelRef })
-      if (target) {
-        log(set, aiId, `↪ handover ${mainRef} → ${target} (${res.error.slice(0, 80)})`)
-        const extra = handoverBlock({ fromModel: mainRef, reason: res.error, lastMessage: res.text.trim().slice(-1500) || undefined })
-        handle = startSingle(target, extra)
-        useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: handle.cancel } }))
-        const first = res
-        res = await handle.done
-        res = { ...res, tokens: res.tokens + first.tokens }
-        usedRef = target
-      } else log(set, aiId, `✖ ${mainRef} rejected (${res.error.slice(0, 80)}) and no backup model is left — wire backup models into the box or set a fallback model in Settings`)
-    }
-    void usedRef
+    const { res, usedRef } = await runSingleChain({
+      mainRef,
+      pool: ai.data.pool ?? [],
+      weights: dosage,
+      fallbackRef: useSettingsStore.getState().settings.fallbackModelRef,
+      start: startSingle,
+      onCancel: (cancel) => useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: cancel } })),
+      unavailable: () => useProvidersStore.getState().unavailable,
+      markUnavailable: (ref, reason) => useProvidersStore.getState().markUnavailable(ref, reason),
+      log: (line) => log(set, aiId, line),
+      onWait: (until) => store.updateNode(bpId, aiId, { data: { quotaWaitUntil: until } }),
+    })
     ok = res.ok
     used = res.tokens
     if (maxTokens && budget && used > maxTokens) {
@@ -1758,7 +1754,8 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
     }
     sessionId = res.sessionId ?? sessionId
     executionId = sessionId ? `session:${sessionId}` : undefined
-    if (sessionId) store.updateNode(bpId, aiId, { data: { sessionCwd: cwd } })
+    if (sessionId) store.updateNode(bpId, aiId, { data: { sessionCwd: cwd, sessionModelRef: res.sessionId ? usedRef : ai.data.sessionModelRef } })
+    if (!ok && res.error) failNote = res.error === "cancelled" ? "cancelled" : res.error.replace(/\s+/g, " ").slice(0, 160)
     const swept = cwd ? await backend.projectSweep(cwd).catch(() => 0) : 0
     if (swept) log(set, aiId, `🧹 swept ${swept} leftover browser/dev-server process(es)`)
     if (!ok) log(set, aiId, `✖ ${res.error ?? "failed"}`)
@@ -1768,7 +1765,7 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
     delete running[aiId]
     return { running }
   })
-  store.updateNode(bpId, aiId, { status: ok ? "done" : "failed", executionId, note: ok ? undefined : "failed" })
+  store.updateNode(bpId, aiId, { status: ok ? "done" : "failed", executionId, note: ok ? undefined : failNote })
   addTokens(bpId, aiId, used)
   log(set, aiId, `${ok ? "✓" : "✖"} ${formatTokens(used)} tokens`)
   // Outputs: refresh the build, collect new images into a wired photo build, name an unnamed build.
