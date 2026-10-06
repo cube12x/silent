@@ -80,7 +80,7 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
             }
             let problem = problem.join(" ");
             if bpref.is_empty() || problem.trim().is_empty() {
-                return Err("usage: silent bp fix <blueprint name|id> <problem…> [--file path]…".into());
+                return Err("usage: silent bp fix <blueprint name|id> <problem…> [--file path]… [--run]  (without --run the repair dialog is only prefilled)".into());
             }
             return Ok(json!({ "folder": "", "prompt": "", "blueprint": { "ref": bpref, "node": null, "answer": null, "only": false, "auto": null, "fix": { "problem": problem, "files": files, "run": run } } }));
         }
@@ -146,7 +146,7 @@ fn parse_bp(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
         }
         Some(bpref) => (bpref.to_string(), rest.get(i + 1).cloned().filter(|s| !s.is_empty()), None, None),
         None => {
-            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box> | silent bp handover <blueprint> <box> [task] <provider:model>".into())
+            return Err("usage: silent bp <blueprint name|id> [node title|id] | silent bp only <blueprint> <node> | silent bp answer <blueprint> <node> <answer…> | silent bp auto <description…> | silent bp edit <blueprint> <change…> | silent bp fix <blueprint> <problem…> [--file path]… [--run] | silent bp deliver <blueprint> <box> <file>… [--for <request>] | silent bp resume <blueprint> <box> | silent bp handover <blueprint> <box> [task] <provider:model>".into())
         }
     };
     Ok(json!({
