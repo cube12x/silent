@@ -520,7 +520,9 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
               try {
                 // A fixer another chain is already running is awaited, never started twice (2026-10-05).
                 const w = await awaitBusy(id, f.id, set)
-                if (w === "free") await execAi(id, f.id, { ...opts, parallel: false })
+                // The walk's head options (Devret model, handover brief, purpose) belong to the gate, never to its fixer
+                // (2026-10-06: a verify box handed to Gemini ran its Codex fixer on Gemini too).
+                if (w === "free") await execAi(id, f.id, { parallel: false })
               } catch (e) {
                 log(set, f.id, `✖ fixer crashed: ${e instanceof Error ? e.message : String(e)}`)
               }
