@@ -178,10 +178,15 @@ pub fn relaunch_script(target: &Path) -> String {
 }
 
 fn spawn_relauncher(target: &Path) {
-    use std::os::unix::process::CommandExt;
     let mut cmd = std::process::Command::new("sh");
     cmd.arg("-c").arg(relaunch_script(target)).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    cmd.process_group(0);
+    // Own process group so our exit does not take the relauncher down. The whole bundle swap is macOS-only today;
+    // the cfg keeps the Windows build compiling (2026-10-08: CI had been red on windows-latest since 09-30).
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     if let Err(e) = cmd.spawn() {
         log::error!("could not spawn the relauncher: {e}");
     }

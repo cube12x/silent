@@ -5,9 +5,23 @@
 use std::path::Path;
 use tokio::process::Command;
 
-async fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
+/// `git` with a fixed identity: `commit-tree` refuses to run without one, and a fresh build folder (or a CI runner)
+/// has no user.name/user.email (2026-10-08: the ubuntu CI test failed on exactly this).
+fn git_command(cwd: &Path) -> Command {
     let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    cmd.current_dir(cwd)
+        .env("GIT_AUTHOR_NAME", "Silent")
+        .env("GIT_AUTHOR_EMAIL", "silent@localhost")
+        .env("GIT_COMMITTER_NAME", "Silent")
+        .env("GIT_COMMITTER_EMAIL", "silent@localhost")
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    cmd
+}
+
+async fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    let mut cmd = git_command(cwd);
+    cmd.args(args);
     silent_runtime::spawn::configure_child(&mut cmd);
     let out = cmd.output().await.map_err(|e| format!("git {}: {e}", args.first().copied().unwrap_or("")))?;
     if !out.status.success() {
@@ -38,8 +52,8 @@ pub async fn snapshot(cwd: &Path) -> Result<String, String> {
 }
 
 async fn git_with_index(cwd: &Path, index: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(cwd).env("GIT_INDEX_FILE", index).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    let mut cmd = git_command(cwd);
+    cmd.args(args).env("GIT_INDEX_FILE", index);
     silent_runtime::spawn::configure_child(&mut cmd);
     let out = cmd.output().await.map_err(|e| format!("git: {e}"))?;
     if !out.status.success() {

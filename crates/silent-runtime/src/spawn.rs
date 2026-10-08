@@ -501,7 +501,9 @@ mod tests {
         let events = events.lock().unwrap().clone();
         assert!(events.iter().any(|e| matches!(e, RuntimeEvent::Failed { code, message, .. } if code == "timeout" && message.contains("quiet moment"))), "{events:?}");
     }
+    #[cfg(unix)]
     use crate::cli::{line_parser, ProviderId};
+    #[cfg(unix)]
     use std::time::Instant;
 
     fn collector() -> (
