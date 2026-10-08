@@ -29,7 +29,43 @@ pub fn parse_argv(args: &[String], cwd: Option<&Path>) -> Result<Option<Value>, 
             let rest: Vec<String> = it.cloned().collect();
             parse_run(&rest, cwd.as_deref()).map(Some)
         }
+        "mind" => {
+            let rest: Vec<String> = it.cloned().collect();
+            parse_mind(&rest).map(Some)
+        }
         _ => Ok(None),
+    }
+}
+
+/// `silent mind "<model>" "<message…>"` · `silent mind start|reset "<model>"` · `silent mind term "<model>" "<command…>"`
+/// → `{ mind: { ref, message, start, reset, term } }` (MindMirror, 2026-10-08).
+fn parse_mind(rest: &[String]) -> Result<Value, String> {
+    const USAGE: &str = "usage: silent mind <model name|id> <message…> | silent mind start <model> | silent mind reset <model> | silent mind term <model> <command…>";
+    let build = |r: &str, message: Option<String>, start: bool, reset: bool, term: Option<String>| json!({ "folder": "", "prompt": "", "mind": { "ref": r, "message": message, "start": start, "reset": reset, "term": term } });
+    match rest.first().map(String::as_str) {
+        Some(verb @ ("start" | "reset")) => {
+            let r = rest.get(1).map(String::as_str).unwrap_or("");
+            if r.trim().is_empty() || rest.len() > 2 {
+                return Err(USAGE.into());
+            }
+            Ok(build(r, None, verb == "start", verb == "reset", None))
+        }
+        Some("term") => {
+            let r = rest.get(1).map(String::as_str).unwrap_or("");
+            let cmd = rest[2.min(rest.len())..].join(" ");
+            if r.trim().is_empty() || cmd.trim().is_empty() {
+                return Err(USAGE.into());
+            }
+            Ok(build(r, None, false, false, Some(cmd)))
+        }
+        Some(r) if !r.trim().is_empty() => {
+            let msg = rest[1..].join(" ");
+            if msg.trim().is_empty() {
+                return Err(USAGE.into());
+            }
+            Ok(build(r, Some(msg), false, false, None))
+        }
+        _ => Err(USAGE.into()),
     }
 }
 
@@ -422,6 +458,29 @@ mod tests {
         assert_eq!(v["blueprint"]["node"], "Build");
         assert_eq!(v["blueprint"]["resume"], true);
         assert!(parse_argv(&argv("bp resume Mario"), None).is_err());
+    }
+
+    #[test]
+    fn parses_mind_message_start_reset_and_term() {
+        let v = parse_argv(&argv("mind Deneme Atarus sinemasına bak"), None).unwrap().unwrap();
+        assert_eq!(v["mind"]["ref"], "Deneme");
+        assert_eq!(v["mind"]["message"], "Atarus sinemasına bak");
+        assert_eq!(v["mind"]["start"], false);
+        assert!(v["mind"]["term"].is_null());
+        assert_eq!(v["folder"], "");
+        let v = parse_argv(&argv("mind start Deneme"), None).unwrap().unwrap();
+        assert_eq!(v["mind"]["start"], true);
+        assert_eq!(v["mind"]["reset"], false);
+        assert!(v["mind"]["message"].is_null());
+        let v = parse_argv(&argv("mind reset Deneme"), None).unwrap().unwrap();
+        assert_eq!(v["mind"]["reset"], true);
+        let v = parse_argv(&argv("mind term Deneme npm test"), None).unwrap().unwrap();
+        assert_eq!(v["mind"]["term"], "npm test");
+        assert_eq!(v["mind"]["ref"], "Deneme");
+        assert!(parse_argv(&argv("mind"), None).is_err());
+        assert!(parse_argv(&argv("mind Deneme"), None).is_err());
+        assert!(parse_argv(&argv("mind start"), None).is_err());
+        assert!(parse_argv(&argv("mind term Deneme"), None).is_err());
     }
 
     #[test]

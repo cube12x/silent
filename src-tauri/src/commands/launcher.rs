@@ -56,13 +56,13 @@ pub fn launcher_script(kind: LauncherKind, target: &Path) -> String {
     match kind {
         LauncherKind::MacApp => format!(concat!(
             "#!/bin/sh\n",
-            "# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent reload | silent cancel).\n",
+            "# Silent — opens the desktop app with your arguments (silent run … | silent bp … | silent mind … | silent reload | silent cancel).\n",
             "# status / wait / update are answered by the app binary itself, without a window. `wait` loops here in the shell:\n",
             "# a long-lived GUI-bundle process gets App-Napped and its sleeps stretch. Exit codes: 0 done, 1 failed, 2 unknown/timeout, 4 waiting for assets, 5 app not writing status.\n",
             "B=\"{t}/Contents/MacOS/silent\"\n",
             "case \"$1\" in\n",
             "  status|update) exec \"$B\" \"$@\";;\n",
-            "  bp|run) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;\n",
+            "  bp|run|mind) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;\n",
             "  wait)\n",
             "    m=600; p=\"\"; for a in \"$@\"; do [ \"$p\" = \"--timeout\" ] && m=\"$a\"; p=\"$a\"; done\n",
             "    end=$(( $(date +%s) + m * 60 ))\n",
@@ -155,7 +155,7 @@ mod tests {
         assert!(mac.starts_with("#!/bin/sh\n"));
         assert!(mac.contains("exec open -n -a \"/Applications/Silent.app\" --args --cwd \"$PWD\" \"$@\""));
         assert!(mac.contains("status|update) exec \"$B\" \"$@\""));
-        assert!(mac.contains("bp|run) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;"));
+        assert!(mac.contains("bp|run|mind) \"$B\" --cwd \"$PWD\" check-args \"$@\" || exit $?;;"));
         assert!(mac.contains("B=\"/Applications/Silent.app/Contents/MacOS/silent\""));
         assert!(mac.contains("--once; rc=$?; [ $rc -ne 3 ] && exit $rc"));
         let unix = launcher_script(LauncherKind::UnixExe, Path::new("/home/a/Silent.AppImage"));

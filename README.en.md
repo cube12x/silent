@@ -20,7 +20,7 @@ Packages are on the **Releases** page: https://github.com/cube12x/silent/release
 
 **Prerequisites:** Node.js LTS + npm (to install the CLIs), git (reference repos), optional python3 (the Uydurma placeholder tool). The first-run **Setup** screen checks them, installs the five recommended CLIs with one click and opens each CLI's login in a new terminal window. Continue needs Codex or Claude Code (they do the planning).
 
-**Terminal command:** Settings → CLIs → install `silent`. `silent run <folder> "<request>"`, `silent bp "<blueprint>"`, `silent reload`. If the folder is not on PATH, add the line the app shows (Windows: `%LOCALAPPDATA%\Silent\bin`).
+**Terminal command:** Settings → CLIs → install `silent`. `silent run <folder> "<request>"`, `silent bp "<blueprint>"`, `silent mind "<model>" "<message>"` (MindMirror: a read-only Bilinç mind that hands actions to a cheaper Eylem model), `silent reload`. If the folder is not on PATH, add the line the app shows (Windows: `%LOCALAPPDATA%\Silent\bin`).
 
 **Troubleshooting:** logs live in `~/Library/Logs/com.silent.workstation/` (macOS), `~/.local/share/com.silent.workstation/logs/` (Linux), `%LOCALAPPDATA%\com.silent.workstation\logs\` (Windows). `npm install -g` failing with EACCES → the Setup screen's **Use ~/.npm-global and retry** button. Node from nvm is found automatically. On Windows, Codex's native sandbox is experimental: prefer Claude Code as the planner; `curl | bash` installers are unavailable there, so CLIs without an npm package (Antigravity, Cursor) are installed by hand.
 

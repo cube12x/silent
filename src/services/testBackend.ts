@@ -184,13 +184,33 @@ export class TestBackend implements Backend {
   async openUrl(url: string) {
     this.openedUrls.push(url)
   }
-  async cliStart(_request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
-    if (this.preview && _request.runId.startsWith("plan:")) {
+  async cliStart(request: CliRunRequest, onEvent: (event: RuntimeEvent) => void): Promise<RunHandle> {
+    if (this.preview && request.runId.startsWith("plan:")) {
       // Dev preview only: a canned planner reply so the Task→Plan→Start UI can be reviewed without a CLI.
       const plan = { summary: "Preview plan", subtasks: [{ key: "a", kind: "backend", title: "Backend API", description: "Implement the endpoints.", dependsOn: [], weight: 2, tier: "strong", effort: "medium", rationale: "core work" }, { key: "b", kind: "frontend", title: "UI", description: "Build the screens.", dependsOn: ["a"], weight: 2, tier: "strong", effort: "medium", rationale: "depends on API" }, { key: "c", kind: "tests", title: "Tests", description: "Cover the API.", dependsOn: ["a"], weight: 1, tier: "fast", effort: "low", rationale: "mechanical" }], questions: [{ id: "q1", question: "Which content sources may be used?", why: "Licensing matters", options: ["Licensed only", "Any source"] }], assumptions: ["pnpm workspace"], excluded: ["algorithm"] }
       queueMicrotask(() => {
         onEvent({ type: "agentMessage", data: { text: JSON.stringify(plan) } })
         onEvent({ type: "exited", data: { code: 0 } })
+      })
+      return { cancel: async () => {} }
+    }
+    if (this.preview && request.runId.startsWith("mind:")) {
+      // Dev preview of MindMirror: Bilinç hands an EYLEM block over, Eylem reports, the memory call remembers one fact.
+      const stage = request.runId.split(":")[1]
+      const text =
+        stage === "bilinc"
+          ? "Önizleme: Atarus sinemasında üç film olabilir.\n\nEYLEM:\n1. https://atarus.example/sinema adresini aç\n2. vizyondaki filmleri listele\nDÖNÜŞ: film adları ve seanslar"
+          : stage === "eylem"
+            ? "# SONUÇ\nÖnizleme: 3 film bulundu — A (19:00), B (20:30), C (22:00)."
+            : stage === "mem"
+              ? "# HATIRLA\n- Kullanıcı Atarus sinemasını takip ediyor"
+              : "önizleme terminal çıktısı: a.txt b.txt"
+      queueMicrotask(() => {
+        onEvent({ type: "sessionStarted", data: { sessionId: `preview-${stage}-${Date.now().toString(36)}` } } as RuntimeEvent)
+        onEvent({ type: "textDelta", data: { text: text.slice(0, 12) } } as RuntimeEvent)
+        onEvent({ type: "agentMessage", data: { text } } as RuntimeEvent)
+        onEvent({ type: "usage", data: { inputTokens: 120, outputTokens: 40 } } as RuntimeEvent)
+        onEvent({ type: "exited", data: { code: 0 } } as RuntimeEvent)
       })
       return { cancel: async () => {} }
     }

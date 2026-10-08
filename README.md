@@ -46,6 +46,9 @@ Hazır paketler **Releases** sayfasında: https://github.com/cube12x/silent/rele
 | `silent update [Silent.app]` | Yeni derlemeyi kuyruğa alır: koşan iş bitince uygulama kendini kurup yeniden açılır (bu arada yeni koşu almaz). Kurulamayan paket kuyruktan düşer (sonsuz deneme yok); son 60 sn içinde yazılmış paket (derleme sürüyor) bir sonraki boş anda yeniden denenir; `silent update --cancel` kuyruğu boşaltır. |
 | `silent cancel` | Koşan tüm kutuları ve koşuları durdurur. |
 | `silent reload` | Webview'ı yeniden yükler (koşular kaybolur). |
+| `silent mind "<model>" "<mesaj>"` | MindMirror: modele sohbet mesajı gönderir (gerekirse önce Start). Bilinç düşünür, aksiyon gerekiyorsa EYLEM bloğunu Eylem uygular; cevap kutuda aktör rengiyle görünür. |
+| `silent mind start\|reset "<model>"` | Modeli kurar (iki yarı + Gateway + hafıza senkron) / sohbeti ve canlı hafızayı sıfırlar (depo kalır). |
+| `silent mind term "<model>" "<komut>"` | Eylem'in terminal oturumuna komut verir (çalışma klasöründe, kendi oturumu). |
 
 Denetçi kutusu (2026-10-04): `softCommands` (ör. `npm run e2e`) kırmızı olsa da yalnız uyarı yazar, düzeltici çağrılmaz ve zincir devam eder; `continueOnFail` kırmızıda bile devam ettirir. Denetçi'den sonra bağlanan **Eylem** düzelticidir (yalnız kırmızıda koşar); **başka bir kutu** (ör. sonraki Bölücü ya da bir Deploy Denetçisi) zincirin devamıdır ve yeşilde koşar.
 Paralellik ve host sınırı (05.10): aynı anda koşan işçi sayısı CPU boş yüzdesi ve bellek baskısına göre kısılır (CPU boş < %5 ya da bellek baskısı kritik → 1; CPU boş < %15 ya da bellek uyarısı + CPU boş < %30 → 2; aksi halde koşunun kendi sınırı 4/8). Yük ortalaması artık tek başına kısmaz (macOS'ta CPU %52 boşken 5,5 okuyup 18 koşuyu 1–2 işçiye düşürmüştü: 31,6 sa yerine ~19,4 sa). Kısıldığında koşu logu "⏸ N ready task(s) wait for a slot" yazar ve `silent status` "· N ready, host cap C" gösterir. Denetçi'de **yumuşak** komutlar en çok 10 dk koşar; art arda 2 kez zaman aşımına uğrayan yumuşak komut, kutu düzenlenene ya da yeşil bitene kadar atlanır (raporda "skipped"). Çoklu Tarayıcı yalnız host `ok` iken şerit açar ve bir şerit "sürülemedi" (INCONCLUSIVE) derse kalanları başlatmaz; şerit tavanı 20 dk.
@@ -158,6 +161,23 @@ Terminalden tetikleme (launcher):
 silent bp "Örnek: Loki 2"              # Start butonunu çalıştırır
 silent bp "Örnek: Loki 2" "Geliştirici" # belirli bir kutu (başlık veya id)
 ```
+
+## MindMirror (Mind modu, 2026-10-08)
+
+Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **Mind** (turuncu). Sol üstteki Maker⇄Mind anahtarı her an geçirir. Mind'da bir **modlanmış model** kurulur:
+
+| Parça | İş |
+| --- | --- |
+| **Bilinç** | pahalı model, **salt-okunur zihin**: düşünür, bulur, rapor/plan yazar; dosya oluşturamaz, kod yazamaz, tarayamaz. Aksiyon gerekiyorsa cevabın sonuna `EYLEM:` bloğu (adımlar + `DÖNÜŞ:`) koyar. |
+| **Eylem** | ucuz model, **aksiyon alır**: Bilinç'in EYLEM bloğunu çalışma klasöründe uygular (tarayıcı, araştırma, kod, dosya) ve `# SONUÇ` altında raporlar. Örnek: "Atarus sinemasına bak" → Bilinç sayfayı bulur, Eylem sayfaya bakar; "10 video öner" → Bilinç listeler, Eylem araştırır. |
+| **Model** | iki yarının CLI modeli + effort (CLI'nın kabul ettiği seviyeye kırpılır). |
+| **Gateway** | ana zihin: her turda ilk sırada giden prompt; Silent ondan profil türetir (rol, kurallar). |
+| **Hafıza deposu** | asla unutulmayacaklar (pin'li); her cevaba taşınır, Reset silmez. |
+| **Araçlar** | Eylem neye yetkili: tarayıcı / dosya yazma / kabuk / ağ / görsel üretimi + çalışma klasörü. `Dosyalar` kapalıysa Eylem de salt-okunur koşar. |
+| **Start / Reset** | Start: iki model kurulu mu kontrol, sohbet + Gateway profili + hafıza senkron; sonra **Canlı hafıza** paneli açılır (her turdan sonra Eylem modeli ucuz bir çağrıyla kalıcı gerçekleri çıkarır, `/hatirla` elle ekler, depoya al/unut). Reset: sohbet + canlı hafıza silinir, depo kalır. |
+| **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[eylem]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` · `/plan` (Eylem kapalı, Bilinç yalnız plan yazar) · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
+
+Kalıcılık: modeller `mind_models` tablosu (migration 0009), sohbet `chats`/`messages` (kind `mind`), hafıza `memory_entries` (layer `mind`). Terminalden: `silent mind "<model>" "<mesaj>"`, `silent mind start|reset "<model>"`, `silent mind term "<model>" "<komut>"`.
 
 ## Güvenlik
 

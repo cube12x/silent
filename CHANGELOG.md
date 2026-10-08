@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **MindMirror (Mind mode).** Entry screen on every launch (Maker / Mind) and a Maker⇄Mind switch in the sidebar. A Mind model pairs **Bilinç** (expensive, read-only: thinks, finds, writes an `EYLEM:` block when action is needed) with **Eylem** (cheaper, acts in the workspace within the allowed tools, reports under `# SONUÇ`). Buttons: Model, Gateway (main-mind prompt + derived profile), Hafıza deposu (pinned memory), Araçlar (Eylem tools + workspace), Start / Reset; chat with coloured actor chips, Eylem terminal, live memory panel (auto-extracted after every turn + `/hatirla`). Slash commands `/model`, `/plan`, `/act`, `/effort`, `/hatirla`, `/unut`, `/durum`, `/reset`. CLI: `silent mind "<model>" "<message>"`, `silent mind start|reset "<model>"`, `silent mind term "<model>" "<command>"`.
+- `runSingle` streams text deltas (`onDelta`) and can run workspace-write without network.
+
+### Fixed
+- CI: Windows build (unix-only process group in the relauncher) and the Linux snapshot test (git identity) — red since 2026-09-30.
+
 ## [0.3.1] — 2026-09-30
 
 ### Added

@@ -717,6 +717,9 @@ mod tests {
         assert_eq!(run_verb(&tmp, "check-args", &args("bp fix"), None), Some(2));
         assert_eq!(run_verb(&tmp, "check-args", &args("bp handover Mario Box"), None), Some(2));
         assert_eq!(run_verb(&tmp, "check-args", &args("bp Mario Box"), None), Some(0));
+        assert_eq!(run_verb(&tmp, "check-args", &args("mind"), None), Some(2));
+        assert_eq!(run_verb(&tmp, "check-args", &args("mind Deneme merhaba"), None), Some(0));
+        assert_eq!(run_verb(&tmp, "check-args", &args("mind start Deneme"), None), Some(0));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
