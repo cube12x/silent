@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useChatsStore } from "@/stores/chats"
 import { useMindStore } from "@/stores/mind"
 import { formatRelative, formatTokens } from "@/lib/format"
+import { stripEylem } from "@/engine/mind/parse"
 import { useT } from "@/i18n"
 import { ActorChip } from "./ActorChip"
 
@@ -23,6 +24,8 @@ function Bubble({ m, previous, youLabel, workingLabel, handoffLabel }: { m: Mess
   const user = m.role === "user"
   const actor = actorOf(m)
   const handoff = actor?.actor === "eylem" && actorOf(previous ?? m)?.actor === "bilinc"
+  // The EYLEM block is Eylem's work order, not chat text: hide it while Bilinç is still streaming too (the terminal shows it raw).
+  const content = m.streaming && actor?.actor === "bilinc" ? stripEylem(m.content) : m.content
   return (
     <>
       {handoff && <div className="flex items-center gap-2 text-[10px] text-text-3"><span className="h-px flex-1 bg-line" />↪ {handoffLabel}<span className="h-px flex-1 bg-line" /></div>}
@@ -33,8 +36,8 @@ function Bubble({ m, previous, youLabel, workingLabel, handoffLabel }: { m: Mess
           {m.usage && m.usage.totalTokens > 0 && <span className="mono">{formatTokens(m.usage.totalTokens)} tok</span>}
         </div>
         <div className={cn("max-w-[min(900px,92%)] rounded-none border px-4 py-3", user ? "border-text-1/40 bg-ink-3 text-text-1" : "border-line bg-ink-1")}>
-          {user ? <div className="text-sm whitespace-pre-wrap">{m.content}</div> : m.content ? <MarkdownView content={m.content} /> : m.streaming ? <div className="flex items-center gap-2 text-xs text-text-3"><Loader2 className="size-3.5 animate-spin text-mind" />{workingLabel}</div> : null}
-          {m.streaming && m.content && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-mind align-middle" />}
+          {user ? <div className="text-sm whitespace-pre-wrap">{m.content}</div> : content ? <MarkdownView content={content} /> : m.streaming ? <div className="flex items-center gap-2 text-xs text-text-3"><Loader2 className="size-3.5 animate-spin text-mind" />{workingLabel}</div> : null}
+          {m.streaming && content && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-mind align-middle" />}
           {m.error && <div className="mt-2 rounded-none border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger">{m.error}</div>}
         </div>
       </div>
