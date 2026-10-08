@@ -28,6 +28,10 @@ interface ChatsState {
   /** Switch CLI/model; a new CLI session starts on the next message. */
   setModel(id: string, providerId: ProviderId, modelId: string): Promise<void>
   clearMessages(id: string): Promise<void>
+  /** MindMirror: insert or replace one message (memory + DB); the Mind store streams its two halves through this. */
+  putMessage(message: Message, persist?: boolean): Promise<void>
+  /** MindMirror reset: drop every message of the chat in memory and in the DB; the chat row stays. */
+  purgeMessages(chatId: string): Promise<void>
   send(chatId: string, content: string, sandbox?: "read-only" | "workspace-write"): Promise<void>
   cancel(chatId: string): void
   byId(id: string | undefined): Chat | undefined
@@ -97,6 +101,20 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
   async clearMessages(id) {
     set({ messages: { ...get().messages, [id]: [] } })
     await get().update(id, { sessionId: undefined })
+  },
+  async putMessage(message, persist = true) {
+    const list = get().messages[message.chatId] ?? []
+    const next = list.some((m) => m.id === message.id) ? list.map((m) => (m.id === message.id ? message : m)) : [...list, message]
+    set({ messages: { ...get().messages, [message.chatId]: next } })
+    if (!persist) return
+    const backend = await getBackend()
+    await backend.db.messages.upsert(message)
+  },
+  async purgeMessages(chatId) {
+    set({ messages: { ...get().messages, [chatId]: [] } })
+    const backend = await getBackend()
+    await backend.db.messages.deleteByChat(chatId)
+    await get().update(chatId, { sessionId: undefined })
   },
   cancel(chatId) {
     get().streaming[chatId]?.cancel()

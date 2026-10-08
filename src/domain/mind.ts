@@ -49,6 +49,8 @@ export interface MindModel {
   /** Chat (kind "mind") created on Start. */
   chatId?: string
   sessions: MindSessions
+  /** Uncached tokens all turns and terminal runs of this model consumed (Σ badge). */
+  tokens?: number
   createdAt: number
   updatedAt: number
   startedAt?: number

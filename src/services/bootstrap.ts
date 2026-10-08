@@ -5,6 +5,7 @@ import { useMemoryStore } from "@/stores/memory"
 import { useProvidersStore } from "@/stores/providers"
 import { useRunsStore } from "@/stores/runs"
 import { useBlueprintsStore } from "@/stores/blueprints"
+import { useMindStore } from "@/stores/mind"
 import { useSettingsStore } from "@/stores/settings"
 import { getBackend } from "@/services"
 import { initPlatform } from "@/lib/platform"
@@ -34,5 +35,6 @@ async function run(): Promise<void> {
   await Promise.all([useAgentsStore.getState().load(), useChatsStore.getState().load(), useRunsStore.getState().load(), useMemoryStore.getState().load()])
   // Blueprints after runs: their load() marks nodes of interrupted runs and credits tokens from the runs store.
   await useBlueprintsStore.getState().load()
+  await useMindStore.getState().load()
   await useProvidersStore.getState().load()
 }
