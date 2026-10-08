@@ -31,18 +31,29 @@ pub fn parse_argv(args: &[String], cwd: Option<&Path>) -> Result<Option<Value>, 
         }
         "mind" => {
             let rest: Vec<String> = it.cloned().collect();
-            parse_mind(&rest).map(Some)
+            parse_mind(&rest, cwd.as_deref()).map(Some)
         }
         _ => Ok(None),
     }
 }
 
-/// `silent mind "<model>" "<message…>"` · `silent mind start|reset "<model>"` · `silent mind term "<model>" "<command…>"`
-/// → `{ mind: { ref, message, start, reset, term } }` (MindMirror, 2026-10-08).
-fn parse_mind(rest: &[String]) -> Result<Value, String> {
-    const USAGE: &str = "usage: silent mind <model name|id> <message…> | silent mind start <model> | silent mind reset <model> | silent mind term <model> <command…>";
+/// `silent mind "<model>" "<message…>"` · `silent mind start|reset "<model>"` · `silent mind term "<model>" "<command…>"` ·
+/// `silent mind new "<name>" <bilinç provider:model> <eylem provider:model>` (workspace = the terminal's folder, then Start)
+/// → `{ mind: { ref, message, start, reset, term, new } }` (MindMirror, 2026-10-08).
+fn parse_mind(rest: &[String], cwd: Option<&Path>) -> Result<Value, String> {
+    const USAGE: &str = "usage: silent mind <model name|id> <message…> | silent mind start <model> | silent mind reset <model> | silent mind term <model> <command…> | silent mind new <name> <bilinc provider:model> <eylem provider:model>";
     let build = |r: &str, message: Option<String>, start: bool, reset: bool, term: Option<String>| json!({ "folder": "", "prompt": "", "mind": { "ref": r, "message": message, "start": start, "reset": reset, "term": term } });
     match rest.first().map(String::as_str) {
+        Some("new") => {
+            let name = rest.get(1).map(String::as_str).unwrap_or("");
+            let bilinc = rest.get(2).map(String::as_str).unwrap_or("");
+            let eylem = rest.get(3).map(String::as_str).unwrap_or("");
+            if name.trim().is_empty() || !bilinc.contains(':') || !eylem.contains(':') || rest.len() > 4 {
+                return Err(USAGE.into());
+            }
+            let workspace = cwd.map(|c| c.display().to_string());
+            Ok(json!({ "folder": "", "prompt": "", "mind": { "ref": name, "message": null, "start": true, "reset": false, "term": null, "new": { "bilinc": bilinc, "eylem": eylem, "workspace": workspace } } }))
+        }
         Some(verb @ ("start" | "reset")) => {
             let r = rest.get(1).map(String::as_str).unwrap_or("");
             if r.trim().is_empty() || rest.len() > 2 {
@@ -481,6 +492,14 @@ mod tests {
         assert!(parse_argv(&argv("mind Deneme"), None).is_err());
         assert!(parse_argv(&argv("mind start"), None).is_err());
         assert!(parse_argv(&argv("mind term Deneme"), None).is_err());
+        let v = parse_argv(&argv("mind new Deneme claude:opus codex:gpt-5.6-luna"), Some(Path::new("/tmp/ws"))).unwrap().unwrap();
+        assert_eq!(v["mind"]["ref"], "Deneme");
+        assert_eq!(v["mind"]["start"], true);
+        assert_eq!(v["mind"]["new"]["bilinc"], "claude:opus");
+        assert_eq!(v["mind"]["new"]["eylem"], "codex:gpt-5.6-luna");
+        assert_eq!(v["mind"]["new"]["workspace"], "/tmp/ws");
+        assert!(parse_argv(&argv("mind new Deneme claude:opus"), None).is_err());
+        assert!(parse_argv(&argv("mind new Deneme opus luna"), None).is_err());
     }
 
     #[test]

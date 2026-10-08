@@ -76,7 +76,13 @@ export function MindScreen() {
     queueMicrotask(() => {
       void (async () => {
         const s = useMindStore.getState()
-        const target = resolveMind(s.models, req.ref)
+        let target = resolveMind(s.models, req.ref)
+        if (!target && req.new) {
+          // `silent mind new <name> <bilinç> <eylem>`: create it here, in the terminal's folder.
+          const created = await s.create(req.ref)
+          await s.update(created.id, { bilinc: { modelRef: req.new.bilinc }, eylem: { modelRef: req.new.eylem }, workspace: req.new.workspace ?? undefined })
+          target = useMindStore.getState().byId(created.id)
+        }
         if (!target) return console.warn("[autostart] mind model not found", req.ref)
         navigate(`/mind/${target.id}`)
         if (req.reset) await s.reset(target.id)

@@ -685,6 +685,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    // Self-update is macOS-only (ditto/open); the POSIX path assertions do not hold on Windows (2026-10-08).
+    #[cfg(unix)]
     #[test]
     fn update_resolves_a_relative_bundle_path_against_cwd_and_names_match_in_unicode() {
         let tmp = std::env::temp_dir().join(format!("silent-relupd-{}", std::process::id()));

@@ -72,7 +72,7 @@ export interface AutostartRequest {
   /** `silent cancel`: stop every running blueprint box and Silent Code run (the UI's cancel buttons, from the terminal). */
   cancel?: boolean
   /** `silent mind "<model>" "<mesaj>"` · `silent mind start|reset "<model>"` · `silent mind term "<model>" "<komut>"`. */
-  mind?: { ref: string; message?: string; start?: boolean; reset?: boolean; term?: string }
+  mind?: { ref: string; message?: string; start?: boolean; reset?: boolean; term?: string; /** `silent mind new <name> <bilinç p:m> <eylem p:m>`: create (workspace = terminal folder) and start. */ new?: { bilinc: string; eylem: string; workspace?: string | null } }
 }
 
 export interface Backend {
