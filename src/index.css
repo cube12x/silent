@@ -61,6 +61,8 @@
   --color-violet: var(--violet);
   --color-success: var(--success);
   --color-warn: var(--warn);
+  --color-mind: var(--mind);
+  --color-mind-soft: var(--mind-soft);
   --color-danger: var(--danger);
 
   --radius-sm: calc(var(--radius) * 0.6);

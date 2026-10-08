@@ -16,6 +16,8 @@ export interface Settings {
   language: Language
   /** Set when the first-run Setup screen was completed or skipped. */
   setupCompletedAt?: number
+  /** Maker (Blueprint / Silent Code) or Mind (MindMirror): the last mode chosen on the entry screen; the sidebar switch follows it. */
+  mode?: "maker" | "mind"
   /** Projects/blueprint builds root; empty = ~/CubeCode. */
   workspaceDir?: string
   /** ModelRef `provider:model`. Empty until a CLI is detected. */
@@ -53,6 +55,7 @@ export const DOSAGE_LEVELS: Dosage[] = ["none", "minimal", "low", "medium", "hig
 
 export const DEFAULT_SETTINGS: Settings = {
   language: "tr",
+  mode: "maker",
   defaultModelRef: "",
   fallbackModelRef: "",
   costMode: "balanced",

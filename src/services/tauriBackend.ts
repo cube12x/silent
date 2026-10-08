@@ -5,7 +5,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { open as openShell } from "@tauri-apps/plugin-shell"
 import Database from "@tauri-apps/plugin-sql"
 import { Store } from "@tauri-apps/plugin-store"
-import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, MindModel, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 import type { AppInfo, AutostartRequest, Backend, CheckResult, HostLoad, KvStore, LauncherStatus, PrereqStatus, Repositories, RunHandle, SetupFix, ProjectFile, ProjectBlob } from "./backend"
 
 type Row = Record<string, unknown>
@@ -248,6 +248,23 @@ export class TauriBackend implements Backend {
         await (await this.conn()).execute("DELETE FROM blueprints WHERE id = $1", [id])
       },
     },
+    mindModels: {
+      list: async () => {
+        const rows = await (await this.conn()).select<Row[]>("SELECT * FROM mind_models ORDER BY updated_at DESC")
+        return rows.map((r): MindModel => ({ ...(json<MindModel>(r.json, {} as MindModel) ?? ({} as MindModel)), id: String(r.id), name: String(r.name), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) }))
+      },
+      upsert: async (m) => {
+        const { id, name, createdAt, updatedAt, ...rest } = m
+        await (await this.conn()).execute(
+          `INSERT INTO mind_models (id, name, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT(id) DO UPDATE SET name=$2, json=$3, updated_at=$5`,
+          [id, name, JSON.stringify(rest), createdAt, updatedAt],
+        )
+      },
+      delete: async (id) => {
+        await (await this.conn()).execute("DELETE FROM mind_models WHERE id = $1", [id])
+      },
+    },
     chats: {
       list: async () => {
         const rows = await (await this.conn()).select<Row[]>("SELECT * FROM chats ORDER BY updated_at DESC")
@@ -285,6 +302,9 @@ export class TauriBackend implements Backend {
       },
     },
     messages: {
+      deleteByChat: async (chatId) => {
+        await (await this.conn()).execute("DELETE FROM messages WHERE chat_id = $1", [chatId])
+      },
       listByChat: async (chatId) => {
         const rows = await (await this.conn()).select<Row[]>("SELECT * FROM messages WHERE chat_id = $1 ORDER BY created_at ASC", [chatId])
         return rows.map(

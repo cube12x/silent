@@ -1,4 +1,4 @@
-import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, Message, MemoryEntry, MindModel, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 import type { AppInfo, Backend, KvStore, PrereqStatus, Repositories, RunHandle, HostLoad } from "./backend"
 
 /** In-memory backend for unit tests. Not a product feature: CLI runs resolve with a scripted transcript. */
@@ -21,6 +21,7 @@ export class TestBackend implements Backend {
   private runs = new Map<string, SilentCodeRun>()
   private terminal = new Map<string, TerminalLine[]>()
   private memory = new Map<string, MemoryEntry>()
+  private mindModels = new Map<string, MindModel>()
 
   load: HostLoad = { load1: 0, cpus: 8, swapUsedPct: 0 }
   async hostLoad(): Promise<HostLoad> {
@@ -249,7 +250,14 @@ export class TestBackend implements Backend {
       },
     },
     chats: { list: async () => Array.from(this.chats.values()), upsert: async (c) => void this.chats.set(c.id, c), delete: async (id) => void this.chats.delete(id) },
-    messages: { listByChat: async (chatId) => Array.from(this.messages.values()).filter((m) => m.chatId === chatId), upsert: async (m) => void this.messages.set(m.id, m) },
+    messages: {
+      listByChat: async (chatId) => Array.from(this.messages.values()).filter((m) => m.chatId === chatId),
+      upsert: async (m) => void this.messages.set(m.id, m),
+      deleteByChat: async (chatId) => {
+        for (const [id, m] of this.messages) if (m.chatId === chatId) this.messages.delete(id)
+      },
+    },
+    mindModels: { list: async () => Array.from(this.mindModels.values()), upsert: async (m) => void this.mindModels.set(m.id, m), delete: async (id) => void this.mindModels.delete(id) },
     agents: { list: async () => Array.from(this.agents.values()), upsert: async (a) => void this.agents.set(a.id, a), delete: async (id) => void this.agents.delete(id) },
     runs: { list: async () => Array.from(this.runs.values()), upsert: async (r) => void this.runs.set(r.id, r), delete: async (id) => void this.runs.delete(id) },
     terminal: { listBySubtask: async (id) => this.terminal.get(id) ?? [], append: async (_r, id, lines, keep = 2000) => void this.terminal.set(id, [...(this.terminal.get(id) ?? []), ...lines].slice(-keep)) },

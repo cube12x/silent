@@ -1,7 +1,8 @@
 import type { GatewayProfile } from "./agents"
 import type { ProviderId } from "./runtime"
 
-export type ChatKind = "standard" | "repo-agent"
+/** mind = a MindMirror model's conversation (hidden from the Maker chat list). */
+export type ChatKind = "standard" | "repo-agent" | "mind"
 export type MessageRole = "user" | "assistant" | "system"
 
 export interface TaskCardBlock {
@@ -24,7 +25,14 @@ export interface ContextBlock {
   label: string
   items: string[]
 }
-export type MessageBlock = TaskCardBlock | ExecutionSummaryBlock | ContextBlock
+/** MindMirror: which half of the modded model wrote this message (rendered as a coloured actor chip). */
+export interface MindActorBlock {
+  type: "mind-actor"
+  actor: "bilinc" | "eylem" | "memory"
+  modelRef: string
+  phase?: "act" | "plan"
+}
+export type MessageBlock = TaskCardBlock | ExecutionSummaryBlock | ContextBlock | MindActorBlock
 
 export interface TokenUsage {
   inputTokens: number

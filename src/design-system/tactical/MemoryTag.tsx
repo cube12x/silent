@@ -6,6 +6,7 @@ export const LAYER_TONE: Record<MemoryLayer, string> = {
   repo: "border-cyan/40 bg-cyan/10 text-cyan",
   session: "border-blue/40 bg-blue/10 text-[color-mix(in_oklch,var(--blue)_70%,white)]",
   daily: "border-success/40 bg-success/10 text-success",
+  mind: "border-mind/40 bg-mind/10 text-mind",
 }
 
 export function MemoryTag({ tag, layer, className }: { tag: string; layer?: MemoryLayer; className?: string }) {

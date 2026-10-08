@@ -19,6 +19,9 @@
   --success: #8fd19e;
   --warn: #d8b25a;
   --danger: #e06c75;
+  /* MindMirror accent: the only colour outside the monochrome palette (entry card, Mind switch, Start button). */
+  --mind: #ff7a1a;
+  --mind-soft: #ffb38a;
 
   --glow: 0 0 0 1px var(--line-strong);
   --glow-strong: 0 0 0 1px var(--text-2);

@@ -32,6 +32,8 @@ function Block({ block, filesLabel }: { block: MessageBlock; filesLabel: string 
   if (block.type === "execution-summary") {
     return <div className="rounded-lg border border-cyan/30 bg-cyan/[0.04] p-3 text-[11px] text-text-2">{block.title} · {formatDuration(block.durationMs)}</div>
   }
+  // Mind actor chips are rendered by the Mind screen; a Maker chat never carries them.
+  if (block.type !== "context") return null
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="flex items-center gap-1 text-[10px] tracking-wider text-text-3 uppercase"><Files className="size-3" />{block.label === "files" ? filesLabel : block.label}</span>

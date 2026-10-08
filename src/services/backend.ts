@@ -1,4 +1,4 @@
-import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
+import type { Blueprint, Chat, CliRunRequest, DetectedProvider, InstallMethod, Message, MemoryEntry, MindModel, ProviderId, ProviderModel, RepoAgent, RepoInfo, RuntimeEvent, SilentCodeRun, TerminalLine } from "@/domain"
 
 export interface AppInfo {
   name: string
@@ -35,12 +35,14 @@ export interface KvStore {
 
 export interface Repositories {
   chats: { list(): Promise<Chat[]>; upsert(chat: Chat): Promise<void>; delete(id: string): Promise<void> }
-  messages: { listByChat(chatId: string): Promise<Message[]>; upsert(message: Message): Promise<void> }
+  messages: { listByChat(chatId: string): Promise<Message[]>; upsert(message: Message): Promise<void>; /** Mind reset: drop every message of the chat (the chat row stays). */ deleteByChat(chatId: string): Promise<void> }
   agents: { list(): Promise<RepoAgent[]>; upsert(agent: RepoAgent): Promise<void>; delete(id: string): Promise<void> }
   runs: { list(): Promise<SilentCodeRun[]>; upsert(run: SilentCodeRun): Promise<void>; delete(id: string): Promise<void> }
   terminal: { listBySubtask(subtaskId: string): Promise<TerminalLine[]>; /** Batched insert; keeps at most `keep` newest lines per subtask. */ append(runId: string, subtaskId: string, lines: TerminalLine[], keep?: number): Promise<void> }
   memory: { list(): Promise<MemoryEntry[]>; upsert(entry: MemoryEntry): Promise<void>; delete(id: string): Promise<void> }
   blueprints: { list(): Promise<Blueprint[]>; upsert(bp: Blueprint): Promise<void>; delete(id: string): Promise<void> }
+  /** MindMirror models (migration 0009). */
+  mindModels: { list(): Promise<MindModel[]>; upsert(model: MindModel): Promise<void>; delete(id: string): Promise<void> }
 }
 
 /**
@@ -69,6 +71,8 @@ export interface AutostartRequest {
   reload?: boolean
   /** `silent cancel`: stop every running blueprint box and Silent Code run (the UI's cancel buttons, from the terminal). */
   cancel?: boolean
+  /** `silent mind "<model>" "<mesaj>"` · `silent mind start|reset "<model>"` · `silent mind term "<model>" "<komut>"`. */
+  mind?: { ref: string; message?: string; start?: boolean; reset?: boolean; term?: string }
 }
 
 export interface Backend {

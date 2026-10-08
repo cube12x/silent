@@ -52,5 +52,11 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0008_clip_terminal_lines.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "mindmirror models",
+            sql: include_str!("../migrations/0009_mind_models.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }
