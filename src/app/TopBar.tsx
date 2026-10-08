@@ -43,6 +43,8 @@ export function TopBar() {
   const active = useRunsStore((s) => s.activeCount())
   // Blueprint single sessions / wizards are not runs; orchestration AIs are already counted through the runs store.
   const bpActive = useBlueprintsStore((s) => s.blueprints.reduce((n, b) => n + b.nodes.filter((x) => x.status === "running" && !(x.data.type === "ai" && x.data.mode === "orchestration" && x.executionId)).length, 0))
+  // MindMirror sessions (Bilinç / Eylem / memory / terminal) are CLI processes too.
+  const mindActive = useMindStore((s) => Object.values(s.busy).filter(Boolean).length)
   const installed = PROVIDER_IDS.filter((id) => providers[id].installed)
   const level = useHostStore((s) => s.level)
 
@@ -77,7 +79,7 @@ export function TopBar() {
             <TooltipContent>{t("top.overloadedHint")}</TooltipContent>
           </Tooltip>
         )}
-        <TacticalChip tone={active + bpActive ? "cyan" : "neutral"} dot pulse={active + bpActive > 0}><Cpu className="size-3" />{active + bpActive} {t("top.activeAis")}</TacticalChip>
+        <TacticalChip tone={active + bpActive + mindActive ? "cyan" : "neutral"} dot pulse={active + bpActive + mindActive > 0}><Cpu className="size-3" />{active + bpActive + mindActive} {t("top.activeAis")}</TacticalChip>
         <button type="button" onClick={() => navigate("/settings")} className="flex size-7 items-center justify-center rounded-md text-text-2 hover:bg-ink-3 hover:text-text-1" aria-label={t("nav.settings")}><Settings2 className="size-4" /></button>
       </div>
     </header>
