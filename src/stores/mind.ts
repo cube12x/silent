@@ -139,7 +139,8 @@ export const useMindStore = create<MindState>((set, get) => ({
   },
   noteLine(id, stage, line) {
     const cur = get().activity[id] ?? EMPTY_ACTIVITY
-    const text = line.replace(/\s+/g, " ").trim().slice(0, 160)
+    // The box shows the answer's first words, not the think-aloud header.
+    const text = parseDusunce(line).rest.replace(/\s+/g, " ").trim().slice(0, 160)
     if (!text) return
     set({ activity: { ...get().activity, [id]: { ...cur, last: { ...cur.last, [stage]: text } } } })
   },
