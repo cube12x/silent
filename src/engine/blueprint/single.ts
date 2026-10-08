@@ -16,7 +16,20 @@ export interface SingleRunResult {
  */
 export function runSingle(
   backend: Pick<Backend, "cliStart">,
-  opts: { runId: string; modelRef: string; prompt: string; cwd?: string; readOnly?: boolean; resumeSessionId?: string; timeoutSecs?: number; effort?: string },
+  opts: {
+    runId: string
+    modelRef: string
+    prompt: string
+    cwd?: string
+    readOnly?: boolean
+    resumeSessionId?: string
+    timeoutSecs?: number
+    effort?: string
+    /** Outbound network for a workspace-write session (default: on). MindMirror's Araçlar can switch it off. */
+    network?: boolean
+    /** Streamed text pieces (`textDelta`) for a live bubble; `onLine` still receives whole messages. */
+    onDelta?: (text: string) => void
+  },
   onLine?: (line: string, stream: "stdout" | "stderr" | "system") => void,
 ): { done: Promise<SingleRunResult>; cancel: () => Promise<void> } {
   const { providerId, modelId } = parseModelRef(opts.modelRef)
@@ -27,7 +40,7 @@ export function runSingle(
     prompt: opts.prompt,
     cwd: opts.cwd,
     sandbox: opts.readOnly ? "read-only" : "workspace-write",
-    network: !opts.readOnly,
+    network: opts.readOnly ? false : (opts.network ?? true),
     ephemeral: false,
     resumeSessionId: opts.resumeSessionId,
     timeoutSecs: opts.timeoutSecs ?? 40 * 60,
@@ -45,6 +58,9 @@ export function runSingle(
       case "sessionStarted":
         sessionId = e.data.sessionId
         onLine?.(`session ${e.data.sessionId}`, "system")
+        break
+      case "textDelta":
+        opts.onDelta?.(e.data.text)
         break
       case "agentMessage":
         messages.push(e.data.text)
