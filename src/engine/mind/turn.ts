@@ -4,7 +4,7 @@
  * what is worth remembering. Pure orchestration over `runSingle`; the store turns the callbacks into messages.
  */
 import type { Backend } from "@/services/backend"
-import type { MemoryEntry, MindActor, MindModel, ProviderId } from "@/domain"
+import type { MemoryEntry, MindActor, MindModel, ProviderId, RuntimeEvent } from "@/domain"
 import { parseModelRef } from "@/domain"
 import { clampEffort } from "@/engine/effort"
 import { runSingle, type SingleRunResult } from "@/engine/blueprint/single"
@@ -22,6 +22,8 @@ export interface MindTurnCallbacks {
   onMemory?: (lines: string[]) => void
   /** What the model is thinking/doing: `reason` = CLI reasoning/tool status line, `dusunce` = the DÜŞÜNCE block of the answer. */
   onThinking?: (actor: MindActor, text: string, kind: "reason" | "dusunce") => void
+  /** Raw runtime events of a half (commands, file changes) so the chat can show the process live. */
+  onEvent?: (actor: MindActor, event: RuntimeEvent) => void
 }
 
 export interface MindHalfResult {
@@ -96,6 +98,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
         effort: effortFor(model.bilinc.modelRef, model.bilinc.effort),
         onDelta: (t) => cb.onDelta?.("bilinc", t),
         onReasoning: (s) => cb.onThinking?.("bilinc", s, "reason"),
+        onEvent: (e) => cb.onEvent?.("bilinc", e),
       },
       line("bilinc"),
     )
@@ -128,6 +131,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
           effort: effortFor(model.eylem.modelRef, model.eylem.effort),
           onDelta: (t) => cb.onDelta?.("eylem", t),
           onReasoning: (s) => cb.onThinking?.("eylem", s, "reason"),
+          onEvent: (e) => cb.onEvent?.("eylem", e),
         },
         line("eylem"),
       )

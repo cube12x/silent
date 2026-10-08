@@ -99,6 +99,19 @@ async def main() -> int:
             failures.append("no Bilinç chip in the chat")
         if await chat.get_by_text("Eylem'e devredildi", exact=False).count() == 0:
             failures.append("no handoff separator")
+        # The process stays on Eylem's bubble: a command card and the touched files.
+        if await chat.get_by_test_id("mind-task-card").count() == 0:
+            failures.append("no command card on Eylem's bubble")
+        if await chat.get_by_test_id("mind-files").get_by_text("NOTLAR.md").count() == 0:
+            failures.append("touched file not listed on Eylem's bubble")
+        # ↑ recalls the previous message.
+        await pg.get_by_test_id("mind-chat-input").focus()
+        await pg.keyboard.press("ArrowUp")
+        if (await pg.get_by_test_id("mind-chat-input").input_value()) != "Atarus sinemasına bak":
+            failures.append("ArrowUp did not recall the previous message")
+        await pg.keyboard.press("ArrowDown")
+        if (await pg.get_by_test_id("mind-chat-input").input_value()) != "":
+            failures.append("ArrowDown did not restore the empty draft")
         await pg.get_by_test_id("mind-node-live").get_by_text("Atarus sinemasını", exact=False).wait_for(timeout=10000)
         # Düşünme box shows the DÜŞÜNCE block; the chat bubble does not.
         await pg.get_by_test_id("mind-node-dusunce").wait_for(timeout=5000)

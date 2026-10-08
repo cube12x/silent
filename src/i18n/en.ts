@@ -450,6 +450,9 @@ export const en: Dictionary = {
     offTitle: "Switch off for this box",
     offHint: "Sits on top of the Tools permissions: what is off here is off for this model.",
     offCount: "{n} off",
+    process: "process",
+    historyHint: "previous messages",
+    files: { add: "added", update: "changed", delete: "deleted" },
   },
   boot: { init: "starting CLI layer" },
 }

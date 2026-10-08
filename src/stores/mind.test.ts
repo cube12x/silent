@@ -19,6 +19,11 @@ class MindTestBackend extends TestBackend {
     queueMicrotask(() => {
       onEvent({ type: "sessionStarted", data: { sessionId: `${stage}-s` } } as RuntimeEvent)
       onEvent({ type: "textDelta", data: { text: text.slice(0, 2) } } as RuntimeEvent)
+      if (stage === "eylem") {
+        onEvent({ type: "commandStarted", data: { command: "curl -s https://atarus.example" } } as RuntimeEvent)
+        onEvent({ type: "commandCompleted", data: { command: "curl -s https://atarus.example", exitCode: 0, outputTail: "<title>Atarus</title>" } } as RuntimeEvent)
+        onEvent({ type: "fileChanged", data: { path: "NOTLAR.md", kind: "add" } } as RuntimeEvent)
+      }
       onEvent({ type: "agentMessage", data: { text } } as RuntimeEvent)
       onEvent({ type: "usage", data: { inputTokens: 10, outputTokens: 5 } } as RuntimeEvent)
       onEvent({ type: "exited", data: { code: 0 } } as RuntimeEvent)
@@ -86,7 +91,14 @@ describe("mind store (canvas)", () => {
     const msgs = useChatsStore.getState().messages[m.chatId!]!
     expect(msgs.map((x) => x.role)).toEqual(["user", "assistant", "assistant"])
     expect(msgs[1]).toMatchObject({ content: "Üç film olabilir.", providerId: "claude", modelId: "opus", streaming: false, blocks: [{ type: "mind-actor", actor: "bilinc", modelRef: "claude:opus" }] })
-    expect(msgs[2]).toMatchObject({ content: "# SONUÇ\n3 film: A, B, C", providerId: "codex", blocks: [{ type: "mind-actor", actor: "eylem" }] })
+    expect(msgs[2]).toMatchObject({ content: "# SONUÇ\n3 film: A, B, C", providerId: "codex" })
+    // The process the half went through stays on the message: command card (done) + touched files.
+    expect(msgs[2]!.blocks).toEqual([
+      { type: "mind-actor", actor: "eylem", modelRef: "codex:luna", phase: "act" },
+      { type: "task-card", title: "curl -s https://atarus.example", status: "done", command: "curl -s https://atarus.example", detail: "<title>Atarus</title>" },
+      { type: "context", label: "files:add", items: ["NOTLAR.md"] },
+    ])
+    expect((await backend.db.messages.listByChat(m.chatId!)).at(-1)!.blocks).toHaveLength(3)
     const after = useMindStore.getState().byId(m.id)!
     expect(after.sessions).toEqual({ bilinc: "bilinc-s", eylem: "eylem-s" })
     expect(after.tokens).toBe(45)

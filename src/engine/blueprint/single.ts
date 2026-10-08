@@ -31,6 +31,8 @@ export function runSingle(
     onDelta?: (text: string) => void
     /** Reasoning / tool-progress status lines (`reasoningStatus`): what the model is doing right now. */
     onReasoning?: (status: string) => void
+    /** Every runtime event as it arrives (commands, file changes…) for callers that render the process live. */
+    onEvent?: (event: RuntimeEvent) => void
   },
   onLine?: (line: string, stream: "stdout" | "stderr" | "system") => void,
 ): { done: Promise<SingleRunResult>; cancel: () => Promise<void> } {
@@ -56,6 +58,7 @@ export function runSingle(
   let resolveDone!: (r: SingleRunResult) => void
   const done = new Promise<SingleRunResult>((r) => (resolveDone = r))
   const onEvent = (e: RuntimeEvent) => {
+    opts.onEvent?.(e)
     switch (e.type) {
       case "sessionStarted":
         sessionId = e.data.sessionId

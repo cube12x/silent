@@ -9,6 +9,7 @@ import { newMindModel, parseModelRef } from "@/domain"
 import { interpretGateway } from "@/engine/gateway"
 import { parseMindCommand, MIND_COMMAND_HELP, type MindCommand } from "@/engine/mind/commands"
 import { parseDusunce } from "@/engine/mind/parse"
+import { applyProcessEvent, pushTail } from "@/engine/mind/process"
 import { runMindTurn, type MindStage } from "@/engine/mind/turn"
 import { tekBrief, terminalBrief } from "@/engine/mind/prompts"
 import { sharedContext, terminalNote } from "@/engine/mind/context"
@@ -33,11 +34,13 @@ export interface MindActivity {
   since?: number
   /** Last output line per stage (clipped), shown on the box. */
   last: Partial<Record<MindBusy, string>>
+  /** Last few output lines per stage: the live "işleyiş" shown in the chat bubble while the half works. */
+  tail: Partial<Record<MindBusy, string[]>>
   /** Düşünme box feed: reasoning/tool status lines and the DÜŞÜNCE block of this turn. */
   thoughts: Array<{ actor: MindActor; text: string; kind: "reason" | "dusunce"; at: number }>
 }
 const THOUGHTS_CAP = 40
-const EMPTY_ACTIVITY: MindActivity = { last: {}, thoughts: [] }
+const EMPTY_ACTIVITY: MindActivity = { last: {}, tail: {}, thoughts: [] }
 
 const TERMINAL_CAP = 1500
 const TERMINAL_FLUSH_MS = 100
@@ -135,14 +138,16 @@ export const useMindStore = create<MindState>((set, get) => ({
   terminalVersion: {},
   setStage(id, stage, reset) {
     const cur = get().activity[id] ?? EMPTY_ACTIVITY
-    set({ busy: { ...get().busy, [id]: stage }, activity: { ...get().activity, [id]: { ...cur, stage, since: stage ? Date.now() : cur.since, thoughts: reset ? [] : cur.thoughts } } })
+    // A stage that starts gets a fresh tail (the bubble shows this run's process only).
+    const tail = stage ? { ...cur.tail, [stage]: [] } : cur.tail
+    set({ busy: { ...get().busy, [id]: stage }, activity: { ...get().activity, [id]: { ...cur, stage, since: stage ? Date.now() : cur.since, tail, thoughts: reset ? [] : cur.thoughts } } })
   },
   noteLine(id, stage, line) {
     const cur = get().activity[id] ?? EMPTY_ACTIVITY
     // The box shows the answer's first words, not the think-aloud header.
     const text = parseDusunce(line).rest.replace(/\s+/g, " ").trim().slice(0, 160)
     if (!text) return
-    set({ activity: { ...get().activity, [id]: { ...cur, last: { ...cur.last, [stage]: text } } } })
+    set({ activity: { ...get().activity, [id]: { ...cur, last: { ...cur.last, [stage]: text }, tail: { ...cur.tail, [stage]: pushTail(cur.tail[stage] ?? [], line) } } } })
   },
   noteThought(id, actor, text, kind) {
     const cur = get().activity[id] ?? EMPTY_ACTIVITY
@@ -329,6 +334,9 @@ export const useMindStore = create<MindState>((set, get) => ({
             void chats.putMessage({ ...live }, false)
           },
           onReasoning: (s) => get().noteThought(id, "tek", s, "reason"),
+          onEvent: (e) => {
+            if (applyProcessEvent(live.blocks, e)) void chats.putMessage({ ...live, blocks: [...live.blocks] }, false)
+          },
         },
         (line, stream) => {
           get().noteLine(id, "tek", line)
@@ -375,6 +383,10 @@ export const useMindStore = create<MindState>((set, get) => ({
         get().appendTerminal(id, { ts: Date.now(), stream, text: `[${stage}] ${line}` })
       },
       onThinking: (actor, text, kind) => get().noteThought(id, actor, text, kind),
+      onEvent: (actor, e) => {
+        const m = live[actor]
+        if (m && applyProcessEvent(m.blocks, e)) void chats.putMessage({ ...m, blocks: [...m.blocks] }, false)
+      },
       onMessage: (actor, r) => {
         const m = live[actor]
         if (!m) return

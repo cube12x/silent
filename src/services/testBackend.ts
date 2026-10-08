@@ -208,6 +208,11 @@ export class TestBackend implements Backend {
       queueMicrotask(() => {
         onEvent({ type: "sessionStarted", data: { sessionId: `preview-${stage}-${Date.now().toString(36)}` } } as RuntimeEvent)
         onEvent({ type: "reasoningStatus", data: { status: `preview ${stage}: reading the workspace` } } as RuntimeEvent)
+        if (stage === "eylem") {
+          onEvent({ type: "commandStarted", data: { command: "curl -s https://atarus.example/sinema" } } as RuntimeEvent)
+          onEvent({ type: "commandCompleted", data: { command: "curl -s https://atarus.example/sinema", exitCode: 0, outputTail: "<title>Atarus Sinema</title>" } } as RuntimeEvent)
+          onEvent({ type: "fileChanged", data: { path: "NOTLAR.md", kind: "add" } } as RuntimeEvent)
+        }
         onEvent({ type: "textDelta", data: { text: text.slice(0, 12) } } as RuntimeEvent)
         onEvent({ type: "agentMessage", data: { text } } as RuntimeEvent)
         onEvent({ type: "usage", data: { inputTokens: 120, outputTokens: 40 } } as RuntimeEvent)

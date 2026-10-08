@@ -448,6 +448,9 @@ export const tr = {
     offTitle: "Bu kutuda kapat",
     offHint: "Araçlar'daki izinlerin üstüne gelir: burada kapalı olan bu model için kapalıdır.",
     offCount: "{n} kapalı",
+    process: "işleyiş",
+    historyHint: "önceki mesajlar",
+    files: { add: "eklendi", update: "değişti", delete: "silindi" },
   },
   boot: { init: "CLI katmanı başlatılıyor" },
 }

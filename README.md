@@ -178,6 +178,8 @@ Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **
 | **Start / Reset** | Start: tuvali derler (Bilinç+Eylem çifti ya da tek model), iki yarının kurulu olduğunu kontrol eder, sohbeti açar. Reset: sohbet + canlı hafıza silinir; tuval ve depo kalır. |
 | **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[bilinc]/[eylem]/[memory]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` (kutuyu değiştirir) · `/plan` · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
 
+**Balonda işleyiş:** Eylem (ya da tek model) çalışırken balonda "yapıyor…" yerine koştuğu komutlar (kart: ✓/✗ + çıktı kuyruğu), eklediği/değiştirdiği dosyalar ve akan son satırlar görünür; kartlar mesajda kalır. Girişte **↑/↓** önceki mesajları getirir (chat ve terminal).
+
 **Canlı işleyiş:** mesaj yazınca tuval oynar: sıradaki kutu nabız atar ve üstünde aşama + süre yazar (düşünüyor · 12 sn), kablolar turuncu akar, kutuda son çıktı satırı görünür; Canlı hafıza kutusu yazarken, Düşünme kutusu düşünürken yanar.
 
 **Ortak bağlam:** iki yarı ayrı CLI oturumlarında koşar ama her turda aynı `# ORTAK BAĞLAM` bloğunu alır (son konuşmalar: Sen / Bilinç / Eylem / Terminal, kırpılmış); terminal komutları sohbete `[terminal]` notu düşer. Böylece Bilinç Eylem'in ne yaptığını, Eylem önceki konuşmayı bilir; model değişince de geçmiş kaybolmaz.
