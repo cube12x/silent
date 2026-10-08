@@ -113,7 +113,10 @@ export const useMindStore = create<MindState>((set, get) => ({
   terminalVersion: {},
   async load() {
     const backend = await getBackend()
-    const models = (await backend.db.mindModels.list()).map((m) => ({ ...m, graph: m.graph ?? { nodes: [], edges: [] } })).sort((a, b) => b.updatedAt - a.updatedAt)
+    // Rows written before the canvas (2026-10-08 morning) carry compiled fields only: seed their canvas from them.
+    const models = (await backend.db.mindModels.list())
+      .map((m) => (m.graph?.nodes?.length ? m : { ...m, graph: seedGraph(() => newId("mn"), { bilinc: m.bilinc?.modelRef, eylem: m.eylem?.modelRef, workspace: m.workspace }) }))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
     set({ models })
   },
   async create(name, refs) {

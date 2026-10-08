@@ -165,20 +165,19 @@ silent bp "Örnek: Loki 2" "Geliştirici" # belirli bir kutu (başlık veya id)
 
 ## MindMirror (Mind modu, 2026-10-08)
 
-Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **Mind** (turuncu). Sol üstteki Maker⇄Mind anahtarı her an geçirir. Mind'da bir **modlanmış model** kurulur:
+Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **Mind** (turuncu). Sol üstteki Maker⇄Mind anahtarı her an geçirir. Mind, Blueprint gibi bir **kutu/kablo tuvalidir**: sağ tık → kutu ekle, kabloyla bağla, kutuya tıkla → sağ panelde düzenle, üstte **Start** → tuval modele derlenir; altta **Chat | Terminal** dock'u modeli koşu başlatmadan test eder.
 
-| Parça | İş |
+| Kutu | İş |
 | --- | --- |
-| **Bilinç** | pahalı model, **salt-okunur zihin**: düşünür, bulur, rapor/plan yazar; dosya oluşturamaz, kod yazamaz, tarayamaz. Aksiyon gerekiyorsa cevabın sonuna `EYLEM:` bloğu (adımlar + `DÖNÜŞ:`) koyar. |
-| **Eylem** | ucuz model, **aksiyon alır**: Bilinç'in EYLEM bloğunu çalışma klasöründe uygular (tarayıcı, araştırma, kod, dosya) ve `# SONUÇ` altında raporlar. Örnek: "Atarus sinemasına bak" → Bilinç sayfayı bulur, Eylem sayfaya bakar; "10 video öner" → Bilinç listeler, Eylem araştırır. |
-| **Model** | iki yarının CLI modeli + effort (CLI'nın kabul ettiği seviyeye kırpılır). |
-| **Gateway** | ana zihin: her turda ilk sırada giden prompt; Silent ondan profil türetir (rol, kurallar). |
-| **Hafıza deposu** | asla unutulmayacaklar (pin'li); her cevaba taşınır, Reset silmez. |
-| **Araçlar** | Eylem neye yetkili: tarayıcı / dosya yazma / kabuk / ağ / görsel üretimi + çalışma klasörü. `Dosyalar` kapalıysa Eylem de salt-okunur koşar. |
-| **Start / Reset** | Start: iki model kurulu mu kontrol, sohbet + Gateway profili + hafıza senkron; sonra **Canlı hafıza** paneli açılır (her turdan sonra Eylem modeli ucuz bir çağrıyla kalıcı gerçekleri çıkarır, `/hatirla` elle ekler, depoya al/unut). Reset: sohbet + canlı hafıza silinir, depo kalır. |
-| **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[eylem]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` · `/plan` (Eylem kapalı, Bilinç yalnız plan yazar) · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
+| **Model** | bir CLI modeli + rol: **Bilinç** (pahalı, salt-okunur zihin: düşünür, bulur, aksiyon gerekiyorsa `EYLEM:` bloğu + `DÖNÜŞ:` yazar), **Eylem** (ucuz, aksiyon alır: Bilinç'in bloğunu çalışma klasöründe uygular, `# SONUÇ`) ya da **Model** (tek model: sohbet doğrudan ona gider — bir modeli test etmek için). İki Model kutusu birbirine bağlanmaz. |
+| **Gateway** | ana zihin: her turda ilk sırada giden prompt; Silent ondan profil türetir. Gateway → Model kablosu modeli zihnin parçası yapar (Gateway yoksa bütün Model kutuları sayılır). |
+| **Hafıza deposu** | asla unutulmayacaklar (pin'li); Hafıza → Gateway. Reset silmez. |
+| **Araçlar** | Eylem neye yetkili: tarayıcı / dosya yazma / kabuk / ağ / görsel + çalışma klasörü; Araçlar → Model. `Dosya yazma` kapalıysa Eylem salt-okunur koşar. |
+| **Canlı hafıza** | Start'ta tuvale düşer: zihin her turdan sonra buraya yazar (Eylem modeli ucuz bir çağrıyla kalıcı gerçekleri çıkarır; `/hatirla` elle ekler); kutuya tıkla → depoya al / unut. |
+| **Start / Reset** | Start: tuvali derler (Bilinç+Eylem çifti ya da tek model), iki yarının kurulu olduğunu kontrol eder, sohbeti açar. Reset: sohbet + canlı hafıza silinir; tuval ve depo kalır. |
+| **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[bilinc]/[eylem]/[memory]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` (kutuyu değiştirir) · `/plan` · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
 
-Kalıcılık: modeller `mind_models` tablosu (migration 0009), sohbet `chats`/`messages` (kind `mind`), hafıza `memory_entries` (layer `mind`). Terminalden: `silent mind "<model>" "<mesaj>"`, `silent mind start|reset "<model>"`, `silent mind term "<model>" "<komut>"`.
+Yeni model hazır tuvalle gelir: Hafıza → Gateway → Bilinç / Eylem, Araçlar → Eylem. Kalıcılık: tuval + derlenmiş alanlar `mind_models` (migration 0009), sohbet `chats`/`messages` (kind `mind`), hafıza `memory_entries` (layer `mind`). Terminalden: `silent mind new "<ad>" <bilinç cli:model> <eylem cli:model>` (çalışma klasörü = bulunduğun klasör), `silent mind "<model>" "<mesaj>"`, `silent mind start|reset "<model>"`, `silent mind term "<model>" "<komut>"`.
 
 ## Güvenlik
 
