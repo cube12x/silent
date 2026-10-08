@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router"
 import { getBackend } from "@/services"
 import { useRunsStore } from "@/stores/runs"
 import { useBlueprintsStore } from "@/stores/blueprints"
+import { useMindStore } from "@/stores/mind"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { CommandPalette } from "./CommandPalette"
@@ -103,10 +104,17 @@ export function AppShell() {
             console.warn("[autostart] cancel: stopped", boxes, "blueprint box(es),", runs, "run(s)")
             return
           }
-          if (req.blueprint?.ref || req.blueprint?.auto || req.blueprint?.edit) {
+          if (req.mind?.ref) {
+            // `silent mind …`: MindMirror takes over the window.
+            useMindStore.setState({ autorun: req.mind })
+            void useSettingsStore.getState().update({ mode: "mind" })
+            navigate(`/mind?auto=${Date.now()}`)
+          } else if (req.blueprint?.ref || req.blueprint?.auto || req.blueprint?.edit) {
+            void useSettingsStore.getState().update({ mode: "maker" })
             useBlueprintsStore.setState({ autorun: req.blueprint })
             navigate(`/blueprint?auto=${Date.now()}`)
           } else if (req.prompt && req.folder) {
+            void useSettingsStore.getState().update({ mode: "maker" })
             useRunsStore.setState({ autostart: req })
             navigate(`/code?auto=${Date.now()}`)
           }
@@ -135,12 +143,13 @@ export function AppShell() {
         setPalette(true)
       } else if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault()
-        openNewSession({ kind: "standard" })
+        if (useSettingsStore.getState().settings.mode === "mind") void useMindStore.getState().create().then((m) => navigate(`/mind/${m.id}`))
+        else openNewSession({ kind: "standard" })
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [setPalette, openNewSession])
+  }, [setPalette, openNewSession, navigate])
 
   React.useEffect(() => {
     let previous = window.innerWidth

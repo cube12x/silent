@@ -6,6 +6,7 @@ import { useRunsStore } from "@/stores/runs"
 import { useBlueprintsStore } from "@/stores/blueprints"
 import { useChatsStore } from "@/stores/chats"
 import { useAgentsStore } from "@/stores/agents"
+import { useMindStore } from "@/stores/mind"
 import { PROVIDER_IDS } from "@/domain"
 import { PROVIDERS } from "@/providers/registry"
 import { ProviderLogo, TacticalChip } from "@/design-system"
@@ -21,6 +22,10 @@ function useTitle(): { workspace: string; title: string } {
   const chat = useChatsStore((s) => s.byId(params.chatId))
   const agent = useAgentsStore((s) => s.byId(params.agentId))
   const run = useRunsStore((s) => s.byId(params.runId))
+  const mind = useMindStore((s) => s.byId(params.mindId))
+  if (mind) return { workspace: t("mind.title"), title: mind.name }
+  if (pathname.startsWith("/mind")) return { workspace: t("mind.title"), title: t("mind.newModel") }
+  if (pathname === "/" || pathname.startsWith("/entry")) return { workspace: "Silent", title: t("mind.entryTitle") }
   if (chat) return { workspace: t("chat.title"), title: chat.title }
   if (agent) return { workspace: t("agents.title"), title: agent.name }
   if (run) return { workspace: t("code.title"), title: run.title }

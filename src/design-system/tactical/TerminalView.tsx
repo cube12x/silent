@@ -12,7 +12,7 @@ function fmtTime(ts: number) {
 }
 
 /** Virtualized, monospace log view. Follows output while the user is at the bottom. */
-export function TerminalView({ lines, className, live, emptyText = "No output yet." }: { lines: TerminalLine[]; className?: string; live?: boolean; emptyText?: string }) {
+export function TerminalView({ lines, className, live, emptyText = "No output yet.", renderLine }: { lines: TerminalLine[]; className?: string; live?: boolean; emptyText?: string; /** Custom line body (MindMirror colours its `[actor]` prefixes); default = plain text by stream. */ renderLine?: (line: TerminalLine) => React.ReactNode }) {
   const parentRef = React.useRef<HTMLDivElement>(null)
   const [follow, setFollow] = React.useState(true)
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -57,7 +57,7 @@ export function TerminalView({ lines, className, live, emptyText = "No output ye
               return (
                 <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className="absolute top-0 left-0 flex w-full gap-3 whitespace-pre-wrap" style={{ transform: `translateY(${v.start}px)` }}>
                   <span className="shrink-0 select-none text-text-3/70">{fmtTime(l.ts)}</span>
-                  <span className={cn("min-w-0 break-words", l.stream === "stderr" ? "text-danger" : l.stream === "system" ? "text-cyan/80 italic" : l.text.startsWith("$ ") ? "text-text-1" : "text-text-2")}>{l.text.replace(ANSI, "")}</span>
+                  {renderLine ? renderLine(l) : <span className={cn("min-w-0 break-words", l.stream === "stderr" ? "text-danger" : l.stream === "system" ? "text-cyan/80 italic" : l.text.startsWith("$ ") ? "text-text-1" : "text-text-2")}>{l.text.replace(ANSI, "")}</span>}
                 </div>
               )
             })}
