@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { MindGraph, MindNode } from "@/domain"
-import { composeMind, nextPosition, seedGraph, validateMindEdge } from "./graph"
+import { composeMind, hasThinking, nextPosition, seedGraph, validateMindEdge } from "./graph"
 
 let n = 0
 const id = () => `n${++n}`
@@ -38,6 +38,16 @@ describe("composeMind", () => {
     expect(c.nodeWarnings[stray.id]).toEqual(["unwiredModel"])
     expect(c.nodeWarnings[e.id]).toContain("noModelRef")
     expect(c.warnings).toContain("noWorkspace")
+  })
+  it("the acting box's OFF switches cut the Araçlar tools; a Düşünme box turns think-aloud on", () => {
+    const g = seedGraph(id, { bilinc: "claude:opus", eylem: "codex:luna" })
+    const eylem = g.nodes.find((n) => n.data.type === "model" && n.data.role === "eylem")!
+    ;(eylem.data as Extract<MindNode["data"], { type: "model" }>).off = { browser: true, network: true }
+    const c = composeMind({ graph: g })
+    expect(c.tools).toMatchObject({ browser: false, network: false, files: true, shell: true })
+    expect(hasThinking(g)).toBe(false)
+    g.nodes.push({ id: id(), type: "thinking", x: 0, y: 0, data: { type: "thinking" } })
+    expect(hasThinking(g)).toBe(true)
   })
   it("two boxes of the same role flag the extra one", () => {
     const a = model("bilinc", "claude:opus")

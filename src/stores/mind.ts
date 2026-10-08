@@ -8,10 +8,11 @@ import type { MemoryEntry, Message, MindActor, MindModel, MindNode, MindNodeData
 import { newMindModel, parseModelRef } from "@/domain"
 import { interpretGateway } from "@/engine/gateway"
 import { parseMindCommand, MIND_COMMAND_HELP, type MindCommand } from "@/engine/mind/commands"
+import { parseDusunce } from "@/engine/mind/parse"
 import { runMindTurn, type MindStage } from "@/engine/mind/turn"
 import { tekBrief, terminalBrief } from "@/engine/mind/prompts"
 import { sharedContext, terminalNote } from "@/engine/mind/context"
-import { composeMind, defaultNodeData, nextPosition, seedGraph, validateMindEdge, type MindComposition } from "@/engine/mind/graph"
+import { composeMind, defaultNodeData, hasThinking, nextPosition, seedGraph, validateMindEdge, type MindComposition } from "@/engine/mind/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { clampEffort } from "@/engine/effort"
 import { getBackend } from "@/services"
@@ -25,6 +26,19 @@ import { newId } from "@/lib/ids"
 export type MindBusy = MindStage | "tek" | "terminal"
 export type MindAutorun = NonNullable<AutostartRequest["mind"]>
 
+/** What is happening on the canvas right now (and what happened in the last turn): drives the live boxes and wires. */
+export interface MindActivity {
+  stage?: MindBusy
+  /** When the current stage started (ms). */
+  since?: number
+  /** Last output line per stage (clipped), shown on the box. */
+  last: Partial<Record<MindBusy, string>>
+  /** Düşünme box feed: reasoning/tool status lines and the DÜŞÜNCE block of this turn. */
+  thoughts: Array<{ actor: MindActor; text: string; kind: "reason" | "dusunce"; at: number }>
+}
+const THOUGHTS_CAP = 40
+const EMPTY_ACTIVITY: MindActivity = { last: {}, thoughts: [] }
+
 const TERMINAL_CAP = 1500
 const TERMINAL_FLUSH_MS = 100
 const TERMINAL_TIMEOUT = 40 * 60
@@ -37,6 +51,8 @@ interface MindState {
   autorun?: MindAutorun
   busy: Record<string, MindBusy | undefined>
   running: Record<string, { cancel: () => Promise<void> }>
+  /** Live canvas state per model (not persisted). */
+  activity: Record<string, MindActivity>
   /** Eylem terminal lines per model (not persisted; batched, capped). */
   terminal: Record<string, TerminalLine[]>
   terminalVersion: Record<string, number>
@@ -69,6 +85,10 @@ interface MindState {
   applyCommand(id: string, cmd: MindCommand): Promise<string>
   appendTerminal(id: string, line: TerminalLine): void
   clearTerminal(id: string): void
+  /** Live canvas: stage change (undefined = idle; `reset` clears the thoughts for a new turn). */
+  setStage(id: string, stage: MindBusy | undefined, reset?: boolean): void
+  noteLine(id: string, stage: MindBusy, line: string): void
+  noteThought(id: string, actor: MindActor, text: string, kind: "reason" | "dusunce"): void
   /** Live memory + depot of one model (pure filter; callers memoise on `entries`). */
   memoryOf(id: string): MemoryEntry[]
 }
@@ -110,8 +130,26 @@ export const useMindStore = create<MindState>((set, get) => ({
   models: [],
   busy: {},
   running: {},
+  activity: {},
   terminal: {},
   terminalVersion: {},
+  setStage(id, stage, reset) {
+    const cur = get().activity[id] ?? EMPTY_ACTIVITY
+    set({ busy: { ...get().busy, [id]: stage }, activity: { ...get().activity, [id]: { ...cur, stage, since: stage ? Date.now() : cur.since, thoughts: reset ? [] : cur.thoughts } } })
+  },
+  noteLine(id, stage, line) {
+    const cur = get().activity[id] ?? EMPTY_ACTIVITY
+    const text = line.replace(/\s+/g, " ").trim().slice(0, 160)
+    if (!text) return
+    set({ activity: { ...get().activity, [id]: { ...cur, last: { ...cur.last, [stage]: text } } } })
+  },
+  noteThought(id, actor, text, kind) {
+    const cur = get().activity[id] ?? EMPTY_ACTIVITY
+    const t = text.trim()
+    if (!t) return
+    set({ activity: { ...get().activity, [id]: { ...cur, thoughts: [...cur.thoughts, { actor, text: t.slice(0, 600), kind, at: Date.now() }].slice(-THOUGHTS_CAP) } } })
+    get().appendTerminal(id, { ts: Date.now(), stream: "system", text: `[${actor}] 💭 ${t.replace(/\s+/g, " ").slice(0, 300)}` })
+  },
   async load() {
     const backend = await getBackend()
     // Rows written before the canvas (2026-10-08 morning) carry compiled fields only: seed their canvas from them.
@@ -259,10 +297,12 @@ export const useMindStore = create<MindState>((set, get) => ({
     const shared = sharedContext(useChatsStore.getState().messages[chatId] ?? [])
     await chats.putMessage({ id: newId("msg"), chatId, role: "user", content, blocks: [], createdAt: Date.now() })
     const memory = get().memoryOf(id)
+    const thinkAloud = hasThinking(model.graph)
     const finish = () => {
       const running = { ...get().running }
       delete running[id]
-      set({ running, busy: { ...get().busy, [id]: undefined } })
+      set({ running })
+      get().setStage(id, undefined)
     }
 
     // A lone Model box: the model answers directly (how a model is tested without a run).
@@ -270,13 +310,13 @@ export const useMindStore = create<MindState>((set, get) => ({
       const ref = c.single!.modelRef
       const live = actorMessage(chatId, "tek", ref, model.mode, Date.now())
       void chats.putMessage(live, false)
-      set({ busy: { ...get().busy, [id]: "tek" } })
+      get().setStage(id, "tek", true)
       const run = runSingle(
         backend,
         {
           runId: `mind:tek:${id}:${Date.now()}`,
           modelRef: ref,
-          prompt: tekBrief(model, ref, memory, content, shared),
+          prompt: tekBrief(model, ref, memory, content, shared, thinkAloud),
           cwd: model.workspace,
           readOnly: !model.tools.files,
           network: model.tools.network,
@@ -287,13 +327,19 @@ export const useMindStore = create<MindState>((set, get) => ({
             live.content += t
             void chats.putMessage({ ...live }, false)
           },
+          onReasoning: (s) => get().noteThought(id, "tek", s, "reason"),
         },
-        (line, stream) => get().appendTerminal(id, { ts: Date.now(), stream, text: `[tek] ${line}` }),
+        (line, stream) => {
+          get().noteLine(id, "tek", line)
+          get().appendTerminal(id, { ts: Date.now(), stream, text: `[tek] ${line}` })
+        },
       )
       set({ running: { ...get().running, [id]: { cancel: run.cancel } } })
       try {
         const r = await run.done
-        await chats.putMessage({ ...live, content: r.text || live.content, error: r.error, streaming: false, usage: { inputTokens: 0, outputTokens: 0, totalTokens: r.tokens } })
+        const { thought, rest } = r.ok ? parseDusunce(r.text) : { thought: undefined, rest: r.text }
+        if (thought) get().noteThought(id, "tek", thought, "dusunce")
+        await chats.putMessage({ ...live, content: rest || live.content, error: r.error, streaming: false, usage: { inputTokens: 0, outputTokens: 0, totalTokens: r.tokens } })
         await get().update(id, (m) => ({ ...m, sessions: { ...m.sessions, bilinc: r.sessionId ?? m.sessions.bilinc }, tokens: (m.tokens ?? 0) + r.tokens }))
       } catch (e) {
         reportError(e, "Mind")
@@ -311,7 +357,7 @@ export const useMindStore = create<MindState>((set, get) => ({
       memory,
       {
       onStart: (stage) => {
-        set({ busy: { ...get().busy, [id]: stage } })
+        get().setStage(id, stage, stage === "bilinc")
         if (stage === "memory") return
         const m = actorMessage(chatId, stage, stage === "bilinc" ? model.bilinc.modelRef : model.eylem.modelRef, model.mode, Date.now())
         live[stage] = m
@@ -323,7 +369,11 @@ export const useMindStore = create<MindState>((set, get) => ({
         m.content += t
         void chats.putMessage({ ...m }, false)
       },
-      onLine: (stage, line, stream) => get().appendTerminal(id, { ts: Date.now(), stream, text: `[${stage}] ${line}` }),
+      onLine: (stage, line, stream) => {
+        get().noteLine(id, stage, line)
+        get().appendTerminal(id, { ts: Date.now(), stream, text: `[${stage}] ${line}` })
+      },
+      onThinking: (actor, text, kind) => get().noteThought(id, actor, text, kind),
       onMessage: (actor, r) => {
         const m = live[actor]
         if (!m) return
@@ -336,7 +386,7 @@ export const useMindStore = create<MindState>((set, get) => ({
         for (const body of lines) void mem.add({ layer: "mind", scopeId: id, scopeLabel: model.name, tags: ["auto"], title: "", body, source: "auto", pinned: false })
       },
       },
-      { shared },
+      { shared, thinkAloud },
     )
     set({ running: { ...get().running, [id]: { cancel: turn.cancel } } })
     try {
@@ -371,7 +421,7 @@ export const useMindStore = create<MindState>((set, get) => ({
       return
     }
     const backend = await getBackend()
-    set({ busy: { ...get().busy, [id]: "terminal" } })
+    get().setStage(id, "terminal")
     get().appendTerminal(id, { ts: Date.now(), stream: "system", text: `$ ${content}` })
     const ref = model.eylem.modelRef
     const chats = useChatsStore.getState()
@@ -390,7 +440,10 @@ export const useMindStore = create<MindState>((set, get) => ({
         timeoutSecs: TERMINAL_TIMEOUT,
         effort: clampEffort(parseModelRef(ref).providerId as ProviderId, model.eylem.effort),
       },
-      (line, stream) => get().appendTerminal(id, { ts: Date.now(), stream, text: `[terminal] ${line}` }),
+      (line, stream) => {
+        get().noteLine(id, "terminal", line)
+        get().appendTerminal(id, { ts: Date.now(), stream, text: `[terminal] ${line}` })
+      },
     )
     set({ running: { ...get().running, [id]: { cancel: run.cancel } } })
     try {
@@ -405,7 +458,8 @@ export const useMindStore = create<MindState>((set, get) => ({
     } finally {
       const running = { ...get().running }
       delete running[id]
-      set({ running, busy: { ...get().busy, [id]: undefined } })
+      set({ running })
+      get().setStage(id, undefined)
     }
   },
   async cancel(id) {

@@ -169,13 +169,16 @@ Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **
 
 | Kutu | İş |
 | --- | --- |
-| **Model** | bir CLI modeli + rol: **Bilinç** (pahalı, salt-okunur zihin: düşünür, bulur, aksiyon gerekiyorsa `EYLEM:` bloğu + `DÖNÜŞ:` yazar), **Eylem** (ucuz, aksiyon alır: Bilinç'in bloğunu çalışma klasöründe uygular, `# SONUÇ`) ya da **Model** (tek model: sohbet doğrudan ona gider — bir modeli test etmek için). İki Model kutusu birbirine bağlanmaz. |
+| **Model** | bir CLI modeli + rol: **Bilinç** (pahalı, salt-okunur zihin: düşünür, bulur, aksiyon gerekiyorsa `EYLEM:` bloğu + `DÖNÜŞ:` yazar), **Eylem** (ucuz, aksiyon alır: Bilinç'in bloğunu çalışma klasöründe uygular, `# SONUÇ`) ya da **Model** (tek model: sohbet doğrudan ona gider — bir modeli test etmek için). İki Model kutusu birbirine bağlanmaz. Model seçilince kutuda **model kartı** çıkar (CLI, katman, effort seviyeleri, planlayıcı/tarayıcı/görsel/oturum yetenekleri) ve o modelin yapabildiği şeyler için **"bu kutuda kapat"** anahtarları (tarayıcı/ağ/dosya/kabuk/görsel). |
 | **Gateway** | ana zihin: her turda ilk sırada giden prompt; Silent ondan profil türetir. Gateway → Model kablosu modeli zihnin parçası yapar (Gateway yoksa bütün Model kutuları sayılır). |
 | **Hafıza deposu** | asla unutulmayacaklar (pin'li); Hafıza → Gateway. Reset silmez. |
 | **Araçlar** | Eylem neye yetkili: tarayıcı / dosya yazma / kabuk / ağ / görsel + çalışma klasörü; Araçlar → Model. `Dosya yazma` kapalıysa Eylem salt-okunur koşar. |
+| **Düşünme** | tuvale konunca Bilinç cevabına kısa bir `DÜŞÜNCE:` bloğu koyar; blok sohbete değil bu kutuya düşer, CLI'nın akıl yürütme/araç durum satırları da altına akar. |
 | **Canlı hafıza** | Start'ta tuvale düşer: zihin her turdan sonra buraya yazar (Eylem modeli ucuz bir çağrıyla kalıcı gerçekleri çıkarır; `/hatirla` elle ekler); kutuya tıkla → depoya al / unut. |
 | **Start / Reset** | Start: tuvali derler (Bilinç+Eylem çifti ya da tek model), iki yarının kurulu olduğunu kontrol eder, sohbeti açar. Reset: sohbet + canlı hafıza silinir; tuval ve depo kalır. |
 | **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[bilinc]/[eylem]/[memory]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` (kutuyu değiştirir) · `/plan` · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
+
+**Canlı işleyiş:** mesaj yazınca tuval oynar: sıradaki kutu nabız atar ve üstünde aşama + süre yazar (düşünüyor · 12 sn), kablolar turuncu akar, kutuda son çıktı satırı görünür; Canlı hafıza kutusu yazarken, Düşünme kutusu düşünürken yanar.
 
 **Ortak bağlam:** iki yarı ayrı CLI oturumlarında koşar ama her turda aynı `# ORTAK BAĞLAM` bloğunu alır (son konuşmalar: Sen / Bilinç / Eylem / Terminal, kırpılmış); terminal komutları sohbete `[terminal]` notu düşer. Böylece Bilinç Eylem'in ne yaptığını, Eylem önceki konuşmayı bilir; model değişince de geçmiş kaybolmaz.
 

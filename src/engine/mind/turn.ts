@@ -8,7 +8,7 @@ import type { MemoryEntry, MindActor, MindModel, ProviderId } from "@/domain"
 import { parseModelRef } from "@/domain"
 import { clampEffort } from "@/engine/effort"
 import { runSingle, type SingleRunResult } from "@/engine/blueprint/single"
-import { parseEylemBlock, parseHatirla, stripEylem, type EylemBlock } from "./parse"
+import { parseDusunce, parseEylemBlock, parseHatirla, stripEylem, type EylemBlock } from "./parse"
 import { bilincBrief, eylemBrief, memoryExtractPrompt } from "./prompts"
 
 export type MindStage = MindActor | "memory"
@@ -20,6 +20,8 @@ export interface MindTurnCallbacks {
   /** A half finished (ok or not); `text` is what the chat shows (Bilinç without its EYLEM block). */
   onMessage?: (actor: MindActor, result: MindHalfResult) => void
   onMemory?: (lines: string[]) => void
+  /** What the model is thinking/doing: `reason` = CLI reasoning/tool status line, `dusunce` = the DÜŞÜNCE block of the answer. */
+  onThinking?: (actor: MindActor, text: string, kind: "reason" | "dusunce") => void
 }
 
 export interface MindHalfResult {
@@ -52,6 +54,8 @@ export interface MindTurnOptions {
   eylemTimeoutSecs?: number
   /** `# ORTAK BAĞLAM` block (see context.ts): the same transcript goes to both halves so their contexts match. */
   shared?: string
+  /** A Düşünme box is on the canvas: Bilinç thinks aloud in a DÜŞÜNCE block that is routed to `onThinking`, not the chat. */
+  thinkAloud?: boolean
 }
 
 const BILINC_TIMEOUT = 20 * 60
@@ -84,20 +88,24 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
       {
         runId: `mind:bilinc:${model.id}:${now()}`,
         modelRef: model.bilinc.modelRef,
-        prompt: bilincBrief(model, memory, userText, opts.shared),
+        prompt: bilincBrief(model, memory, userText, opts.shared, opts.thinkAloud),
         cwd: model.workspace,
         readOnly: true,
         resumeSessionId: model.sessions.bilinc,
         timeoutSecs: opts.bilincTimeoutSecs ?? BILINC_TIMEOUT,
         effort: effortFor(model.bilinc.modelRef, model.bilinc.effort),
         onDelta: (t) => cb.onDelta?.("bilinc", t),
+        onReasoning: (s) => cb.onThinking?.("bilinc", s, "reason"),
       },
       line("bilinc"),
     )
     current = bilincRun
     const bilincRaw = await bilincRun.done
-    const block = bilincRaw.ok ? parseEylemBlock(bilincRaw.text) : undefined
-    const bilinc = half(bilincRaw, block ? stripEylem(bilincRaw.text) : bilincRaw.text)
+    // The DÜŞÜNCE block (think-aloud) goes to the Düşünme box; the chat shows the answer without it and without the EYLEM block.
+    const { thought, rest } = bilincRaw.ok ? parseDusunce(bilincRaw.text) : { thought: undefined, rest: bilincRaw.text }
+    if (thought) cb.onThinking?.("bilinc", thought, "dusunce")
+    const block = bilincRaw.ok ? parseEylemBlock(rest) : undefined
+    const bilinc = half(bilincRaw, block ? stripEylem(rest) : rest)
     cb.onMessage?.("bilinc", bilinc)
     const base: MindTurnResult = { ok: bilincRaw.ok, error: bilincRaw.error, bilinc, eylemBlock: block, planned: false, remembered: [], memoryTokens: 0, tokens: bilincRaw.tokens, cancelled }
     if (!bilincRaw.ok || cancelled) return { ...base, cancelled }
@@ -119,6 +127,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
           timeoutSecs: opts.eylemTimeoutSecs ?? EYLEM_TIMEOUT,
           effort: effortFor(model.eylem.modelRef, model.eylem.effort),
           onDelta: (t) => cb.onDelta?.("eylem", t),
+          onReasoning: (s) => cb.onThinking?.("eylem", s, "reason"),
         },
         line("eylem"),
       )

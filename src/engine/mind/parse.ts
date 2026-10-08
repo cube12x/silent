@@ -68,6 +68,20 @@ export function stripEylem(text: string): string {
   return lines.slice(0, header).join("\n").trim()
 }
 
+/**
+ * `DÜŞÜNCE:` block at the start of Bilinç's answer (think-aloud for the Düşünme box): the lines after the header up to the
+ * first blank line. Returns the thought and the answer without it.
+ */
+export function parseDusunce(text: string): { thought?: string; rest: string } {
+  const m = /^\s*\**\s*(?:DÜŞÜNCE|DUSUNCE|THOUGHT)\s*:?\s*\**\s*\n?/i.exec(text)
+  if (!m) return { rest: text.trim() }
+  const after = text.slice(m[0].length)
+  const end = after.search(/\n\s*\n/)
+  const thought = (end >= 0 ? after.slice(0, end) : after).replace(/\*\*/g, "").trim()
+  const rest = (end >= 0 ? after.slice(end) : "").trim()
+  return { thought: thought || undefined, rest }
+}
+
 /** Everything after `# SONUÇ` (or the whole text when Eylem forgot the header). */
 export function parseSonuc(text: string): string {
   const m = /^\s*\**\s*#+\s*(?:SONUÇ|SONUC|RESULT)\s*\**\s*$/im.exec(text)

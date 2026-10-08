@@ -40,13 +40,23 @@ export interface MindSessions {
 
 // ---- Canvas -------------------------------------------------------------------------------------------------------
 
-export type MindNodeType = "model" | "gateway" | "memory" | "tools" | "live"
+/** thinking = Düşünme box: shows Bilinç's thinking live (DÜŞÜNCE block + reasoning status lines) during a turn. */
+export type MindNodeType = "model" | "gateway" | "memory" | "tools" | "live" | "thinking"
 export type MindNodeData =
-  | { type: "model"; role: MindActor; modelRef: string; effort?: Effort; title?: string }
+  | {
+      type: "model"
+      role: MindActor
+      modelRef: string
+      effort?: Effort
+      title?: string
+      /** Per-box switches OFF (the model card lists what this model can do; these turn pieces of it off for this box). */
+      off?: Partial<Record<keyof MindTools, boolean>>
+    }
   | { type: "gateway"; prompt: string }
   | { type: "memory" }
   | { type: "tools"; tools: MindTools; workspace?: string }
   | { type: "live" }
+  | { type: "thinking" }
 export interface MindNode {
   id: string
   type: MindNodeType
@@ -71,11 +81,12 @@ export const MIND_EDGE_RULES: Record<MindNodeType, MindNodeType[]> = {
   tools: ["model"],
   model: [],
   live: [],
+  thinking: [],
 }
 export function canConnectMind(from: MindNodeType, to: MindNodeType): boolean {
   return MIND_EDGE_RULES[from]?.includes(to) ?? false
 }
-export const MIND_NODE_TYPES: MindNodeType[] = ["model", "gateway", "memory", "tools"]
+export const MIND_NODE_TYPES: MindNodeType[] = ["model", "gateway", "memory", "tools", "thinking"]
 
 export interface MindModel {
   id: string

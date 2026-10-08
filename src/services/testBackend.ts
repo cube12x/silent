@@ -199,7 +199,7 @@ export class TestBackend implements Backend {
       const stage = request.runId.split(":")[1]
       const text =
         stage === "bilinc"
-          ? "Önizleme: Atarus sinemasında üç film olabilir.\n\nEYLEM:\n1. https://atarus.example/sinema adresini aç\n2. vizyondaki filmleri listele\nDÖNÜŞ: film adları ve seanslar"
+          ? "DÜŞÜNCE:\n- Kullanıcı vizyondaki filmleri istiyor; sayfayı ben açamam.\n- Eylem'e adres ve dönüş listesi veririm.\n\nÖnizleme: Atarus sinemasında üç film olabilir.\n\nEYLEM:\n1. https://atarus.example/sinema adresini aç\n2. vizyondaki filmleri listele\nDÖNÜŞ: film adları ve seanslar"
           : stage === "eylem"
             ? "# SONUÇ\nÖnizleme: 3 film bulundu — A (19:00), B (20:30), C (22:00)."
             : stage === "mem"
@@ -207,6 +207,7 @@ export class TestBackend implements Backend {
               : "önizleme terminal çıktısı: a.txt b.txt"
       queueMicrotask(() => {
         onEvent({ type: "sessionStarted", data: { sessionId: `preview-${stage}-${Date.now().toString(36)}` } } as RuntimeEvent)
+        onEvent({ type: "reasoningStatus", data: { status: `preview ${stage}: reading the workspace` } } as RuntimeEvent)
         onEvent({ type: "textDelta", data: { text: text.slice(0, 12) } } as RuntimeEvent)
         onEvent({ type: "agentMessage", data: { text } } as RuntimeEvent)
         onEvent({ type: "usage", data: { inputTokens: 120, outputTokens: 40 } } as RuntimeEvent)

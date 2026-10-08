@@ -16,7 +16,7 @@ import { MindPanel } from "./MindPanel"
 import { MindChat } from "./MindChat"
 import { MindTerminal } from "./MindTerminal"
 
-const MENU: MindNodeType[] = ["model", "gateway", "memory", "tools"]
+const MENU: MindNodeType[] = ["model", "gateway", "memory", "tools", "thinking"]
 
 /** Two-click danger button (the webview has no confirm()): arms for 4 s. */
 function ArmedButton({ label, armedLabel, onFire, icon, testId }: { label: string; armedLabel: string; onFire: () => void; icon: React.ReactNode; testId: string }) {
@@ -48,8 +48,18 @@ function Canvas({ modelId }: { modelId: string }) {
   const fittedRef = React.useRef(false)
 
   const composition = React.useMemo(() => (model ? composeMind(model) : undefined), [model])
+  const stage = useMindStore((s) => s.activity[modelId]?.stage)
   const flowNodes = React.useMemo<MindFlowNode[]>(() => (model?.graph.nodes ?? []).map((n) => ({ id: n.id, type: n.type, position: { x: n.x, y: n.y }, selected: n.id === selectedId, data: { node: n, warnings: composition?.nodeWarnings[n.id] ?? [], modelId } })), [model, composition, selectedId, modelId])
-  const flowEdges = React.useMemo<Edge[]>(() => (model?.graph.edges ?? []).map((e) => ({ id: e.id, source: e.from, target: e.to })), [model])
+  // Wires light up along the live path: Gateway → Bilinç while it thinks, Gateway/Araçlar → Eylem while it acts.
+  const flowEdges = React.useMemo<Edge[]>(() => {
+    const active = new Set<string>()
+    for (const n of model?.graph.nodes ?? []) {
+      if (n.data.type !== "model") continue
+      const r = n.data.role
+      if ((stage === "bilinc" && r === "bilinc") || ((stage === "eylem" || stage === "terminal") && r === "eylem") || (stage === "tek" && r === "tek")) active.add(n.id)
+    }
+    return (model?.graph.edges ?? []).map((e) => ({ id: e.id, source: e.from, target: e.to, animated: active.has(e.to), style: active.has(e.to) ? { stroke: "var(--mind)", strokeWidth: 2 } : undefined }))
+  }, [model, stage])
 
   const onNodesChange = React.useCallback(
     (changes: NodeChange<MindFlowNode>[]) => {

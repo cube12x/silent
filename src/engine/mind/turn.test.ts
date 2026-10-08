@@ -102,6 +102,19 @@ describe("runMindTurn", () => {
     expect(rc.ok).toBe(true)
     expect(rc.remembered).toEqual([])
   })
+  it("think-aloud: the DÜŞÜNCE block and reasoning lines go to onThinking, the chat text has neither", async () => {
+    const b = backend({ bilinc: "DÜŞÜNCE:\n- önce bakarım\n- sonra devrederim\n\nAtarus'ta üç film olabilir.\n\nEYLEM:\n1. siteyi aç\nDÖNÜŞ: liste", eylem: "# SONUÇ\nok" })
+    const thoughts: string[] = []
+    const r = await runMindTurn(b, model, "bak", [], { onThinking: (a, text, kind) => thoughts.push(`${a}:${kind}:${text}`) }, { extractMemory: false, thinkAloud: true }).done
+    expect(r.bilinc.text).toBe("Atarus'ta üç film olabilir.")
+    expect(r.eylemBlock?.steps).toEqual(["siteyi aç"])
+    expect(thoughts).toContain("bilinc:dusunce:- önce bakarım\n- sonra devrederim")
+    expect(b.requests[0]!.prompt).toContain("DÜŞÜNCE:")
+    expect(b.requests[1]!.prompt).not.toContain("önce bakarım") // Eylem gets the answer, not the thought
+    const plain = backend({ bilinc: "düz" })
+    await runMindTurn(plain, model, "x", [], {}, { extractMemory: false }).done
+    expect(plain.requests[0]!.prompt).not.toContain("DÜŞÜNCE:")
+  })
   it("cancel stops the chain after the running half", async () => {
     const b = backend({ bilinc: WITH_ACTION, eylem: "# SONUÇ\nok" })
     const turn = runMindTurn(b, model, "bak", [], { onMessage: () => void turn.cancel() })

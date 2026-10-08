@@ -12,6 +12,8 @@ import { useMindStore } from "@/stores/mind"
 import { useMemoryStore } from "@/stores/memory"
 import { getBackend } from "@/services"
 import { useT } from "@/i18n"
+import { PROVIDERS } from "@/providers/registry"
+import { useProvidersStore } from "@/stores/providers"
 import { ActorChip } from "./ActorChip"
 
 const EFFORTS: Array<Effort | ""> = ["", "low", "medium", "high", "xhigh"]
@@ -54,6 +56,8 @@ export function MindPanel({ model, node, onClose }: { model: MindModel; node: Mi
   const removeNode = useMindStore((s) => s.removeNode)
   const entries = useMemoryStore((s) => s.entries)
   const add = useMemoryStore((s) => s.add)
+  const modelByRef = useProvidersStore((s) => s.modelByRef)
+  const thoughts = useMindStore((s) => s.activity[model.id]?.thoughts)
   const [draft, setDraft] = React.useState("")
   const d = node.data
   const mine = entries.filter((e) => e.layer === "mind" && e.scopeId === model.id)
@@ -85,6 +89,67 @@ export function MindPanel({ model, node, onClose }: { model: MindModel; node: Mi
           </select>
         </Field>
         <div className="pt-1"><ActorChip actor={d.role} modelRef={d.modelRef || undefined} size="xs" /></div>
+        {d.modelRef && (() => {
+          // Model card: what Silent knows about this model (provider capabilities + catalog row) and what can be switched OFF for this box.
+          const pid = d.modelRef.split(":")[0] as ProviderId
+          const info = PROVIDERS[pid]
+          const row = modelByRef(d.modelRef)
+          if (!info) return null
+          const caps = info.capabilities
+          const efforts = info.efforts?.length ? info.efforts.join(" · ") : "—"
+          const offable: Array<[keyof MindTools, string, boolean]> = [
+            ["browser", t("mind.tool.browser"), Boolean(caps.browser)],
+            ["network", t("mind.tool.network"), true],
+            ["files", t("mind.tool.files"), true],
+            ["shell", t("mind.tool.shell"), true],
+            ["image", t("mind.tool.image"), Boolean(caps.image)],
+          ]
+          return (
+            <Field label={t("mind.modelCard")}>
+              <div className="rounded-none border border-line bg-ink-2 p-2 text-[11px]" data-testid="mind-model-card">
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  <span><span className="text-text-3">{t("common.cli")}:</span> {info.name}</span>
+                  {row && <span><span className="text-text-3">{t("mind.tier")}:</span> {row.tier}</span>}
+                  <span><span className="text-text-3">{t("mind.effort")}:</span> <span className="mono">{efforts}</span></span>
+                  {row?.meta?.context && <span><span className="text-text-3">ctx:</span> {row.meta.context}</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {([["planner", caps.planner], ["browser", caps.browser], ["image", Boolean(caps.image)], ["resume", caps.resume], ["readOnly", caps.readOnlySandbox]] as Array<[string, boolean]>).map(([k, ok]) => (
+                    <span key={k} className={ok ? "rounded-none border border-success/50 px-1 text-[10px] text-success" : "rounded-none border border-line/50 px-1 text-[10px] text-text-3 line-through"}>{t(`mind.cap.${k}` as never)}</span>
+                  ))}
+                </div>
+                <div className="mt-2 text-[10px] tracking-[0.14em] text-text-3 uppercase">{t("mind.offTitle")}</div>
+                <div className="mt-1 flex flex-col gap-1">
+                  {offable.filter(([, , can]) => can).map(([key, label]) => {
+                    const off = Boolean(d.off?.[key])
+                    return (
+                      <label key={key} className="flex items-center justify-between rounded-none border border-line bg-ink-1 px-2 py-1 text-[11px]">
+                        <span className={off ? "text-text-3 line-through" : ""}>{label}</span>
+                        <Switch checked={!off} onCheckedChange={(v) => updateNode(model.id, node.id, { data: { off: { ...(d.off ?? {}), [key]: !v } } })} data-testid={`mind-off-${key}`} />
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className="mt-1 text-[10px] text-text-3">{t("mind.offHint")}</div>
+              </div>
+            </Field>
+          )
+        })()}
+      </>
+    )
+  } else if (d.type === "thinking") {
+    const list = thoughts ?? []
+    body = (
+      <>
+        <div className="text-[11px] text-text-3">{t("mind.thinkingHint")}</div>
+        <div className="flex max-h-[420px] flex-col gap-1 overflow-auto" data-testid="mind-thought-rows">
+          {list.length === 0 && <div className="py-3 text-center text-[11px] text-text-3">{t("mind.thinkingEmpty")}</div>}
+          {list.map((x) => (
+            <div key={x.at + x.text} className={x.kind === "dusunce" ? "rounded-none border border-mind/50 bg-ink-2 px-2 py-1 text-[11px] whitespace-pre-wrap" : "mono rounded-none border border-line bg-ink-2 px-2 py-1 text-[10px] text-text-3"}>
+              <span className="mr-1 text-[9px] text-mind uppercase">{x.actor}</span>{x.text}
+            </div>
+          ))}
+        </div>
       </>
     )
   } else if (d.type === "gateway") {

@@ -29,6 +29,8 @@ export function runSingle(
     network?: boolean
     /** Streamed text pieces (`textDelta`) for a live bubble; `onLine` still receives whole messages. */
     onDelta?: (text: string) => void
+    /** Reasoning / tool-progress status lines (`reasoningStatus`): what the model is doing right now. */
+    onReasoning?: (status: string) => void
   },
   onLine?: (line: string, stream: "stdout" | "stderr" | "system") => void,
 ): { done: Promise<SingleRunResult>; cancel: () => Promise<void> } {
@@ -61,6 +63,9 @@ export function runSingle(
         break
       case "textDelta":
         opts.onDelta?.(e.data.text)
+        break
+      case "reasoningStatus":
+        opts.onReasoning?.(e.data.status)
         break
       case "agentMessage":
         messages.push(e.data.text)

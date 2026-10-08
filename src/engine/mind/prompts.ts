@@ -36,7 +36,10 @@ function join(parts: Array<string | false | undefined>): string {
 }
 
 /** Bilinç: read-only mind. Thinks, finds, answers; hands action to Eylem through an EYLEM block. */
-export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: string, shared = ""): string {
+/** Asked when a Düşünme box is on the canvas: the thinking goes to that box, not to the chat bubble. */
+export const THINK_ALOUD = `Begin your answer with exactly this block, then a blank line, then the answer:\n\nDÜŞÜNCE:\n- <3–6 short lines: what you check, what you weigh, what you decide and why>\n\nThe DÜŞÜNCE block is shown in the Düşünme box, never in the chat — keep the answer itself complete without it.`
+
+export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: string, shared = "", thinkAloud = false): string {
   const plan = model.mode === "plan"
   return join([
     `You are BİLİNÇ, the mind of the modded model "${model.name}" (${model.bilinc.modelRef}). You run in a READ-ONLY session: you cannot create or edit files, run commands that change anything, open a browser, or use the network. You may read the workspace to understand it.`,
@@ -45,6 +48,7 @@ export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: s
       ? `PLAN MODE is on: never write an EYLEM block. When the request needs action, write a numbered plan the user can approve instead.`
       : `When the request needs ACTION — visiting a site, researching on the web, watching or listening, running code or tests, writing files — do NOT attempt it and do NOT say you cannot. Write what you already know or found, then end your answer with exactly this block for EYLEM, your action half (${model.eylem.modelRef}):\n\n${EYLEM_CONTRACT}\n\nRules for the block: steps are concrete (URLs, file paths, commands, what to compare); DÖNÜŞ names what must come back; nothing after DÖNÜŞ. No block when the answer needs no action.`,
     `Never ask the user to do the action themselves. Never claim an action was done.`,
+    thinkAloud && THINK_ALOUD,
     gatewaySection(model),
     memorySection(memory),
     shared,
@@ -81,9 +85,10 @@ export function memoryExtractPrompt(userText: string, bilincText: string, eylemT
 }
 
 /** Single model (a lone Model box, or testing one model from the chat): no EYLEM contract, the model answers and acts itself. */
-export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], userText: string, shared = ""): string {
+export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], userText: string, shared = "", thinkAloud = false): string {
   return join([
     `You are the model "${model.name}" (${ref}) in MindMirror, answering the user directly. Answer in the user's language, concretely and short.`,
+    thinkAloud && THINK_ALOUD,
     toolsLine(model),
     model.workspace ? `Workspace: ${model.workspace}.` : undefined,
     `Do not ask questions: assume and document. Foreground only; leave no servers or browsers running.`,

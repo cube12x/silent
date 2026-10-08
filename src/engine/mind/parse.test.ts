@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { parseEylemBlock, parseHatirla, parseSonuc, stripEylem } from "./parse"
+import { parseDusunce, parseEylemBlock, parseHatirla, parseSonuc, stripEylem } from "./parse"
+
+describe("parseDusunce", () => {
+  it("splits the leading DÜŞÜNCE block from the answer", () => {
+    const r = parseDusunce("DÜŞÜNCE:\n- önce README\n- sonra Eylem'e\n\nCevap burada.\n\nEYLEM:\n1. x")
+    expect(r.thought).toBe("- önce README\n- sonra Eylem'e")
+    expect(r.rest).toBe("Cevap burada.\n\nEYLEM:\n1. x")
+    expect(parseDusunce("**DÜŞÜNCE:**\n- a\n\nb").thought).toBe("- a")
+    expect(parseDusunce("düz cevap")).toEqual({ rest: "düz cevap" })
+    expect(parseDusunce("DÜŞÜNCE:\n- sadece düşünce")).toEqual({ thought: "- sadece düşünce", rest: "" })
+  })
+})
 
 describe("parseEylemBlock", () => {
   it("reads numbered steps and the return line", () => {

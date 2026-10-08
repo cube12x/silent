@@ -63,6 +63,23 @@ async def main() -> int:
             failures.append("depot entry not listed")
         if await pg.get_by_test_id("mind-node-memory").get_by_text("1 kayıt").count() == 0:
             failures.append("memory box does not show the depot count")
+        # Model card on the Bilinç box: capabilities + OFF switches; switch the browser off for that box.
+        await select_box(pg, "mind-node-model-bilinc")
+        await pg.get_by_test_id("mind-model-card").wait_for(timeout=5000)
+        if await pg.get_by_test_id("mind-off-network").count() == 0:
+            failures.append("model card has no OFF switch for network")
+        await pg.get_by_test_id("mind-off-network").click()
+        await pg.wait_for_timeout(200)
+        if await pg.get_by_test_id("mind-node-model-bilinc").get_by_text("1 kapalı").count() == 0:
+            failures.append("Bilinç box does not show the OFF count")
+        # Düşünme box via the context menu (before the turn, so Bilinç thinks aloud).
+        pane = pg.locator(".react-flow__pane").first
+        box = await pane.bounding_box()
+        await pg.mouse.click(box["x"] + box["width"] - 120, box["y"] + box["height"] - 80, button="right")
+        await pg.get_by_test_id("mind-menu").wait_for(timeout=3000)
+        await pg.get_by_test_id("mind-menu").get_by_role("button").filter(has_text="Düşünme").first.click()
+        await pg.wait_for_timeout(300)
+        await pg.get_by_test_id("mind-node-thinking").wait_for(timeout=3000)
         # Start compiles the canvas and adds the Canlı hafıza box.
         start = pg.get_by_test_id("mind-start")
         if not await start.is_enabled():
@@ -83,6 +100,12 @@ async def main() -> int:
         if await chat.get_by_text("Eylem'e devredildi", exact=False).count() == 0:
             failures.append("no handoff separator")
         await pg.get_by_test_id("mind-node-live").get_by_text("Atarus sinemasını", exact=False).wait_for(timeout=10000)
+        # Düşünme box shows the DÜŞÜNCE block; the chat bubble does not.
+        await pg.get_by_test_id("mind-node-dusunce").wait_for(timeout=5000)
+        if await chat.get_by_text("Eylem'e adres ve dönüş", exact=False).count() > 0:
+            failures.append("the DÜŞÜNCE block leaked into the chat")
+        if await pg.get_by_test_id("mind-node-model-bilinc").get_by_test_id("mind-node-last").count() == 0:
+            failures.append("Bilinç box shows no last line after the turn")
         await pg.get_by_test_id("mind-chat-input").fill("/durum")
         await pg.keyboard.press("Enter")
         await chat.get_by_text("Bilinç+Eylem", exact=False).wait_for(timeout=5000)

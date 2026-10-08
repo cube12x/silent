@@ -69,20 +69,29 @@ export function composeMind(model: Pick<MindModel, "graph">): MindComposition {
   const eylems = members.filter((n) => n.data.role === "eylem")
   if (bilincs.length > 1) for (const n of bilincs.slice(1)) warn(n.id, "twoBilinc")
   if (eylems.length > 1) for (const n of eylems.slice(1)) warn(n.id, "twoEylem")
-  const base = { gateway, tools, workspace, warnings, nodeWarnings }
+  // The acting box's OFF switches (model card) cut the Araçlar tools for this model.
+  const withOff = (box: (typeof all)[number] | undefined): MindTools => {
+    const off = box?.data.off ?? {}
+    return { browser: tools.browser && !off.browser, files: tools.files && !off.files, shell: tools.shell && !off.shell, network: tools.network && !off.network, image: tools.image && !off.image }
+  }
   if (!members.length) {
     warn(undefined, "noModel")
-    return { kind: "none", ...base }
+    return { kind: "none", gateway, tools, warnings, nodeWarnings, workspace }
   }
   const bilinc = bilincs[0]
   const eylem = eylems[0]
   if (bilinc && eylem) {
     if (!workspace) warn(undefined, "noWorkspace")
-    return { kind: "pair", bilinc: { modelRef: bilinc.data.modelRef, effort: bilinc.data.effort }, eylem: { modelRef: eylem.data.modelRef, effort: eylem.data.effort }, ...base }
+    return { kind: "pair", bilinc: { modelRef: bilinc.data.modelRef, effort: bilinc.data.effort }, eylem: { modelRef: eylem.data.modelRef, effort: eylem.data.effort }, gateway, tools: withOff(eylem), warnings, nodeWarnings, workspace }
   }
   // Single: the only member (or the first one) is used directly.
   const one = bilinc ?? eylem ?? members[0]!
-  return { kind: "single", single: { modelRef: one.data.modelRef, effort: one.data.effort, role: one.data.role as never, nodeId: one.id }, ...base }
+  return { kind: "single", single: { modelRef: one.data.modelRef, effort: one.data.effort, role: one.data.role as never, nodeId: one.id }, gateway, tools: withOff(one), warnings, nodeWarnings, workspace }
+}
+
+/** A Düşünme box on the canvas asks Bilinç to think aloud (DÜŞÜNCE block) and shows it live. */
+export function hasThinking(g: MindGraph): boolean {
+  return g.nodes.some((n) => n.type === "thinking")
 }
 
 /** Where a new box lands when added by the CLI / Start (to the right of the last box of that column). */
@@ -116,5 +125,7 @@ export function defaultNodeData(type: MindNodeType): MindNodeData {
       return { type: "tools", tools: { ...DEFAULT_MIND_TOOLS } }
     case "live":
       return { type: "live" }
+    case "thinking":
+      return { type: "thinking" }
   }
 }

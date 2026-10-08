@@ -176,6 +176,35 @@ describe("mind store (canvas)", () => {
     expect(backend.requests[0]!.prompt).toContain("[Terminal] $ ls\nls çıktısı: a.txt")
   })
 
+  it("live activity: stage and last lines while a turn runs, thoughts when a Düşünme box exists, idle after", async () => {
+    const m = await started()
+    backend.script.bilinc = "DÜŞÜNCE:\n- bakıyorum\n\n" + WITH_ACTION
+    const seen: Array<string | undefined> = []
+    const unsub = useMindStore.subscribe((s) => seen.push(s.activity[m.id]?.stage))
+    await useMindStore.getState().send(m.id, "bak")
+    unsub()
+    expect(seen).toContain("bilinc")
+    expect(seen).toContain("eylem")
+    expect(seen).toContain("memory")
+    const a = useMindStore.getState().activity[m.id]!
+    expect(a.stage).toBeUndefined()
+    expect(a.last.bilinc).toContain("Üç film")
+    expect(a.last.eylem).toContain("SONUÇ")
+    // No Düşünme box → Bilinç is not asked to think aloud; a DÜŞÜNCE block it wrote anyway is still lifted out of the chat.
+    expect(backend.requests[0]!.prompt).not.toContain("DÜŞÜNCE:")
+    expect(a.thoughts.some((x) => x.kind === "dusunce")).toBe(true)
+    expect(useChatsStore.getState().messages[m.chatId!]![1]!.content).not.toContain("bakıyorum")
+    useMindStore.getState().addNode(m.id, "thinking", 0, 0)
+    backend.requests = []
+    await useMindStore.getState().send(m.id, "tekrar bak")
+    expect(backend.requests[0]!.prompt).toContain("DÜŞÜNCE:")
+    const b = useMindStore.getState().activity[m.id]!
+    expect(b.thoughts.some((x) => x.kind === "dusunce" && x.text === "- bakıyorum")).toBe(true)
+    expect(useChatsStore.getState().messages[m.chatId!]!.at(-2)!.content).not.toContain("bakıyorum")
+    flushMindTerminal()
+    expect(useMindStore.getState().terminal[m.id]!.some((l) => l.text.startsWith("[bilinc] 💭"))).toBe(true)
+  })
+
   it("the terminal runs Eylem in the workspace with its own session", async () => {
     const m = await started()
     await useMindStore.getState().terminalRun(m.id, "ls")
