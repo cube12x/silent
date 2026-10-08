@@ -36,7 +36,7 @@ function join(parts: Array<string | false | undefined>): string {
 }
 
 /** Bilinç: read-only mind. Thinks, finds, answers; hands action to Eylem through an EYLEM block. */
-export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: string): string {
+export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: string, shared = ""): string {
   const plan = model.mode === "plan"
   return join([
     `You are BİLİNÇ, the mind of the modded model "${model.name}" (${model.bilinc.modelRef}). You run in a READ-ONLY session: you cannot create or edit files, run commands that change anything, open a browser, or use the network. You may read the workspace to understand it.`,
@@ -47,12 +47,13 @@ export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: s
     `Never ask the user to do the action themselves. Never claim an action was done.`,
     gatewaySection(model),
     memorySection(memory),
+    shared,
     `# USER\n${userText.trim()}`,
   ])
 }
 
 /** Eylem: the acting half. Executes exactly the EYLEM block in the workspace with the allowed tools. */
-export function eylemBrief(model: MindModel, memory: MemoryEntry[], userText: string, bilincAnswer: string, block: EylemBlock): string {
+export function eylemBrief(model: MindModel, memory: MemoryEntry[], userText: string, bilincAnswer: string, block: EylemBlock, shared = ""): string {
   return join([
     `You are EYLEM, the action half of the modded model "${model.name}" (${model.eylem.modelRef}). BİLİNÇ (${model.bilinc.modelRef}) thought first; you act. Execute EXACTLY the EYLEM block below — nothing more, nothing less.`,
     toolsLine(model),
@@ -60,6 +61,7 @@ export function eylemBrief(model: MindModel, memory: MemoryEntry[], userText: st
     `Do not ask questions: make the smallest reasonable assumption and write it down. Run things in the foreground; leave no servers or browsers running. Reply in the user's language under this header:\n\n# SONUÇ\n<what you did, what you found (the DÖNÜŞ items first), files touched, anything you could not do and why>`,
     gatewaySection(model),
     memorySection(memory),
+    shared,
     `# USER\n${userText.trim()}`,
     bilincAnswer.trim() ? `# BİLİNÇ SAID\n${bilincAnswer.trim()}` : undefined,
     `# ${block.raw}`,
@@ -79,7 +81,7 @@ export function memoryExtractPrompt(userText: string, bilincText: string, eylemT
 }
 
 /** Single model (a lone Model box, or testing one model from the chat): no EYLEM contract, the model answers and acts itself. */
-export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], userText: string): string {
+export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], userText: string, shared = ""): string {
   return join([
     `You are the model "${model.name}" (${ref}) in MindMirror, answering the user directly. Answer in the user's language, concretely and short.`,
     toolsLine(model),
@@ -87,12 +89,13 @@ export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], u
     `Do not ask questions: assume and document. Foreground only; leave no servers or browsers running.`,
     gatewaySection(model),
     memorySection(memory),
+    shared,
     `# USER\n${userText.trim()}`,
   ])
 }
 
 /** Terminal: Eylem takes the user's command directly (no Bilinç in between). */
-export function terminalBrief(model: MindModel, memory: MemoryEntry[], command: string): string {
+export function terminalBrief(model: MindModel, memory: MemoryEntry[], command: string, shared = ""): string {
   return join([
     `You are EYLEM, the action half of the modded model "${model.name}" (${model.eylem.modelRef}), in its TERMINAL. The user types requests and commands; do them directly with your tools and report briefly in the user's language. Prefer running the exact command when the message is a shell command.`,
     toolsLine(model),
@@ -100,6 +103,7 @@ export function terminalBrief(model: MindModel, memory: MemoryEntry[], command: 
     `Foreground only; leave no servers or browsers running. Do not ask questions: assume and document.`,
     gatewaySection(model),
     memorySection(memory),
+    shared,
     `# USER\n${command.trim()}`,
   ])
 }

@@ -50,6 +50,8 @@ export interface MindTurnOptions {
   extractMemory?: boolean
   bilincTimeoutSecs?: number
   eylemTimeoutSecs?: number
+  /** `# ORTAK BAĞLAM` block (see context.ts): the same transcript goes to both halves so their contexts match. */
+  shared?: string
 }
 
 const BILINC_TIMEOUT = 20 * 60
@@ -82,7 +84,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
       {
         runId: `mind:bilinc:${model.id}:${now()}`,
         modelRef: model.bilinc.modelRef,
-        prompt: bilincBrief(model, memory, userText),
+        prompt: bilincBrief(model, memory, userText, opts.shared),
         cwd: model.workspace,
         readOnly: true,
         resumeSessionId: model.sessions.bilinc,
@@ -109,7 +111,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
         {
           runId: `mind:eylem:${model.id}:${now()}`,
           modelRef: model.eylem.modelRef,
-          prompt: eylemBrief(model, memory, userText, bilinc.text, block),
+          prompt: eylemBrief(model, memory, userText, bilinc.text, block, opts.shared),
           cwd: model.workspace,
           readOnly: !model.tools.files,
           network: model.tools.network,

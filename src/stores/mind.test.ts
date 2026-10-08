@@ -152,6 +152,30 @@ describe("mind store (canvas)", () => {
     expect(await backend.db.mindModels.list()).toEqual([])
   })
 
+  it("both halves and the terminal share one transcript (ortak bağlam)", async () => {
+    const m = await started()
+    await useMindStore.getState().send(m.id, "Atarus sinemasına bak")
+    backend.requests = []
+    await useMindStore.getState().send(m.id, "Peki seanslar?")
+    const [bi, ey] = backend.requests
+    for (const r of [bi!, ey!]) {
+      expect(r.prompt).toContain("# ORTAK BAĞLAM")
+      expect(r.prompt).toContain("[Sen] Atarus sinemasına bak")
+      expect(r.prompt).toContain("[Bilinç] Üç film olabilir.")
+      expect(r.prompt).toContain("[Eylem] # SONUÇ\n3 film: A, B, C")
+      expect(r.prompt).not.toContain("[Sen] Peki seanslar?") // the current message is the # USER section, not history
+    }
+    backend.requests = []
+    await useMindStore.getState().terminalRun(m.id, "ls")
+    expect(backend.requests[0]!.prompt).toContain("[Sen] Peki seanslar?")
+    const note = useChatsStore.getState().messages[m.chatId!]!.at(-1)!
+    expect(note.role).toBe("system")
+    expect(note.content).toBe("[terminal] $ ls\nls çıktısı: a.txt")
+    backend.requests = []
+    await useMindStore.getState().send(m.id, "sonra?")
+    expect(backend.requests[0]!.prompt).toContain("[Terminal] $ ls\nls çıktısı: a.txt")
+  })
+
   it("the terminal runs Eylem in the workspace with its own session", async () => {
     const m = await started()
     await useMindStore.getState().terminalRun(m.id, "ls")

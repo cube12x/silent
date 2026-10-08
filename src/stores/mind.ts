@@ -10,6 +10,7 @@ import { interpretGateway } from "@/engine/gateway"
 import { parseMindCommand, MIND_COMMAND_HELP, type MindCommand } from "@/engine/mind/commands"
 import { runMindTurn, type MindStage } from "@/engine/mind/turn"
 import { tekBrief, terminalBrief } from "@/engine/mind/prompts"
+import { sharedContext, terminalNote } from "@/engine/mind/context"
 import { composeMind, defaultNodeData, nextPosition, seedGraph, validateMindEdge, type MindComposition } from "@/engine/mind/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { clampEffort } from "@/engine/effort"
@@ -253,6 +254,9 @@ export const useMindStore = create<MindState>((set, get) => ({
     }
     const chatId = model.chatId
     const backend = await getBackend()
+    // Ortak bağlam: what both halves (and the terminal) said so far, before this message — the same block for everyone.
+    await chats.loadMessages(chatId)
+    const shared = sharedContext(useChatsStore.getState().messages[chatId] ?? [])
     await chats.putMessage({ id: newId("msg"), chatId, role: "user", content, blocks: [], createdAt: Date.now() })
     const memory = get().memoryOf(id)
     const finish = () => {
@@ -272,7 +276,7 @@ export const useMindStore = create<MindState>((set, get) => ({
         {
           runId: `mind:tek:${id}:${Date.now()}`,
           modelRef: ref,
-          prompt: tekBrief(model, ref, memory, content),
+          prompt: tekBrief(model, ref, memory, content, shared),
           cwd: model.workspace,
           readOnly: !model.tools.files,
           network: model.tools.network,
@@ -300,7 +304,12 @@ export const useMindStore = create<MindState>((set, get) => ({
     }
 
     const live: Partial<Record<MindActor, Message>> = {}
-    const turn = runMindTurn(backend, model, content, memory, {
+    const turn = runMindTurn(
+      backend,
+      model,
+      content,
+      memory,
+      {
       onStart: (stage) => {
         set({ busy: { ...get().busy, [id]: stage } })
         if (stage === "memory") return
@@ -326,7 +335,9 @@ export const useMindStore = create<MindState>((set, get) => ({
         const mem = useMemoryStore.getState()
         for (const body of lines) void mem.add({ layer: "mind", scopeId: id, scopeLabel: model.name, tags: ["auto"], title: "", body, source: "auto", pinned: false })
       },
-    })
+      },
+      { shared },
+    )
     set({ running: { ...get().running, [id]: { cancel: turn.cancel } } })
     try {
       const r = await turn.done
@@ -363,12 +374,15 @@ export const useMindStore = create<MindState>((set, get) => ({
     set({ busy: { ...get().busy, [id]: "terminal" } })
     get().appendTerminal(id, { ts: Date.now(), stream: "system", text: `$ ${content}` })
     const ref = model.eylem.modelRef
+    const chats = useChatsStore.getState()
+    if (model.chatId) await chats.loadMessages(model.chatId)
+    const shared = model.chatId ? sharedContext(useChatsStore.getState().messages[model.chatId] ?? []) : ""
     const run = runSingle(
       backend,
       {
         runId: `mind:term:${id}:${Date.now()}`,
         modelRef: ref,
-        prompt: terminalBrief(model, get().memoryOf(id), content),
+        prompt: terminalBrief(model, get().memoryOf(id), content, shared),
         cwd: model.workspace,
         readOnly: !model.tools.files,
         network: model.tools.network,
@@ -383,6 +397,8 @@ export const useMindStore = create<MindState>((set, get) => ({
       const r = await run.done
       if (!r.ok) get().appendTerminal(id, { ts: Date.now(), stream: "stderr", text: r.error ?? "failed" })
       await get().update(id, (m) => ({ ...m, sessions: { ...m.sessions, terminal: r.sessionId ?? m.sessions.terminal }, tokens: (m.tokens ?? 0) + r.tokens }))
+      // The chat halves learn what the terminal did through a note in the shared transcript.
+      if (model.chatId && r.ok) await chats.putMessage(systemMessage(model.chatId, terminalNote(content, r.text)))
       if (model.workspace && model.tools.shell) await backend.projectSweep(model.workspace).catch(() => 0)
     } catch (e) {
       reportError(e, "Mind terminal")

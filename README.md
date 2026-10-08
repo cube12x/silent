@@ -177,6 +177,8 @@ Açılışta iki seçenek: **Maker** (Blueprint · Silent Code · ajanlar) ve **
 | **Start / Reset** | Start: tuvali derler (Bilinç+Eylem çifti ya da tek model), iki yarının kurulu olduğunu kontrol eder, sohbeti açar. Reset: sohbet + canlı hafıza silinir; tuval ve depo kalır. |
 | **Chat / Terminal** | Chat: Bilinç → (gerekirse) Eylem, her balon aktör çipi ve sağlayıcı rengiyle (Claude amber, GPT yeşil, Gemini mavi, Grok beyaz, Kimi mor, Antigravity turkuaz). Terminal: Eylem'e doğrudan komut, satırlar `[bilinc]/[eylem]/[memory]` renkli önekle. Komutlar: `/model bilinc\|eylem <cli:model>` (kutuyu değiştirir) · `/plan` · `/act` · `/effort [bilinc\|eylem] low\|medium\|high\|xhigh` · `/hatirla <metin>` · `/unut <id>` · `/durum` · `/reset` · `/yardim`. |
 
+**Ortak bağlam:** iki yarı ayrı CLI oturumlarında koşar ama her turda aynı `# ORTAK BAĞLAM` bloğunu alır (son konuşmalar: Sen / Bilinç / Eylem / Terminal, kırpılmış); terminal komutları sohbete `[terminal]` notu düşer. Böylece Bilinç Eylem'in ne yaptığını, Eylem önceki konuşmayı bilir; model değişince de geçmiş kaybolmaz.
+
 Yeni model hazır tuvalle gelir: Hafıza → Gateway → Bilinç / Eylem, Araçlar → Eylem. Kalıcılık: tuval + derlenmiş alanlar `mind_models` (migration 0009), sohbet `chats`/`messages` (kind `mind`), hafıza `memory_entries` (layer `mind`). Terminalden: `silent mind new "<ad>" <bilinç cli:model> <eylem cli:model>` (çalışma klasörü = bulunduğun klasör), `silent mind "<model>" "<mesaj>"`, `silent mind start|reset "<model>"`, `silent mind term "<model>" "<komut>"`.
 
 ## Güvenlik
