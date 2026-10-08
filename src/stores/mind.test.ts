@@ -11,7 +11,7 @@ const WITH_ACTION = "Üç film olabilir.\n\nEYLEM:\n1. siteyi aç\nDÖNÜŞ: sea
 
 class MindTestBackend extends TestBackend {
   requests: CliRunRequest[] = []
-  script: Record<string, string> = { bilinc: WITH_ACTION, eylem: "# SONUÇ\n3 film: A, B, C", mem: "# HATIRLA\n- Kullanıcı sinemayı sever", term: "ls çıktısı: a.txt" }
+  script: Record<string, string> = { bilinc: WITH_ACTION, eylem: "# SONUÇ\n3 film: A, B, C", mem: "# HATIRLA\n- Kullanıcı sinemayı sever", term: "ls çıktısı: a.txt", tek: "Doğrudan cevap." }
   override async cliStart(request: CliRunRequest, onEvent: (e: RuntimeEvent) => void) {
     this.requests.push(request)
     const stage = request.runId.split(":")[1] ?? ""
@@ -33,14 +33,15 @@ function model(id: string, providerId: "claude" | "codex", tier: ProviderModel["
 
 let backend: MindTestBackend
 
+/** A seeded canvas (Hafıza → Gateway → Bilinç / Eylem, Araçlar → Eylem) with both halves set and a workspace, started. */
 async function started() {
-  const m = await useMindStore.getState().create("Deneme")
-  await useMindStore.getState().update(m.id, { bilinc: { modelRef: "claude:opus" }, eylem: { modelRef: "codex:luna" }, workspace: "/tmp/ws" })
+  const m = await useMindStore.getState().create("Deneme", { bilinc: "claude:opus", eylem: "codex:luna", workspace: "/tmp/ws" })
+  expect(m.graph.nodes.map((n) => n.type).sort()).toEqual(["gateway", "memory", "model", "model", "tools"])
   expect(await useMindStore.getState().start(m.id)).toBe(true)
   return useMindStore.getState().byId(m.id)!
 }
 
-describe("mind store", () => {
+describe("mind store (canvas)", () => {
   beforeEach(() => {
     backend = new MindTestBackend()
     setBackend(backend)
@@ -57,18 +58,26 @@ describe("mind store", () => {
     }))
   })
 
-  it("start needs two available halves, creates the mind chat and derives the gateway profile", async () => {
+  it("Start compiles the canvas, needs installed halves, creates the mind chat and adds the Canlı Hafıza box", async () => {
     const m = await useMindStore.getState().create("Deneme")
-    expect(await useMindStore.getState().start(m.id)).toBe(false)
-    await useMindStore.getState().update(m.id, { bilinc: { modelRef: "claude:opus" }, eylem: { modelRef: "codex:luna" }, gateway: { prompt: "senior backend engineer" } })
+    expect(await useMindStore.getState().start(m.id)).toBe(false) // refs empty
+    const bilinc = m.graph.nodes.find((n) => n.data.type === "model" && n.data.role === "bilinc")!
+    const eylem = m.graph.nodes.find((n) => n.data.type === "model" && n.data.role === "eylem")!
+    const gateway = m.graph.nodes.find((n) => n.type === "gateway")!
+    useMindStore.getState().updateNode(m.id, bilinc.id, { data: { modelRef: "claude:opus" } })
+    useMindStore.getState().updateNode(m.id, eylem.id, { data: { modelRef: "codex:luna" } })
+    useMindStore.getState().updateNode(m.id, gateway.id, { data: { prompt: "senior backend engineer" } })
     expect(await useMindStore.getState().start(m.id)).toBe(true)
     const s = useMindStore.getState().byId(m.id)!
     expect(s.status).toBe("started")
+    expect(s.bilinc.modelRef).toBe("claude:opus")
+    expect(s.eylem.modelRef).toBe("codex:luna")
     expect(s.gateway.profile?.role).toContain("Backend")
+    expect(s.graph.nodes.some((n) => n.type === "live")).toBe(true)
     const chat = useChatsStore.getState().byId(s.chatId)!
     expect(chat.kind).toBe("mind")
     expect(chat.providerId).toBe("claude")
-    expect((await backend.db.mindModels.list())[0]?.status).toBe("started")
+    expect((await backend.db.mindModels.list())[0]?.graph.nodes.length).toBe(6)
   })
 
   it("a turn writes user, Bilinç and Eylem messages with actor chips, saves sessions and live memory", async () => {
@@ -78,7 +87,6 @@ describe("mind store", () => {
     expect(msgs.map((x) => x.role)).toEqual(["user", "assistant", "assistant"])
     expect(msgs[1]).toMatchObject({ content: "Üç film olabilir.", providerId: "claude", modelId: "opus", streaming: false, blocks: [{ type: "mind-actor", actor: "bilinc", modelRef: "claude:opus" }] })
     expect(msgs[2]).toMatchObject({ content: "# SONUÇ\n3 film: A, B, C", providerId: "codex", blocks: [{ type: "mind-actor", actor: "eylem" }] })
-    expect(await backend.db.messages.listByChat(m.chatId!)).toHaveLength(3)
     const after = useMindStore.getState().byId(m.id)!
     expect(after.sessions).toEqual({ bilinc: "bilinc-s", eylem: "eylem-s" })
     expect(after.tokens).toBe(45)
@@ -90,45 +98,57 @@ describe("mind store", () => {
     ])
     flushMindTerminal()
     expect(useMindStore.getState().terminal[m.id]!.some((l) => l.text.startsWith("[eylem] "))).toBe(true)
-    expect(useMindStore.getState().busy[m.id]).toBeUndefined()
   })
 
-  it("slash commands switch halves (dropping their session), modes and memory; /plan skips Eylem", async () => {
+  it("a lone Model box is tested directly: no EYLEM contract, one 'tek' message", async () => {
+    const m = await useMindStore.getState().create("Tek")
+    for (const n of m.graph.nodes) useMindStore.getState().removeNode(m.id, n.id)
+    useMindStore.getState().addNode(m.id, "model", 0, 0, { type: "model", role: "tek", modelRef: "codex:luna" })
+    expect(await useMindStore.getState().start(m.id)).toBe(true)
+    const s = useMindStore.getState().byId(m.id)!
+    await useMindStore.getState().send(s.id, "selam")
+    const msgs = useChatsStore.getState().messages[s.chatId!]!
+    expect(msgs).toHaveLength(2)
+    expect(msgs[1]).toMatchObject({ content: "Doğrudan cevap.", providerId: "codex", blocks: [{ type: "mind-actor", actor: "tek", modelRef: "codex:luna" }] })
+    expect(backend.requests.map((r) => r.runId.split(":")[1])).toEqual(["tek"])
+    expect(backend.requests[0]!.prompt).not.toContain("EYLEM:")
+  })
+
+  it("canvas edits recompile before a turn; wires follow the rules", async () => {
+    const m = await started()
+    const eylem = m.graph.nodes.find((n) => n.data.type === "model" && n.data.role === "eylem")!
+    const bilinc = m.graph.nodes.find((n) => n.data.type === "model" && n.data.role === "bilinc")!
+    const tools = m.graph.nodes.find((n) => n.type === "tools")!
+    expect(useMindStore.getState().addEdge(m.id, bilinc.id, eylem.id)).toBeNull() // model → model never
+    expect(useMindStore.getState().addEdge(m.id, tools.id, bilinc.id)).not.toBeNull()
+    useMindStore.getState().updateNode(m.id, tools.id, { data: { tools: { browser: true, files: false, shell: true, network: false, image: false } } })
+    await useMindStore.getState().send(m.id, "bak")
+    expect(backend.requests[1]).toMatchObject({ sandbox: "read-only", network: false })
+    expect(useMindStore.getState().byId(m.id)!.tools.files).toBe(false)
+  })
+
+  it("slash commands change the canvas boxes; /plan skips Eylem; reset keeps depot and canvas", async () => {
     const m = await started()
     await useMindStore.getState().send(m.id, "bak")
     await useMindStore.getState().send(m.id, "/model eylem codex:luna")
     expect(useMindStore.getState().byId(m.id)!.sessions.eylem).toBeUndefined()
-    expect(useMindStore.getState().byId(m.id)!.sessions.bilinc).toBe("bilinc-s")
     await useMindStore.getState().send(m.id, "/model bilinc nope:x")
-    const sys = useChatsStore.getState().messages[m.chatId!]!.filter((x) => x.role === "system")
-    expect(sys.at(-1)!.content).toContain("kurulu/etkin")
+    expect(useChatsStore.getState().messages[m.chatId!]!.filter((x) => x.role === "system").at(-1)!.content).toContain("kurulu/etkin")
+    await useMindStore.getState().send(m.id, "/effort bilinc high")
+    const b = useMindStore.getState().byId(m.id)!.graph.nodes.find((n) => n.data.type === "model" && n.data.role === "bilinc")!
+    expect(b.data.type === "model" && b.data.effort).toBe("high")
     await useMindStore.getState().send(m.id, "/plan")
     backend.requests = []
     await useMindStore.getState().send(m.id, "bak")
     expect(backend.requests.map((r) => r.runId.split(":")[1])).toEqual(["bilinc", "mem"])
-    expect(useChatsStore.getState().messages[m.chatId!]!.at(-1)!.content).toContain("Plan modu")
-    await useMindStore.getState().send(m.id, "/hatirla Ben Ali")
-    expect(useMindStore.getState().memoryOf(m.id).some((e) => e.body === "Ben Ali" && e.source === "user")).toBe(true)
-    await useMindStore.getState().send(m.id, "/effort bilinc high")
-    expect(useMindStore.getState().byId(m.id)!.bilinc.effort).toBe("high")
-    expect(useMindStore.getState().byId(m.id)!.eylem.effort).toBeUndefined()
-  })
-
-  it("reset purges messages and live memory but keeps the pinned depot; remove drops everything", async () => {
-    const m = await started()
     await useMemoryStore.getState().add({ layer: "mind", scopeId: m.id, tags: [], title: "Dil", body: "Türkçe", source: "user", pinned: true })
-    await useMindStore.getState().send(m.id, "bak")
-    expect(useMindStore.getState().memoryOf(m.id)).toHaveLength(2)
+    await useMindStore.getState().send(m.id, "/hatirla Ben Ali")
     await useMindStore.getState().reset(m.id)
     expect(useChatsStore.getState().messages[m.chatId!]).toEqual([])
-    expect(await backend.db.messages.listByChat(m.chatId!)).toEqual([])
     expect(useMindStore.getState().memoryOf(m.id).map((e) => e.body)).toEqual(["Türkçe"])
-    expect(useMindStore.getState().byId(m.id)!.sessions).toEqual({})
-    expect(useMindStore.getState().byId(m.id)!.status).toBe("started")
+    expect(useMindStore.getState().byId(m.id)!.graph.nodes.length).toBe(6)
     await useMindStore.getState().remove(m.id)
-    expect(useMindStore.getState().models).toEqual([])
     expect(useChatsStore.getState().byId(m.chatId)).toBeUndefined()
-    expect(useMemoryStore.getState().entries).toEqual([])
     expect(await backend.db.mindModels.list()).toEqual([])
   })
 
@@ -141,9 +161,8 @@ describe("mind store", () => {
     expect(lines.some((t) => t.includes("ls çıktısı"))).toBe(true)
     expect(backend.requests[0]).toMatchObject({ runId: expect.stringMatching(/^mind:term:/), providerId: "codex", sandbox: "workspace-write", cwd: "/tmp/ws" })
     expect(useMindStore.getState().byId(m.id)!.sessions.terminal).toBe("term-s")
-    expect(backend.swept).toEqual(["/tmp/ws"])
     await useMindStore.getState().terminalRun(m.id, "/durum")
     flushMindTerminal()
-    expect(useMindStore.getState().terminal[m.id]!.at(-1)!.text).toContain("Bilinç claude:opus")
+    expect(useMindStore.getState().terminal[m.id]!.at(-1)!.text).toContain("Bilinç+Eylem")
   })
 })

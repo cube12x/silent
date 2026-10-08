@@ -78,6 +78,19 @@ export function memoryExtractPrompt(userText: string, bilincText: string, eylemT
   ])
 }
 
+/** Single model (a lone Model box, or testing one model from the chat): no EYLEM contract, the model answers and acts itself. */
+export function tekBrief(model: MindModel, ref: string, memory: MemoryEntry[], userText: string): string {
+  return join([
+    `You are the model "${model.name}" (${ref}) in MindMirror, answering the user directly. Answer in the user's language, concretely and short.`,
+    toolsLine(model),
+    model.workspace ? `Workspace: ${model.workspace}.` : undefined,
+    `Do not ask questions: assume and document. Foreground only; leave no servers or browsers running.`,
+    gatewaySection(model),
+    memorySection(memory),
+    `# USER\n${userText.trim()}`,
+  ])
+}
+
 /** Terminal: Eylem takes the user's command directly (no Bilinç in between). */
 export function terminalBrief(model: MindModel, memory: MemoryEntry[], command: string): string {
   return join([

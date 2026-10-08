@@ -29,6 +29,11 @@ export function modelRefColor(modelRef: string | undefined): string {
   return providerColor(modelRef?.split(":")[0])
 }
 
+/** Role tint on the canvas: Bilinç amber-ish (mind), Eylem green-ish (action), tek = the Mind orange. */
+export function roleColor(role: "bilinc" | "eylem" | "tek"): string {
+  return role === "bilinc" ? "#f0a35c" : role === "eylem" ? "#19c37d" : "#ff7a1a"
+}
+
 /** Short tag for a ref (`codex:gpt-5.6-luna` → `gpt-5.6-luna`, `claude:opus` → `opus`). */
 export function modelRefShort(modelRef: string | undefined): string {
   if (!modelRef) return "?"

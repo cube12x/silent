@@ -1,17 +1,21 @@
 /**
- * MindMirror: a "modded model" = Bilinç (an expensive, read-only mind that thinks, finds and writes an EYLEM block when
- * action is needed) + Eylem (a cheaper model that executes that block: browser, research, code, files).
+ * MindMirror: a Blueprint-like canvas where boxes compose a "modded model" — Model boxes (one Bilinç, one Eylem, or a
+ * single model to test directly), a Gateway (the main mind's prompt), the Hafıza deposu (pinned memory), Araçlar (what
+ * Eylem may touch + workspace) and, after Start, a Canlı Hafıza box. Start compiles the graph into the fields the engine
+ * runs with (`bilinc`, `eylem`, `gateway`, `tools`, `workspace`); the chat and terminal test the compiled model without
+ * launching an orchestration run.
  * One row per model in `mind_models` (migration 0009); the chat lives in `chats`/`messages`, the memory in `memory_entries`.
  */
 import type { GatewayProfile } from "./agents"
 import type { Effort } from "./runs"
 
-export type MindActor = "bilinc" | "eylem"
+/** bilinc = read-only mind, eylem = acting half, tek = a single model used directly (testing a model from the chat). */
+export type MindActor = "bilinc" | "eylem" | "tek"
 /** act = Bilinç may hand an EYLEM block to Eylem; plan = Eylem is skipped, Bilinç only plans. */
 export type MindMode = "act" | "plan"
 export type MindStatus = "draft" | "started"
 
-/** What Eylem is allowed to touch (Araçlar button). `files=false` runs Eylem read-only. */
+/** What Eylem is allowed to touch (Araçlar box). `files=false` runs Eylem read-only. */
 export interface MindTools {
   browser: boolean
   files: boolean
@@ -34,14 +38,54 @@ export interface MindSessions {
   terminal?: string
 }
 
+// ---- Canvas -------------------------------------------------------------------------------------------------------
+
+export type MindNodeType = "model" | "gateway" | "memory" | "tools" | "live"
+export type MindNodeData =
+  | { type: "model"; role: MindActor; modelRef: string; effort?: Effort; title?: string }
+  | { type: "gateway"; prompt: string }
+  | { type: "memory" }
+  | { type: "tools"; tools: MindTools; workspace?: string }
+  | { type: "live" }
+export interface MindNode {
+  id: string
+  type: MindNodeType
+  x: number
+  y: number
+  data: MindNodeData
+}
+export interface MindEdge {
+  id: string
+  from: string
+  to: string
+}
+export interface MindGraph {
+  nodes: MindNode[]
+  edges: MindEdge[]
+  viewport?: { x: number; y: number; zoom: number }
+}
+/** Which boxes may wire into which: Gateway → Model (the model joins the mind), Hafıza → Gateway, Araçlar → Model. Two Model boxes never wire to each other. */
+export const MIND_EDGE_RULES: Record<MindNodeType, MindNodeType[]> = {
+  gateway: ["model"],
+  memory: ["gateway", "model"],
+  tools: ["model"],
+  model: [],
+  live: [],
+}
+export function canConnectMind(from: MindNodeType, to: MindNodeType): boolean {
+  return MIND_EDGE_RULES[from]?.includes(to) ?? false
+}
+export const MIND_NODE_TYPES: MindNodeType[] = ["model", "gateway", "memory", "tools"]
+
 export interface MindModel {
   id: string
   name: string
   status: MindStatus
+  graph: MindGraph
+  /** Compiled from the graph on Start / before every turn (see composeMind). */
   bilinc: MindRole
   eylem: MindRole
   tools: MindTools
-  /** Gateway = the main mind: a prompt that is prepended to every brief; `profile` is derived from it on Start. */
   gateway: { prompt: string; profile?: GatewayProfile }
   /** Folder Eylem and the terminal work in. */
   workspace?: string
@@ -61,6 +105,7 @@ export function newMindModel(input: { id: string; name: string; now: number; bil
     id: input.id,
     name: input.name,
     status: "draft",
+    graph: { nodes: [], edges: [] },
     bilinc: { modelRef: input.bilincRef ?? "" },
     eylem: { modelRef: input.eylemRef ?? "" },
     tools: { ...DEFAULT_MIND_TOOLS },

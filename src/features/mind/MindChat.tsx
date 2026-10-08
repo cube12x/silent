@@ -13,7 +13,7 @@ import { ActorChip } from "./ActorChip"
 
 const EMPTY: Message[] = []
 
-function actorOf(m: Message): { actor: "bilinc" | "eylem" | "memory"; modelRef: string } | undefined {
+function actorOf(m: Message): { actor: "bilinc" | "eylem" | "tek" | "memory"; modelRef: string } | undefined {
   const b = m.blocks.find((x) => x.type === "mind-actor")
   return b && b.type === "mind-actor" ? { actor: b.actor, modelRef: b.modelRef } : undefined
 }

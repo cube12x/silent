@@ -28,7 +28,7 @@ export interface ContextBlock {
 /** MindMirror: which half of the modded model wrote this message (rendered as a coloured actor chip). */
 export interface MindActorBlock {
   type: "mind-actor"
-  actor: "bilinc" | "eylem" | "memory"
+  actor: "bilinc" | "eylem" | "tek" | "memory"
   modelRef: string
   phase?: "act" | "plan"
 }

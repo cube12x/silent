@@ -1,14 +1,16 @@
 /**
- * MindMirror store: the modded models, their chat turns (Bilinç → Eylem → memory), the Eylem terminal and the
- * slash commands. Messages live in the chats store (kind "mind"), memory in the memory store (layer "mind").
+ * MindMirror store: the canvases (boxes + wires), their compiled model, chat turns (Bilinç → Eylem → memory, or a single
+ * model directly), the Eylem terminal and the slash commands. Messages live in the chats store (kind "mind"), memory in
+ * the memory store (layer "mind").
  */
 import { create } from "zustand"
-import type { MemoryEntry, Message, MindActor, MindModel, ProviderId, TerminalLine } from "@/domain"
+import type { MemoryEntry, Message, MindActor, MindModel, MindNode, MindNodeData, MindNodeType, ProviderId, TerminalLine } from "@/domain"
 import { newMindModel, parseModelRef } from "@/domain"
 import { interpretGateway } from "@/engine/gateway"
 import { parseMindCommand, MIND_COMMAND_HELP, type MindCommand } from "@/engine/mind/commands"
 import { runMindTurn, type MindStage } from "@/engine/mind/turn"
-import { terminalBrief } from "@/engine/mind/prompts"
+import { tekBrief, terminalBrief } from "@/engine/mind/prompts"
+import { composeMind, defaultNodeData, nextPosition, seedGraph, validateMindEdge, type MindComposition } from "@/engine/mind/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { clampEffort } from "@/engine/effort"
 import { getBackend } from "@/services"
@@ -19,12 +21,13 @@ import { useProvidersStore } from "./providers"
 import { useNotifyStore, reportError } from "./notify"
 import { newId } from "@/lib/ids"
 
-export type MindBusy = MindStage | "terminal"
+export type MindBusy = MindStage | "tek" | "terminal"
 export type MindAutorun = NonNullable<AutostartRequest["mind"]>
 
 const TERMINAL_CAP = 1500
 const TERMINAL_FLUSH_MS = 100
 const TERMINAL_TIMEOUT = 40 * 60
+const TEK_TIMEOUT = 40 * 60
 
 interface MindState {
   models: MindModel[]
@@ -37,17 +40,26 @@ interface MindState {
   terminal: Record<string, TerminalLine[]>
   terminalVersion: Record<string, number>
   load(): Promise<void>
-  create(name?: string): Promise<MindModel>
+  /** A new canvas comes seeded: Hafıza → Gateway → Bilinç / Eylem, Araçlar → Eylem. */
+  create(name?: string, refs?: { bilinc?: string; eylem?: string; workspace?: string }): Promise<MindModel>
   update(id: string, patch: Partial<MindModel> | ((m: MindModel) => MindModel)): Promise<void>
   remove(id: string): Promise<void>
   setActive(id: string | undefined): void
   byId(id: string | undefined): MindModel | undefined
   setAutorun(req: MindAutorun | undefined): void
-  /** Start: both halves must be available; creates the chat, derives the gateway profile, marks the model started. */
+  // Canvas
+  addNode(id: string, type: MindNodeType, x: number, y: number, data?: Partial<MindNodeData>): MindNode | undefined
+  updateNode(id: string, nodeId: string, patch: Partial<Omit<MindNode, "data">> & { data?: Partial<MindNodeData> }): void
+  removeNode(id: string, nodeId: string): void
+  addEdge(id: string, from: string, to: string): string | null
+  removeEdge(id: string, edgeId: string): void
+  /** Compile the canvas into the fields the engine runs with (also done before every turn). */
+  compile(id: string): MindComposition | undefined
+  /** Start: the canvas must compile to a model whose halves are installed; creates the chat, adds the Canlı Hafıza box. */
   start(id: string): Promise<boolean>
-  /** Reset: chat messages and live memory go, the pinned depot and the model itself stay. */
+  /** Reset: chat messages and live memory go, the pinned depot and the canvas stay. */
   reset(id: string): Promise<void>
-  /** Chat input: a slash command or one Bilinç → Eylem turn. */
+  /** Chat input: a slash command, one Bilinç → Eylem turn, or a direct answer from a single Model box. */
   send(id: string, text: string): Promise<void>
   /** Terminal input: a slash command or an Eylem session in the workspace. */
   terminalRun(id: string, text: string): Promise<void>
@@ -76,14 +88,21 @@ function isAvailable(ref: string): boolean {
     .some((m) => refOf(m.providerId, m.id) === ref)
 }
 
-function actorMessage(model: MindModel, chatId: string, actor: MindActor, createdAt: number): Message {
-  const ref = actor === "bilinc" ? model.bilinc.modelRef : model.eylem.modelRef
+function actorMessage(chatId: string, actor: MindActor, ref: string, phase: MindModel["mode"], createdAt: number): Message {
   const { providerId, modelId } = parseModelRef(ref)
-  return { id: newId("msg"), chatId, role: "assistant", content: "", blocks: [{ type: "mind-actor", actor, modelRef: ref, phase: model.mode }], providerId: providerId as ProviderId, modelId, streaming: true, createdAt }
+  return { id: newId("msg"), chatId, role: "assistant", content: "", blocks: [{ type: "mind-actor", actor, modelRef: ref, phase }], providerId: providerId as ProviderId, modelId, streaming: true, createdAt }
 }
 
 function systemMessage(chatId: string, content: string): Message {
   return { id: newId("msg"), chatId, role: "system", content, blocks: [], createdAt: Date.now() }
+}
+
+/** Apply a composition to the model's compiled fields (pure). */
+function applyComposition(m: MindModel, c: MindComposition): MindModel {
+  const bilinc = c.kind === "pair" ? c.bilinc! : c.kind === "single" ? { modelRef: c.single!.modelRef, effort: c.single!.effort } : { modelRef: "" }
+  const eylem = c.kind === "pair" ? c.eylem! : c.kind === "single" ? { modelRef: c.single!.modelRef, effort: c.single!.effort } : { modelRef: "" }
+  const prompt = c.gateway
+  return { ...m, bilinc, eylem, tools: c.tools, workspace: c.workspace, gateway: { prompt, profile: prompt.trim() ? interpretGateway(prompt) : undefined } }
 }
 
 export const useMindStore = create<MindState>((set, get) => ({
@@ -94,13 +113,13 @@ export const useMindStore = create<MindState>((set, get) => ({
   terminalVersion: {},
   async load() {
     const backend = await getBackend()
-    const models = (await backend.db.mindModels.list()).sort((a, b) => b.updatedAt - a.updatedAt)
+    const models = (await backend.db.mindModels.list()).map((m) => ({ ...m, graph: m.graph ?? { nodes: [], edges: [] } })).sort((a, b) => b.updatedAt - a.updatedAt)
     set({ models })
   },
-  async create(name) {
+  async create(name, refs) {
     const now = Date.now()
     const n = get().models.length + 1
-    const model = newMindModel({ id: newId("mind"), name: name?.trim() || `Mind ${n}`, now })
+    const model = { ...newMindModel({ id: newId("mind"), name: name?.trim() || `Mind ${n}`, now }), graph: seedGraph(() => newId("mn"), refs) }
     set({ models: [model, ...get().models], activeId: model.id })
     const backend = await getBackend()
     await backend.db.mindModels.upsert(model)
@@ -136,10 +155,51 @@ export const useMindStore = create<MindState>((set, get) => ({
   setAutorun(req) {
     set({ autorun: req })
   },
-  async start(id) {
+  addNode(id, type, x, y, data) {
     const model = get().byId(id)
-    if (!model) return false
-    for (const [label, ref] of [["Bilinç", model.bilinc.modelRef], ["Eylem", model.eylem.modelRef]] as const) {
+    if (!model) return undefined
+    const node: MindNode = { id: newId("mn"), type, x, y, data: { ...defaultNodeData(type), ...(data as object) } as MindNodeData }
+    void get().update(id, (m) => ({ ...m, graph: { ...m.graph, nodes: [...m.graph.nodes, node] } }))
+    return node
+  },
+  updateNode(id, nodeId, patch) {
+    void get().update(id, (m) => ({ ...m, graph: { ...m.graph, nodes: m.graph.nodes.map((n) => (n.id === nodeId ? { ...n, ...patch, data: { ...n.data, ...(patch.data ?? {}) } as MindNodeData } : n)) } }))
+  },
+  removeNode(id, nodeId) {
+    void get().update(id, (m) => ({ ...m, graph: { ...m.graph, nodes: m.graph.nodes.filter((n) => n.id !== nodeId), edges: m.graph.edges.filter((e) => e.from !== nodeId && e.to !== nodeId) } }))
+  },
+  addEdge(id, from, to) {
+    const model = get().byId(id)
+    if (!model) return null
+    if (validateMindEdge(model.graph, from, to)) return null
+    const edge = { id: newId("me"), from, to }
+    void get().update(id, (m) => ({ ...m, graph: { ...m.graph, edges: [...m.graph.edges, edge] } }))
+    return edge.id
+  },
+  removeEdge(id, edgeId) {
+    void get().update(id, (m) => ({ ...m, graph: { ...m.graph, edges: m.graph.edges.filter((e) => e.id !== edgeId) } }))
+  },
+  compile(id) {
+    const model = get().byId(id)
+    if (!model) return undefined
+    const c = composeMind(model)
+    const next = applyComposition(model, c)
+    // Only touch the store when something changed (the compile runs before every turn).
+    if (JSON.stringify([next.bilinc, next.eylem, next.tools, next.workspace, next.gateway.prompt]) !== JSON.stringify([model.bilinc, model.eylem, model.tools, model.workspace, model.gateway.prompt])) {
+      void get().update(id, next)
+    }
+    return c
+  },
+  async start(id) {
+    const c = get().compile(id)
+    const model = get().byId(id)
+    if (!model || !c) return false
+    if (c.kind === "none") {
+      useNotifyStore.getState().push("error", "Tuvalde Model kutusu yok: sağ tık → Model")
+      return false
+    }
+    const halves: Array<[string, string]> = c.kind === "pair" ? [["Bilinç", c.bilinc!.modelRef], ["Eylem", c.eylem!.modelRef]] : [["Model", c.single!.modelRef]]
+    for (const [label, ref] of halves) {
       if (!isAvailable(ref)) {
         useNotifyStore.getState().push("error", `${label}: ${ref || "—"} kurulu/etkin bir CLI modeli değil`)
         return false
@@ -147,12 +207,14 @@ export const useMindStore = create<MindState>((set, get) => ({
     }
     let chatId = model.chatId
     if (!chatId || !useChatsStore.getState().byId(chatId)) {
-      const { providerId, modelId } = parseModelRef(model.bilinc.modelRef)
-      const chat = await useChatsStore.getState().create({ kind: "mind", providerId: providerId as ProviderId, modelId, title: model.name, repoPath: model.workspace, gatewayPrompt: model.gateway.prompt || undefined })
+      const { providerId, modelId } = parseModelRef(halves[0]![1])
+      const chat = await useChatsStore.getState().create({ kind: "mind", providerId: providerId as ProviderId, modelId, title: model.name, repoPath: c.workspace, gatewayPrompt: c.gateway || undefined })
       chatId = chat.id
     } else await useChatsStore.getState().loadMessages(chatId)
-    const prompt = model.gateway.prompt.trim()
-    await get().update(id, { status: "started", startedAt: Date.now(), chatId, gateway: { prompt: model.gateway.prompt, profile: prompt ? interpretGateway(prompt) : undefined } })
+    // Start adds the Canlı Hafıza box so the user sees what the mind writes down.
+    const live = model.graph.nodes.find((n) => n.type === "live")
+    const graph = live ? model.graph : { ...model.graph, nodes: [...model.graph.nodes, { id: newId("mn"), type: "live" as const, x: 900, y: 150, data: { type: "live" as const } }] }
+    await get().update(id, (m) => ({ ...m, status: "started", startedAt: Date.now(), chatId, graph }))
     return true
   },
   async reset(id) {
@@ -166,9 +228,8 @@ export const useMindStore = create<MindState>((set, get) => ({
     await get().update(id, { sessions: {}, startedAt: model.status === "started" ? Date.now() : model.startedAt })
   },
   async send(id, text) {
-    const model = get().byId(id)
     const content = text.trim()
-    if (!model || !content) return
+    if (!get().byId(id) || !content) return
     const chats = useChatsStore.getState()
     const cmd = parseMindCommand(content)
     if (cmd) {
@@ -177,8 +238,10 @@ export const useMindStore = create<MindState>((set, get) => ({
       if (chatId) await chats.putMessage(systemMessage(chatId, reply))
       return
     }
-    if (model.status !== "started" || !model.chatId) {
-      useNotifyStore.getState().push("info", "Önce Start'a bas: model henüz kurulmadı")
+    const c = get().compile(id)
+    const model = get().byId(id)!
+    if (model.status !== "started" || !model.chatId || !c || c.kind === "none") {
+      useNotifyStore.getState().push("info", "Önce Start'a bas: tuvaldeki model henüz kurulmadı")
       return
     }
     if (get().busy[id]) {
@@ -189,12 +252,56 @@ export const useMindStore = create<MindState>((set, get) => ({
     const backend = await getBackend()
     await chats.putMessage({ id: newId("msg"), chatId, role: "user", content, blocks: [], createdAt: Date.now() })
     const memory = get().memoryOf(id)
+    const finish = () => {
+      const running = { ...get().running }
+      delete running[id]
+      set({ running, busy: { ...get().busy, [id]: undefined } })
+    }
+
+    // A lone Model box: the model answers directly (how a model is tested without a run).
+    if (c.kind === "single") {
+      const ref = c.single!.modelRef
+      const live = actorMessage(chatId, "tek", ref, model.mode, Date.now())
+      void chats.putMessage(live, false)
+      set({ busy: { ...get().busy, [id]: "tek" } })
+      const run = runSingle(
+        backend,
+        {
+          runId: `mind:tek:${id}:${Date.now()}`,
+          modelRef: ref,
+          prompt: tekBrief(model, ref, memory, content),
+          cwd: model.workspace,
+          readOnly: !model.tools.files,
+          network: model.tools.network,
+          resumeSessionId: model.sessions.bilinc,
+          timeoutSecs: TEK_TIMEOUT,
+          effort: clampEffort(parseModelRef(ref).providerId as ProviderId, c.single!.effort),
+          onDelta: (t) => {
+            live.content += t
+            void chats.putMessage({ ...live }, false)
+          },
+        },
+        (line, stream) => get().appendTerminal(id, { ts: Date.now(), stream, text: `[tek] ${line}` }),
+      )
+      set({ running: { ...get().running, [id]: { cancel: run.cancel } } })
+      try {
+        const r = await run.done
+        await chats.putMessage({ ...live, content: r.text || live.content, error: r.error, streaming: false, usage: { inputTokens: 0, outputTokens: 0, totalTokens: r.tokens } })
+        await get().update(id, (m) => ({ ...m, sessions: { ...m.sessions, bilinc: r.sessionId ?? m.sessions.bilinc }, tokens: (m.tokens ?? 0) + r.tokens }))
+      } catch (e) {
+        reportError(e, "Mind")
+      } finally {
+        finish()
+      }
+      return
+    }
+
     const live: Partial<Record<MindActor, Message>> = {}
     const turn = runMindTurn(backend, model, content, memory, {
       onStart: (stage) => {
         set({ busy: { ...get().busy, [id]: stage } })
         if (stage === "memory") return
-        const m = actorMessage(model, chatId, stage, Date.now())
+        const m = actorMessage(chatId, stage, stage === "bilinc" ? model.bilinc.modelRef : model.eylem.modelRef, model.mode, Date.now())
         live[stage] = m
         void chats.putMessage(m, false)
       },
@@ -227,22 +334,21 @@ export const useMindStore = create<MindState>((set, get) => ({
     } catch (e) {
       reportError(e, "Mind")
     } finally {
-      const running = { ...get().running }
-      delete running[id]
-      set({ running, busy: { ...get().busy, [id]: undefined } })
+      finish()
     }
   },
   async terminalRun(id, text) {
-    const model = get().byId(id)
     const content = text.trim()
-    if (!model || !content) return
+    if (!get().byId(id) || !content) return
     const cmd = parseMindCommand(content)
     if (cmd) {
       const reply = await get().applyCommand(id, cmd)
       get().appendTerminal(id, { ts: Date.now(), stream: "system", text: reply })
       return
     }
-    if (model.status !== "started") {
+    const c = get().compile(id)
+    const model = get().byId(id)!
+    if (model.status !== "started" || !c || c.kind === "none") {
       get().appendTerminal(id, { ts: Date.now(), stream: "system", text: "Önce Start'a bas" })
       return
     }
@@ -253,18 +359,19 @@ export const useMindStore = create<MindState>((set, get) => ({
     const backend = await getBackend()
     set({ busy: { ...get().busy, [id]: "terminal" } })
     get().appendTerminal(id, { ts: Date.now(), stream: "system", text: `$ ${content}` })
+    const ref = model.eylem.modelRef
     const run = runSingle(
       backend,
       {
         runId: `mind:term:${id}:${Date.now()}`,
-        modelRef: model.eylem.modelRef,
+        modelRef: ref,
         prompt: terminalBrief(model, get().memoryOf(id), content),
         cwd: model.workspace,
         readOnly: !model.tools.files,
         network: model.tools.network,
         resumeSessionId: model.sessions.terminal,
         timeoutSecs: TERMINAL_TIMEOUT,
-        effort: clampEffort(parseModelRef(model.eylem.modelRef).providerId as ProviderId, model.eylem.effort),
+        effort: clampEffort(parseModelRef(ref).providerId as ProviderId, model.eylem.effort),
       },
       (line, stream) => get().appendTerminal(id, { ts: Date.now(), stream, text: `[terminal] ${line}` }),
     )
@@ -297,8 +404,15 @@ export const useMindStore = create<MindState>((set, get) => ({
     switch (cmd.kind) {
       case "model": {
         if (!isAvailable(cmd.modelRef)) return `${cmd.modelRef}: kurulu/etkin bir CLI modeli değil`
-        const sessions = { ...model.sessions, [cmd.actor]: undefined, ...(cmd.actor === "eylem" ? { terminal: undefined } : {}) }
-        await get().update(id, cmd.actor === "bilinc" ? { bilinc: { ...model.bilinc, modelRef: cmd.modelRef }, sessions } : { eylem: { ...model.eylem, modelRef: cmd.modelRef }, sessions })
+        // Change the Model box of that role on the canvas (or add one), then recompile.
+        const box = model.graph.nodes.find((n) => n.data.type === "model" && n.data.role === cmd.actor)
+        if (box) get().updateNode(id, box.id, { data: { modelRef: cmd.modelRef } })
+        else {
+          const pos = nextPosition(model.graph, 2)
+          get().addNode(id, "model", pos.x, pos.y, { type: "model", role: cmd.actor, modelRef: cmd.modelRef })
+        }
+        await get().update(id, (m) => ({ ...m, sessions: { ...m.sessions, [cmd.actor]: undefined, ...(cmd.actor === "eylem" ? { terminal: undefined } : {}) } }))
+        get().compile(id)
         return `${cmd.actor === "bilinc" ? "Bilinç" : "Eylem"} → ${cmd.modelRef} (yeni oturum)`
       }
       case "plan":
@@ -308,9 +422,11 @@ export const useMindStore = create<MindState>((set, get) => ({
         await get().update(id, { mode: "act" })
         return "Eylem modu: Bilinç gerekirse Eylem'e devreder"
       case "effort": {
-        const bilinc = !cmd.actor || cmd.actor === "bilinc" ? { ...model.bilinc, effort: cmd.effort } : model.bilinc
-        const eylem = !cmd.actor || cmd.actor === "eylem" ? { ...model.eylem, effort: cmd.effort } : model.eylem
-        await get().update(id, { bilinc, eylem })
+        for (const n of model.graph.nodes) {
+          if (n.data.type !== "model") continue
+          if (!cmd.actor || n.data.role === cmd.actor || (cmd.actor && n.data.role === "tek")) get().updateNode(id, n.id, { data: { effort: cmd.effort } })
+        }
+        get().compile(id)
         return `effort ${cmd.actor ?? "bilinç+eylem"} → ${cmd.effort}`
       }
       case "hatirla": {
@@ -325,15 +441,18 @@ export const useMindStore = create<MindState>((set, get) => ({
       }
       case "reset":
         await get().reset(id)
-        return "sıfırlandı: sohbet ve canlı hafıza silindi, depo kaldı"
+        return "sıfırlandı: sohbet ve canlı hafıza silindi, depo ve tuval kaldı"
       case "durum": {
+        const c = get().compile(id)
+        const m = get().byId(id)!
         const mem = get().memoryOf(id)
         return [
-          `${model.name} · ${model.status === "started" ? "çalışıyor" : "taslak"} · mod ${model.mode}`,
-          `Bilinç ${model.bilinc.modelRef}${model.bilinc.effort ? ` (${model.bilinc.effort})` : ""}${model.sessions.bilinc ? " · oturum var" : ""}`,
-          `Eylem ${model.eylem.modelRef}${model.eylem.effort ? ` (${model.eylem.effort})` : ""}${model.sessions.eylem ? " · oturum var" : ""}`,
-          `araçlar: ${Object.entries(model.tools).filter(([, v]) => v).map(([k]) => k).join(", ") || "yok"}`,
-          `klasör: ${model.workspace ?? "—"} · hafıza ${mem.length} (${mem.filter((e) => e.pinned).length} depo) · Σ ${model.tokens ?? 0} token`,
+          `${m.name} · ${m.status === "started" ? "çalışıyor" : "taslak"} · mod ${m.mode} · tuval ${m.graph.nodes.length} kutu / ${m.graph.edges.length} kablo · ${c?.kind === "pair" ? "Bilinç+Eylem" : c?.kind === "single" ? "tek model" : "model yok"}`,
+          `Bilinç ${m.bilinc.modelRef || "—"}${m.bilinc.effort ? ` (${m.bilinc.effort})` : ""}${m.sessions.bilinc ? " · oturum var" : ""}`,
+          `Eylem ${m.eylem.modelRef || "—"}${m.eylem.effort ? ` (${m.eylem.effort})` : ""}${m.sessions.eylem ? " · oturum var" : ""}`,
+          `araçlar: ${Object.entries(m.tools).filter(([, v]) => v).map(([k]) => k).join(", ") || "yok"}`,
+          `klasör: ${m.workspace ?? "—"} · hafıza ${mem.length} (${mem.filter((e) => e.pinned).length} depo) · Σ ${m.tokens ?? 0} token`,
+          ...(c?.warnings.length ? [`▲ ${c.warnings.join(", ")}`] : []),
         ].join("\n")
       }
       case "yardim":
