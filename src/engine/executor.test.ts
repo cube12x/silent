@@ -65,7 +65,48 @@ function collect(bus: EventBus) {
   return events
 }
 
+/** Each attempt takes `ms` before succeeding, so a hold can land while a task runs. */
+class SlowWorker implements Worker {
+  readonly id = "slow"
+  started: string[] = []
+  private readonly ms: number
+  constructor(ms: number) {
+    this.ms = ms
+  }
+  supports() {
+    return true
+  }
+  start(job: WorkerJob, sink: WorkerSink): WorkerHandle {
+    this.started.push(job.subtask.id)
+    sink.state("coding", 50)
+    const done = new Promise<{ ok: boolean; summary: string }>((resolve) => setTimeout(() => resolve({ ok: true, summary: `${job.subtask.kind} done` }), this.ms))
+    return { done, cancel: () => undefined }
+  }
+}
+
 describe("executor", () => {
+  it("holdNewTasks (Bütçe) lets the running task finish, starts nothing else and fails the rest with the reason", async () => {
+    const run = makeRun("Add a real-time notification system with tests", TEST_POOL, "sequential")
+    expect(run.plan.length).toBeGreaterThan(1)
+    const bus = new EventBus()
+    const events = collect(bus)
+    const worker = new SlowWorker(30)
+    const exec = new Executor(run, () => worker, bus, { models: TEST_MODELS, polish: true, polishModelId: TEST_POOL[0] })
+    const outcome = exec.start()
+    await new Promise((r) => setTimeout(r, 10))
+    exec.holdNewTasks("budget 1.5M reached at 1.6M")
+    expect(await outcome).toBe("failed")
+    // The first task was running: it completed and its work is kept; nothing else ever started.
+    expect(worker.started).toHaveLength(1)
+    const snap = exec.snapshot
+    expect(snap[0]!.state).toBe("completed")
+    expect(snap.slice(1).every((s) => s.state === "failed")).toBe(true)
+    const failed = events.find((e) => e.type === "subtask.state" && e.subtaskId === snap[1]!.id && e.state === "failed")
+    expect(failed && failed.type === "subtask.state" ? failed.error : "").toContain("budget 1.5M")
+    expect(events.some((e) => e.type === "worker.log" && e.line.text.includes("running tasks finish"))).toBe(true)
+    expect(events.some((e) => e.type === "run.failed")).toBe(true)
+    expect(events.some((e) => e.type === "subtask.added")).toBe(false) // no polish round under a hold
+  })
   it("completes a run in dependency order", async () => {
     const run = makeRun("Add a real-time notification system with tests")
     const bus = new EventBus()

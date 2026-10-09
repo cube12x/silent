@@ -116,6 +116,8 @@ export type WorkerResolver = (modelId: string, kind: Subtask["kind"]) => Worker
 export class Executor {
   private handles = new Map<string, WorkerHandle>()
   private cancelled = false
+  /** Set by `holdNewTasks`: nothing new starts, running attempts finish, the rest fail with this reason (Bütçe, 2026-10-09). */
+  private hold?: string
   private subtasks: Map<string, Subtask>
   private routing: Map<string, RoutingDecision>
   private summaries = new Map<string, string>()
@@ -166,6 +168,20 @@ export class Executor {
 
   get snapshot(): Subtask[] {
     return this.order.map((id) => this.subtasks.get(id)!)
+  }
+
+  /**
+   * Soft stop: let the attempts that run right now finish (their work is kept), start nothing new, no retries/fallbacks,
+   * no polish; everything still waiting fails with `reason`. The budget guard used to hard-cancel here and threw away a
+   * finished 380k-token task (2026-10-09, Thanos: Inferno).
+   */
+  holdNewTasks(reason: string): void {
+    if (this.cancelled || this.hold) return
+    this.hold = reason
+    const running = this.snapshot.find((s) => !isTerminalState(s.state) && s.state !== "waiting")
+    this.bus.emit({ type: "worker.log", runId: this.run.id, subtaskId: running?.id ?? this.order[0] ?? "", line: { ts: this.now(), stream: "system", text: `⏸ ${reason} — running tasks finish, nothing new starts` } })
+    for (const w of this.quotaWaiters.values()) w()
+    this.quotaWaiters.clear()
   }
 
   cancel(): void {
@@ -290,7 +306,7 @@ export class Executor {
 
     const limit = this.run.executionMode === "sequential" ? 1 : (this.opts.maxConcurrency ?? (this.run.executionMode === "staged" ? 4 : 8))
     await this.drain(limit)
-    if (!this.cancelled && this.opts.polish && this.opts.polishModelId && this.snapshot.every((s) => s.state === "completed")) {
+    if (!this.cancelled && !this.hold && this.opts.polish && this.opts.polishModelId && this.snapshot.every((s) => s.state === "completed")) {
       await this.polishRound(limit)
     }
     return this.finish()
@@ -315,9 +331,9 @@ export class Executor {
         }
         if (running.size === 0) break
       }
-      const ready = all.filter(
-        (s) => !isTerminalState(s.state) && !running.has(s.id) && s.state !== "blocked" && s.dependsOn.every((d) => this.subtasks.get(d)?.state === "completed"),
-      )
+      const ready = this.hold
+        ? []
+        : all.filter((s) => !isTerminalState(s.state) && !running.has(s.id) && s.state !== "blocked" && s.dependsOn.every((d) => this.subtasks.get(d)?.state === "completed"))
       const cap = Math.min(limit, Math.max(1, this.opts.concurrency?.() ?? Infinity))
       // One browser session per provider at a time: parallel browser checks on one account burn its quota together
       // (2026-10-05: three Antigravity sessions at once, the quota was gone in 25 min).
@@ -351,10 +367,11 @@ export class Executor {
       await Promise.race(running.values())
     }
     // Nothing runs and something still waits: a cycle or a dangling dependency would otherwise hang the run forever.
+    // Under a hold the waiting tasks simply did not get to start.
     if (!this.cancelled) {
       for (const s of this.snapshot) {
         if (isTerminalState(s.state)) continue
-        const why = this.deadlockReason(s)
+        const why = this.hold ? `not started — ${this.hold}` : this.deadlockReason(s)
         this.setState(s, "failed", s.progress, why)
       }
     }
@@ -538,6 +555,11 @@ export class Executor {
         return
       }
       if (this.cancelled) return
+      if (this.hold) {
+        // No retry, fallback or continuation once the run is held: the attempt's result stands as it is.
+        this.setState(subtask, "failed", subtask.progress, `${result.error ?? "failed"} (${this.hold})`)
+        return
+      }
       tried.push(modelId)
       const isReject = rejected(result)
       if (isReject) {

@@ -1089,7 +1089,12 @@ async function execCheckInner(bpId: string, nodeId: string): Promise<boolean | "
 }
 
 /** Bütçe: cancel `runId` once its live tokens pass `maxTokens`; returns the unsubscribe. */
-function watchBudget(bpId: string, budgetId: string, runId: string, maxTokens: number, onCut: (spent: number) => void): () => void {
+/**
+ * Bütçe: past `maxTokens` the run is HELD, not killed — attempts that run right now finish and keep their work, nothing
+ * new starts, the rest fail with the budget reason (resume after raising the box). A hard cancel used to throw away a
+ * finished 380k-token task at the limit (2026-10-09).
+ */
+export function watchBudget(bpId: string, budgetId: string, runId: string, maxTokens: number, onCut: (spent: number) => void): () => void {
   const store = useBlueprintsStore.getState()
   store.updateNode(bpId, budgetId, { status: "running", note: undefined })
   let cut = false
@@ -1097,10 +1102,10 @@ function watchBudget(bpId: string, budgetId: string, runId: string, maxTokens: n
     const spent = useRunsStore.getState().usage[runId]?.tokens ?? 0
     if (spent > maxTokens && !cut) {
       cut = true
-      useRunsStore.getState().cancel(runId)
+      useRunsStore.getState().holdNewTasks(runId, `budget ${formatTokens(maxTokens)} reached at ${formatTokens(spent)}`)
       onCut(spent)
-      store.updateNode(bpId, budgetId, { status: "failed", note: `cut at ${formatTokens(spent)}`, data: { spent } })
-      reportError(`Bütçe: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run ${runId} cancelled`)
+      store.updateNode(bpId, budgetId, { status: "failed", note: `limit ${formatTokens(maxTokens)} at ${formatTokens(spent)} — running tasks finish, nothing new starts`, data: { spent } })
+      reportError(`Bütçe: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run ${runId} held: running tasks finish, nothing new starts; raise the box and resume`)
     }
   }
   const unsub = useRunsStore.subscribe(check)

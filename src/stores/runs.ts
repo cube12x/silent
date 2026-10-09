@@ -92,6 +92,8 @@ interface RunsState {
   /** Models this run will not start on any more (quota/limit). */
   deadModels(runId: string): string[]
   cancel(runId: string): void
+  /** Soft stop (Bütçe): running tasks finish and are kept, nothing new starts, the rest fail with `reason`. */
+  holdNewTasks(runId: string, reason: string): void
   /** `silent cancel`: cancel every run still planning or running; returns how many. */
   cancelAll(): number
   /** Bind a working folder to an existing run (older runs may have none); persisted. */
@@ -509,6 +511,9 @@ export const useRunsStore = create<RunsState>((set, get) => ({
   },
   deadModels(runId) {
     return get().executors[runId]?.deadModels ?? []
+  },
+  holdNewTasks(runId, reason) {
+    get().executors[runId]?.holdNewTasks(reason)
   },
   cancel(runId) {
     get().executors[runId]?.cancel()
