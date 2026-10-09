@@ -657,7 +657,12 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
         log(set, nodeId, "⚠ nothing left to resume")
         return false
       }
+      // The Bütçe wired in front of the box guards the resumed run too (2026-10-09: a resume ran with no budget at all).
+      const budget = incoming(bp, nodeId).find((n) => n.data.type === "budget")
+      const maxTokens = budget?.data.type === "budget" ? budget.data.maxTokens : undefined
+      const stopBudget = maxTokens && budget ? watchBudget(id, budget.id, runId, maxTokens, (spent) => log(set, nodeId, `⛔ budget: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run held: running tasks finish, nothing new starts`)) : undefined
       const status = await waitForRun(runId)
+      stopBudget?.()
       const final = useRunsStore.getState().byId(runId)
       addTokens(id, nodeId, (final?.plan ?? []).reduce((n, st) => n + (st.tokens ?? 0), 0) - run.plan.reduce((n, st) => n + (st.tokens ?? 0), 0))
       get().updateNode(id, nodeId, { status: status === "completed" ? "done" : "failed", note: status === "completed" ? undefined : status })
@@ -1099,7 +1104,9 @@ export function watchBudget(bpId: string, budgetId: string, runId: string, maxTo
   store.updateNode(bpId, budgetId, { status: "running", note: undefined })
   let cut = false
   const check = () => {
-    const spent = useRunsStore.getState().usage[runId]?.tokens ?? 0
+    // Plan tokens survive a resume (`usage` restarts at 0 there): the budget is the whole run's spend.
+    const rs = useRunsStore.getState()
+    const spent = Math.max(rs.usage[runId]?.tokens ?? 0, (rs.byId(runId)?.plan ?? []).reduce((n, s) => n + (s.tokens ?? 0), 0))
     if (spent > maxTokens && !cut) {
       cut = true
       useRunsStore.getState().holdNewTasks(runId, `budget ${formatTokens(maxTokens)} reached at ${formatTokens(spent)}`)
@@ -1755,7 +1762,7 @@ async function execAiInner(bpId: string, aiId: string, opts?: ExecAiOpts): Promi
     useBlueprintsStore.setState((s) => ({ running: { ...s.running, [aiId]: () => runs.cancel(res.run.id) } }))
     await runs.start({ ...res.run, prompt: withAnswers, questions, manual: false })
     log(set, aiId, `run ${res.run.id}: ${res.run.plan.length} tasks${maxTokens ? ` · budget ${formatTokens(maxTokens)}` : ""}`)
-    const stopBudget = maxTokens && budget ? watchBudget(bpId, budget.id, res.run.id, maxTokens, (spent) => log(set, aiId, `⛔ budget: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run cancelled`)) : undefined
+    const stopBudget = maxTokens && budget ? watchBudget(bpId, budget.id, res.run.id, maxTokens, (spent) => log(set, aiId, `⛔ budget: ${formatTokens(spent)} > ${formatTokens(maxTokens)} — run held: running tasks finish, nothing new starts`)) : undefined
     const status = await waitForRun(res.run.id)
     stopBudget?.()
     ok = status === "completed"

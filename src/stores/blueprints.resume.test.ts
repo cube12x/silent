@@ -76,6 +76,22 @@ describe("Kaldığı yerden devam (2026-10-05)", () => {
     expect(resumed!.plan[1]!.question).toBeUndefined()
     expect(resumed!.plan[1]!.attempts).toHaveLength(1) // history kept
   })
+  it("a Bütçe wired in front of the box guards the resumed run and holds it past the limit (2026-10-09)", async () => {
+    const held: Array<[string, string]> = []
+    useRunsStore.setState({ holdNewTasks: (runId: string, reason: string) => held.push([runId, reason]) } as never)
+    const b = bp()
+    b.nodes.push({ id: "bud", type: "budget", x: 0, y: 0, data: { type: "budget", maxTokens: 105 } })
+    b.edges.push({ id: "e4", from: "bud", to: "main" })
+    useBlueprintsStore.setState({ blueprints: [b] })
+    expect(await useBlueprintsStore.getState().resumeBox("b1", "main")).toBe(true)
+    // plan tokens (100 + 10 → 110 + 10 after the stand-in) exceed 105: the run is held, not cancelled
+    expect(held).toHaveLength(1)
+    expect(held[0]![0]).toBe("run_r")
+    expect(held[0]![1]).toContain("budget")
+    const bud = useBlueprintsStore.getState().byId("b1")!.nodes.find((n) => n.id === "bud")!
+    expect(bud.status).toBe("failed")
+    expect(bud.note).toContain("running tasks finish")
+  })
   it("a running or fully completed run is not resumed", async () => {
     useRunsStore.setState({ runs: [{ ...run(), status: "running" }] } as never)
     expect(await useRunsStore.getState().resume("run_r")).toBe(false)
