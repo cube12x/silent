@@ -83,6 +83,12 @@ describe("Dönüştürücü prompt", () => {
   it("a Dönüştürücü's own purpose is its task; other roles keep purpose for Reload only", () => {
     expect(effectivePurpose("donusturucu", "  32x32 frames ", undefined)).toBe("32x32 frames")
     expect(effectivePurpose("donusturucu", "32x32 frames", "reload text")).toBe("reload text")
+    // Bilinç / Keşifçi boxes with no wired Prompt: their own purpose, else a role default (2026-10-09: "no prompt" killed the chain).
+    expect(effectivePurpose("bilinc", " menüleri incele ", undefined)).toBe("menüleri incele")
+    expect(effectivePurpose("eylem", "x", undefined)).toBeUndefined()
+    expect(defaultTaskForRole("bilinc")).toContain("# FINDINGS")
+    expect(defaultTaskForRole("kesifci")).toContain("# RECON")
+    expect(defaultTaskForRole("eylem")).toBe("")
     expect(effectivePurpose(undefined, "regenerate art", undefined)).toBeUndefined()
     expect(effectivePurpose("bilinc", "look", undefined)).toBeUndefined()
     expect(effectivePurpose("donusturucu", "   ", undefined)).toBeUndefined()

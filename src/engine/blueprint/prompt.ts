@@ -159,13 +159,24 @@ export interface AiPromptInput {
 export function effectivePurpose(role: "bilinc" | "eylem" | "donusturucu" | "kesifci" | "dikis" | undefined, nodePurpose: string | undefined, override: string | undefined): string | undefined {
   if (override) return override
   const own = nodePurpose?.trim()
-  return role === "donusturucu" && own ? own : undefined
+  // Read-only roles work from their own purpose too (a Bilinç box often hangs off a Build with no Prompt wired).
+  return (role === "donusturucu" || role === "bilinc" || role === "kesifci") && own ? own : undefined
 }
 
 /** The task part of the prompt (what must be non-empty for a run to make sense). */
 /** Task text a role carries by itself when nothing is wired into the box (Dikiş: its job is fixed by its policy). */
 export function defaultTaskForRole(role: AiPromptInput["role"]): string {
-  return role === "dikis" ? "Stitch the split build in this folder: run the full suite, typecheck and build, close every cross-area seam and missing wiring, then report under # FIXED." : ""
+  switch (role) {
+    case "dikis":
+      return "Stitch the split build in this folder: run the full suite, typecheck and build, close every cross-area seam and missing wiring, then report under # FIXED."
+    // 2026-10-09: the designer wired Build → Bilinç with no Prompt and the chain died on "no prompt"; a bug hunt is the natural default.
+    case "bilinc":
+      return "Bug hunt: read this project as a senior reviewer — run the checks it ships (typecheck, tests, build) without changing anything, read the core modules and the UI flow, and look for crashes, broken flows, wrong behaviour, dead code paths, performance traps and missing error handling. Report under # FINDINGS (one bullet per finding: where, what, why it matters, how to reproduce) and a numbered # ACTIONS list the Eylem box can apply one by one, most severe first."
+    case "kesifci":
+      return "Recon: map this repository for the next worker — structure, entry points, build/test commands, key modules and their contracts, conventions, known gaps. Report under # RECON, compact and factual."
+    default:
+      return ""
+  }
 }
 
 export function aiTaskText(i: Pick<AiPromptInput, "purpose" | "wired" | "extraPrompt" | "reports">): string {
