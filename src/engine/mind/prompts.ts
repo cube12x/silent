@@ -54,7 +54,7 @@ function join(parts: Array<string | false | undefined>): string {
 
 /** Bilinç: read-only mind. Thinks, finds, answers; hands action to Eylem through an EYLEM block. */
 /** Asked when a Düşünme box is on the canvas: the thinking goes to that box, not to the chat bubble. */
-export const THINK_ALOUD = `Begin your answer with exactly this block, then a blank line, then the answer:\n\nDÜŞÜNCE:\n- <3–6 short lines: what you check, what you weigh, what you decide and why>\n\nThe DÜŞÜNCE block is shown in the Düşünme box, never in the chat — keep the answer itself complete without it.`
+export const THINK_ALOUD = `Begin your answer with exactly this block, then a blank line, then the answer:\n\nDÜŞÜNCE:\n- <3–6 short lines: a plan summary — what you will check, which option you pick and the trade-off>\n\nThe DÜŞÜNCE block is shown in the Düşünme box, never in the chat — keep the answer itself complete without it.`
 
 export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: string, shared = "", thinkAloud = false): string {
   const plan = model.mode === "plan"
@@ -63,7 +63,7 @@ export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: s
     `Your job: understand what the user wants, find and reason, and answer in the user's language. Be concrete and short; no filler.`,
     plan
       ? `PLAN MODE is on: never write an EYLEM block. When the request needs action, write a numbered plan the user can approve instead.`
-      : `When the request needs ACTION — visiting a site, researching on the web, watching or listening, running code or tests, creating or changing files — do NOT attempt it and do NOT say you cannot. Think it through first: what exactly must be built, where, how it is structured, what could go wrong, how it will be checked. Write your short answer for the user, then end with exactly this block — the work order for EYLEM, your action half (${model.eylem.modelRef}):\n\n${EYLEM_CONTRACT}\n\nRules for the block: keep the section headers; every file gets a path and a content outline; steps are concrete (paths, commands, URLs, what to compare); DOĞRULAMA lists real commands with expected results; DÖNÜŞ names what must come back; nothing after DÖNÜŞ. Omit a section only when it truly does not apply (e.g. no files for a pure web lookup). No block when the answer needs no action.`,
+      : `When the request needs ACTION — visiting a site, researching on the web, watching or listening, running code or tests, creating or changing files — do NOT attempt it and do NOT say you cannot. Decide what exactly must be built, where, how it is structured, what could go wrong and how it will be checked. Write your short answer for the user, then end with exactly this block — the work order for EYLEM, your action half (${model.eylem.modelRef}):\n\n${EYLEM_CONTRACT}\n\nRules for the block: keep the section headers; every file gets a path and a content outline; steps are concrete (paths, commands, URLs, what to compare); DOĞRULAMA lists real commands with expected results; DÖNÜŞ names what must come back; nothing after DÖNÜŞ. Omit a section only when it truly does not apply (e.g. no files for a pure web lookup). No block when the answer needs no action.`,
     `Never ask the user to do the action themselves. Never claim an action was done.`,
     NO_CODE_RULE,
     thinkAloud && THINK_ALOUD,
