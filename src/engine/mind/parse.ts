@@ -11,11 +11,16 @@
  */
 
 export interface EylemBlock {
+  /** Every content line of the order before DÖNÜŞ (section headers kept), numbering/bullets stripped. */
   steps: string[]
   returns?: string
+  /** Files the order names under DOSYALAR (first token of each bullet), for the chat chips. */
+  files: string[]
   /** The block as written (header to end), for the Eylem brief. */
   raw: string
 }
+
+const SECTION = /^\s*\**\s*(HEDEF|DOSYALAR|ADIMLAR|KURALLAR|DOĞRULAMA|DOGRULAMA)\s*:?\s*\**\s*(.*)$/i
 
 const FENCE = /```[\s\S]*?```/g
 const EYLEM_HEADER = /^\s*\**\s*EYLEM\s*:?\s*\**\s*$/i
@@ -34,9 +39,11 @@ export function parseEylemBlock(text: string): EylemBlock | undefined {
   }
   if (header < 0) return undefined
   const steps: string[] = []
+  const files: string[] = []
   let returns: string | undefined
   const returnLines: string[] = []
   let inReturns = false
+  let section = ""
   for (const line of lines.slice(header + 1)) {
     const r = RETURNS_LINE.exec(line)
     if (r) {
@@ -46,12 +53,26 @@ export function parseEylemBlock(text: string): EylemBlock | undefined {
     }
     const t = line.replace(/\*\*/g, "").trim()
     if (!t) continue
-    if (inReturns) returnLines.push(t)
-    else steps.push(t.replace(/^(?:\d+[.)]|[-*•])\s*/, ""))
+    if (inReturns) {
+      returnLines.push(t)
+      continue
+    }
+    const s = SECTION.exec(t)
+    if (s) {
+      section = s[1]!.toUpperCase().replace("DOGRULAMA", "DOĞRULAMA")
+      steps.push(`${section}:${s[2]?.trim() ? ` ${s[2].trim()}` : ""}`)
+      continue
+    }
+    const item = t.replace(/^(?:\d+[.)]|[-*•])\s*/, "")
+    steps.push(item)
+    if (section === "DOSYALAR") {
+      const path = item.split(/\s+[—–-]\s+|\s{2,}|:\s/)[0]?.replace(/^[`'"]|[`'"]$/g, "").trim()
+      if (path && /[./\\]/.test(path) && !files.includes(path)) files.push(path)
+    }
   }
   if (returnLines.length) returns = returnLines.join(" ")
   if (!steps.length && !returns) return undefined
-  return { steps, returns, raw: lines.slice(header).join("\n").trim() }
+  return { steps, returns, files, raw: lines.slice(header).join("\n").trim() }
 }
 
 /** Bilinç's answer without its EYLEM block (what the chat shows as the mind's message). */

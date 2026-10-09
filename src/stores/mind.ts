@@ -359,16 +359,22 @@ export const useMindStore = create<MindState>((set, get) => ({
     }
 
     const live: Partial<Record<MindActor, Message>> = {}
+    let order: { raw: string; files: string[] } | undefined
     const turn = runMindTurn(
       backend,
       model,
       content,
       memory,
       {
+      onOrder: (block) => {
+        order = { raw: block.raw, files: block.files }
+      },
       onStart: (stage) => {
         get().setStage(id, stage, stage === "bilinc")
         if (stage === "memory") return
         const m = actorMessage(chatId, stage, stage === "bilinc" ? model.bilinc.modelRef : model.eylem.modelRef, model.mode, Date.now())
+        // Eylem's message carries the work order it is building (shown as "İş emri" in the chat).
+        if (stage === "eylem" && order) m.blocks = [{ type: "mind-actor", actor: "eylem", modelRef: model.eylem.modelRef, phase: model.mode, order: order.raw, files: order.files }]
         live[stage] = m
         void chats.putMessage(m, false)
       },

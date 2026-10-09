@@ -199,7 +199,7 @@ export class TestBackend implements Backend {
       const stage = request.runId.split(":")[1]
       const text =
         stage === "bilinc"
-          ? "DÜŞÜNCE:\n- Kullanıcı vizyondaki filmleri istiyor; sayfayı ben açamam.\n- Eylem'e adres ve dönüş listesi veririm.\n\nÖnizleme: Atarus sinemasında üç film olabilir.\n\nEYLEM:\n1. https://atarus.example/sinema adresini aç\n2. vizyondaki filmleri listele\nDÖNÜŞ: film adları ve seanslar"
+          ? "DÜŞÜNCE:\n- Kullanıcı vizyondaki filmleri istiyor; sayfayı ben açamam.\n- Eylem'e adres ve dönüş listesi veririm.\n\nÖnizleme: Atarus sinemasında üç film olabilir.\n\nEYLEM:\nHEDEF: vizyondaki filmler ve seanslar NOTLAR.md'de listelensin\nDOSYALAR:\n- NOTLAR.md — film listesi — her satır: film adı, seans saatleri\nADIMLAR:\n1. https://atarus.example/sinema adresini aç\n2. vizyondaki filmleri listele\n3. NOTLAR.md'yi yaz\nKURALLAR:\n- yalnız bu klasöre yaz\nDOĞRULAMA:\n- cat NOTLAR.md → en az 3 satır\nDÖNÜŞ: film adları ve seanslar"
           : stage === "eylem"
             ? "# SONUÇ\nÖnizleme: 3 film bulundu — A (19:00), B (20:30), C (22:00)."
             : stage === "mem"

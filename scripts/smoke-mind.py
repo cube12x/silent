@@ -100,6 +100,10 @@ async def main() -> int:
         if await chat.get_by_text("Eylem'e devredildi", exact=False).count() == 0:
             failures.append("no handoff separator")
         # The process stays on Eylem's bubble: a command card and the touched files.
+        if await chat.get_by_test_id("mind-order").count() == 0:
+            failures.append("no work order on Eylem's bubble")
+        if await chat.get_by_test_id("mind-order").get_by_text("NOTLAR.md").count() == 0:
+            failures.append("planned file missing from the work order")
         if await chat.get_by_test_id("mind-task-card").count() == 0:
             failures.append("no command card on Eylem's bubble")
         if await chat.get_by_test_id("mind-files").get_by_text("NOTLAR.md").count() == 0:

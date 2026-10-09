@@ -21,6 +21,33 @@ describe("parseEylemBlock", () => {
     expect(b?.raw.startsWith("EYLEM:")).toBe(true)
     expect(stripEylem(text)).toBe("Atarus sineması şu an üç film gösteriyor olabilir.")
   })
+  it("reads a full work order: sections kept as lines, DOSYALAR paths collected", () => {
+    const text = [
+      "Kısa cevap.",
+      "",
+      "EYLEM:",
+      "HEDEF: çalışan bir sayaç uygulaması",
+      "DOSYALAR:",
+      "- `src/counter.py` — sayaç mantığı — `Counter` sınıfı: `inc()`, `value` özelliği; negatif olmaz",
+      "- src/main.py — giriş noktası — Counter'ı kurar, 3 kez artırır, değeri yazdırır",
+      "- README.md — kullanım",
+      "ADIMLAR:",
+      "1. dosyaları yaz",
+      "2. python3 src/main.py çalıştır",
+      "KURALLAR:",
+      "- yeni bağımlılık yok",
+      "DOĞRULAMA:",
+      "- python3 src/main.py → 3",
+      "DÖNÜŞ: dosya listesi ve çıktı",
+    ].join("\n")
+    const b = parseEylemBlock(text)!
+    expect(b.files).toEqual(["src/counter.py", "src/main.py", "README.md"])
+    expect(b.steps[0]).toBe("HEDEF: çalışan bir sayaç uygulaması")
+    expect(b.steps).toContain("DOSYALAR:")
+    expect(b.steps).toContain("python3 src/main.py → 3")
+    expect(b.returns).toBe("dosya listesi ve çıktı")
+    expect(b.raw).toContain("KURALLAR:")
+  })
   it("tolerates bold markers and bullets", () => {
     const b = parseEylemBlock("Önce bakayım.\n**EYLEM:**\n- **git pull** çalıştır\n- testleri koş\n**DÖNÜŞ:** test sonucu")
     expect(b?.steps).toEqual(["git pull çalıştır", "testleri koş"])

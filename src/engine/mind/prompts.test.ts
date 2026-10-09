@@ -14,6 +14,9 @@ describe("mind briefs", () => {
     const b = bilincBrief(model, mem, "Atarus sinemasına bak")
     expect(b).toContain("READ-ONLY")
     expect(b).toContain("EYLEM:")
+    // The work order is a full spec (files, steps, rules, checks), and Bilinç never writes code itself.
+    for (const s of ["HEDEF:", "DOSYALAR:", "ADIMLAR:", "KURALLAR:", "DOĞRULAMA:"]) expect(b).toContain(s)
+    expect(b).toContain("never write code")
     expect(b).toContain("DÖNÜŞ:")
     expect(b).toContain("codex:gpt-5.6-luna")
     expect(b).toContain("# USER\nAtarus sinemasına bak")
@@ -33,7 +36,7 @@ describe("mind briefs", () => {
     expect(b.toLowerCase()).toContain("architecture")
   })
   it("Eylem gets the tools it may use and the exact block", () => {
-    const b = eylemBrief({ ...model, tools: { ...model.tools, browser: false } }, mem, "bak", "Üç film var.", { steps: ["siteyi aç"], returns: "seanslar", raw: "EYLEM:\n1. siteyi aç\nDÖNÜŞ: seanslar" })
+    const b = eylemBrief({ ...model, tools: { ...model.tools, browser: false } }, mem, "bak", "Üç film var.", { steps: ["siteyi aç"], returns: "seanslar", files: [], raw: "EYLEM:\n1. siteyi aç\nDÖNÜŞ: seanslar" })
     expect(b).toContain("Forbidden: browser")
     expect(b).toContain("# EYLEM:\n1. siteyi aç")
     expect(b).toContain("# SONUÇ")

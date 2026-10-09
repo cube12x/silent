@@ -31,6 +31,9 @@ export interface MindActorBlock {
   actor: "bilinc" | "eylem" | "tek" | "memory"
   modelRef: string
   phase?: "act" | "plan"
+  /** Eylem only: the work order Bilinç wrote (the EYLEM block as written) and the files it planned. */
+  order?: string
+  files?: string[]
 }
 export type MessageBlock = TaskCardBlock | ExecutionSummaryBlock | ContextBlock | MindActorBlock
 

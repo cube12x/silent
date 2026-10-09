@@ -24,6 +24,8 @@ export interface MindTurnCallbacks {
   onThinking?: (actor: MindActor, text: string, kind: "reason" | "dusunce") => void
   /** Raw runtime events of a half (commands, file changes) so the chat can show the process live. */
   onEvent?: (actor: MindActor, event: RuntimeEvent) => void
+  /** Bilinç's work order, just before Eylem starts on it. */
+  onOrder?: (block: EylemBlock) => void
 }
 
 export interface MindHalfResult {
@@ -116,6 +118,7 @@ export function runMindTurn(backend: Pick<Backend, "cliStart">, model: MindModel
     // 2. Eylem — only when the mind asked for action and the model is not in plan mode.
     let eylem: MindHalfResult | undefined
     if (block && model.mode === "act") {
+      cb.onOrder?.(block)
       cb.onStart?.("eylem")
       const eylemRun = runSingle(
         backend,

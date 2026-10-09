@@ -6,7 +6,24 @@ import type { MemoryEntry, MindModel } from "@/domain"
 import { interpretGateway, renderGatewayBrief } from "@/engine/gateway"
 import type { EylemBlock } from "./parse"
 
-export const EYLEM_CONTRACT = ["EYLEM:", "1. <concrete step: URL, file path, command, what to look at>", "2. …", "DÖNÜŞ: <exactly what Eylem must report back>"].join("\n")
+/** The work order Bilinç hands to Eylem: a full spec of what to build and how to check it — never code. */
+export const EYLEM_CONTRACT = [
+  "EYLEM:",
+  "HEDEF: <one line: what must exist / be true when Eylem is done>",
+  "DOSYALAR:",
+  "- <path relative to the workspace> — <purpose> — <what it contains: sections, functions/classes with names and signatures, inputs/outputs, data shapes; described in words, no code>",
+  "- <next file…> (also list files to MODIFY or DELETE, with what changes)",
+  "ADIMLAR:",
+  "1. <concrete step in order: create X, run Y, open URL Z, read W>",
+  "2. …",
+  "KURALLAR:",
+  "- <constraints: language/version, style, naming, no new dependencies, what not to touch>",
+  "DOĞRULAMA:",
+  "- <command to run> → <expected result>",
+  "DÖNÜŞ: <exactly what Eylem must report back: outputs, file list, test results>",
+].join("\n")
+
+export const NO_CODE_RULE = `You never write code: no code fences, no function bodies, no file contents. You describe structure in words (file paths, names, signatures, data shapes, behaviour, edge cases) precisely enough that Eylem can write it without guessing. Prefer completeness over brevity inside the EYLEM block: list every file, every step, every check.`
 
 /** Gateway = the main mind: the user's prompt verbatim plus the profile Silent derives from it. */
 export function gatewaySection(model: MindModel): string {
@@ -46,8 +63,9 @@ export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: s
     `Your job: understand what the user wants, find and reason, and answer in the user's language. Be concrete and short; no filler.`,
     plan
       ? `PLAN MODE is on: never write an EYLEM block. When the request needs action, write a numbered plan the user can approve instead.`
-      : `When the request needs ACTION — visiting a site, researching on the web, watching or listening, running code or tests, writing files — do NOT attempt it and do NOT say you cannot. Write what you already know or found, then end your answer with exactly this block for EYLEM, your action half (${model.eylem.modelRef}):\n\n${EYLEM_CONTRACT}\n\nRules for the block: steps are concrete (URLs, file paths, commands, what to compare); DÖNÜŞ names what must come back; nothing after DÖNÜŞ. No block when the answer needs no action.`,
+      : `When the request needs ACTION — visiting a site, researching on the web, watching or listening, running code or tests, creating or changing files — do NOT attempt it and do NOT say you cannot. Think it through first: what exactly must be built, where, how it is structured, what could go wrong, how it will be checked. Write your short answer for the user, then end with exactly this block — the work order for EYLEM, your action half (${model.eylem.modelRef}):\n\n${EYLEM_CONTRACT}\n\nRules for the block: keep the section headers; every file gets a path and a content outline; steps are concrete (paths, commands, URLs, what to compare); DOĞRULAMA lists real commands with expected results; DÖNÜŞ names what must come back; nothing after DÖNÜŞ. Omit a section only when it truly does not apply (e.g. no files for a pure web lookup). No block when the answer needs no action.`,
     `Never ask the user to do the action themselves. Never claim an action was done.`,
+    NO_CODE_RULE,
     thinkAloud && THINK_ALOUD,
     gatewaySection(model),
     memorySection(memory),
@@ -59,7 +77,7 @@ export function bilincBrief(model: MindModel, memory: MemoryEntry[], userText: s
 /** Eylem: the acting half. Executes exactly the EYLEM block in the workspace with the allowed tools. */
 export function eylemBrief(model: MindModel, memory: MemoryEntry[], userText: string, bilincAnswer: string, block: EylemBlock, shared = ""): string {
   return join([
-    `You are EYLEM, the action half of the modded model "${model.name}" (${model.eylem.modelRef}). BİLİNÇ (${model.bilinc.modelRef}) thought first; you act. Execute EXACTLY the EYLEM block below — nothing more, nothing less.`,
+    `You are EYLEM, the action half of the modded model "${model.name}" (${model.eylem.modelRef}). BİLİNÇ (${model.bilinc.modelRef}) thought first and wrote the work order below; you build it. Follow it EXACTLY: create every file under DOSYALAR at the given path with the described contents, do the ADIMLAR in order, respect KURALLAR, run every DOĞRULAMA command and fix what fails until it passes, then report what DÖNÜŞ asks for. Nothing beyond the order; where it leaves a detail open, pick the simplest option and say so.`,
     toolsLine(model),
     model.workspace ? `Workspace: ${model.workspace}. Work there; keep scratch files under .silent/tmp/.` : `No workspace folder is set: do not create files outside a temporary folder.`,
     `Do not ask questions: make the smallest reasonable assumption and write it down. Run things in the foreground; leave no servers or browsers running. Reply in the user's language under this header:\n\n# SONUÇ\n<what you did, what you found (the DÖNÜŞ items first), files touched, anything you could not do and why>`,

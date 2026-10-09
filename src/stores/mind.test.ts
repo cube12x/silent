@@ -94,7 +94,8 @@ describe("mind store (canvas)", () => {
     expect(msgs[2]).toMatchObject({ content: "# SONUÇ\n3 film: A, B, C", providerId: "codex" })
     // The process the half went through stays on the message: command card (done) + touched files.
     expect(msgs[2]!.blocks).toEqual([
-      { type: "mind-actor", actor: "eylem", modelRef: "codex:luna", phase: "act" },
+      // Eylem's message carries Bilinç's work order (shown as "İş emri") and the files it planned.
+      { type: "mind-actor", actor: "eylem", modelRef: "codex:luna", phase: "act", order: "EYLEM:\n1. siteyi aç\nDÖNÜŞ: seanslar", files: [] },
       { type: "task-card", title: "curl -s https://atarus.example", status: "done", command: "curl -s https://atarus.example", detail: "<title>Atarus</title>" },
       { type: "context", label: "files:add", items: ["NOTLAR.md"] },
     ])

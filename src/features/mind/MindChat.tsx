@@ -16,9 +16,26 @@ import { useInputHistory } from "./useInputHistory"
 const EMPTY: Message[] = []
 const NO_TAIL: string[] = []
 
-function actorOf(m: Message): { actor: "bilinc" | "eylem" | "tek" | "memory"; modelRef: string } | undefined {
+function actorOf(m: Message): { actor: "bilinc" | "eylem" | "tek" | "memory"; modelRef: string; order?: string; files?: string[] } | undefined {
   const b = m.blocks.find((x) => x.type === "mind-actor")
-  return b && b.type === "mind-actor" ? { actor: b.actor, modelRef: b.modelRef } : undefined
+  return b && b.type === "mind-actor" ? { actor: b.actor, modelRef: b.modelRef, order: b.order, files: b.files } : undefined
+}
+
+/** The work order Bilinç wrote for this Eylem message: planned files as chips, the full order folded. */
+function WorkOrder({ order, files }: { order: string; files?: string[] }) {
+  const t = useT()
+  return (
+    <details className="rounded-none border border-mind/40 bg-ink-0 px-2 py-1.5" data-testid="mind-order">
+      <summary className="cursor-pointer text-[10px] tracking-[0.16em] text-mind uppercase">{t("mind.order")}{files?.length ? ` · ${files.length} ${t("mind.filesShort")}` : ""}</summary>
+      {files && files.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] tracking-wider text-text-3 uppercase">{t("mind.plannedFiles")}</span>
+          {files.map((f) => <TacticalChip key={f} size="xs" mono>{f}</TacticalChip>)}
+        </div>
+      )}
+      <pre className="mono mt-1.5 max-h-64 overflow-auto text-[10px] leading-4 whitespace-pre-wrap text-text-2">{order}</pre>
+    </details>
+  )
 }
 
 /** Command cards and touched files: what the half did (same shapes the Maker chat uses). */
@@ -59,7 +76,7 @@ function Bubble({ m, previous, modelId, youLabel, workingLabel, handoffLabel }: 
   // The EYLEM block is Eylem's work order, not chat text: hide it while Bilinç is still streaming too (the terminal shows it raw).
   const content = m.streaming && actor?.actor === "bilinc" ? stripEylem(m.content) : m.content
   const process = m.blocks.filter((b) => b.type === "task-card" || (b.type === "context" && b.label.startsWith("files:")))
-  const idle = !content && m.streaming && process.length === 0 && tail.length === 0
+  const idle = !content && m.streaming && process.length === 0 && tail.length === 0 && !actor?.order
   return (
     <>
       {handoff && <div className="flex items-center gap-2 text-[10px] text-text-3"><span className="h-px flex-1 bg-line" />↪ {handoffLabel}<span className="h-px flex-1 bg-line" /></div>}
@@ -70,6 +87,7 @@ function Bubble({ m, previous, modelId, youLabel, workingLabel, handoffLabel }: 
           {m.usage && m.usage.totalTokens > 0 && <span className="mono">{formatTokens(m.usage.totalTokens)} tok</span>}
         </div>
         <div className={cn("flex w-full max-w-[min(900px,92%)] flex-col gap-2 rounded-none border px-4 py-3", user ? "border-text-1/40 bg-ink-3 text-text-1" : "border-line bg-ink-1")}>
+          {actor?.order && <WorkOrder order={actor.order} files={actor.files} />}
           {user ? <div className="text-sm whitespace-pre-wrap">{m.content}</div> : content ? <MarkdownView content={content} /> : idle ? <div className="flex items-center gap-2 text-xs text-text-3"><Loader2 className="size-3.5 animate-spin text-mind" />{workingLabel}</div> : null}
           {process.length > 0 && <div className="flex flex-col gap-1.5">{process.map((b, i) => <ProcessBlock key={i} block={b} />)}</div>}
           {m.streaming && tail.length > 0 && (
