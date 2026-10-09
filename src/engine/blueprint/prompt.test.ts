@@ -90,7 +90,7 @@ describe("Dönüştürücü prompt", () => {
     expect(defaultTaskForRole("kesifci")).toContain("# RECON")
     expect(defaultTaskForRole("eylem")).toBe("")
     expect(effectivePurpose(undefined, "regenerate art", undefined)).toBeUndefined()
-    expect(effectivePurpose("bilinc", "look", undefined)).toBeUndefined()
+    expect(effectivePurpose("bilinc", "look", undefined)).toBe("look")
     expect(effectivePurpose("donusturucu", "   ", undefined)).toBeUndefined()
   })
   it("image-capable providers are told to use their image tool for drawn art (single sessions too)", () => {
