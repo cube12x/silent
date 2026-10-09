@@ -15,7 +15,7 @@ import { useUpdatesStore } from "./updates"
 import { useSettingsStore } from "./settings"
 import { reportError } from "./notify"
 import { useProvidersStore } from "./providers"
-import { composeAiInput, downstreamOf, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
+import { composeAiInput, continuationOf, downstreamOf, firstIncoming, firstOutgoing, incoming, nodeById, outgoing, validateEdge, walkPlan, type AutorunRef } from "@/engine/blueprint/graph"
 import { runSingle } from "@/engine/blueprint/single"
 import { runSingleChain } from "@/engine/blueprint/singleChain"
 import { pickPlannerModel } from "@/engine/aiPlanner"
@@ -512,8 +512,20 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
           // Fixers are the Eylem (or Tamirci) boxes behind the gate; any other AI behind it is the continuation.
           const fixers = outgoing(bp, step.node.id).filter((n) => n.type === "ai" && n.data.type === "ai" && (n.data.role === "eylem" || n.data.tamirci === true))
           const continueOnFail = step.node.data.type === "check" && step.node.data.continueOnFail === true
+          // A gate that stays red blocks only what hangs behind it; sibling stages off the same Build keep running
+          // (2026-10-09: a red Çoklu Tarayıcı used to stop the converter and the integrator of the art branch).
+          const gateId = step.node.id
+          const blockBehind = () => {
+            const behind = continuationOf(bp, gateId)
+            for (const d of behind) skip.add(d)
+            log(set, gateId, `■ still red — ${behind.size} box(es) behind this gate are skipped; sibling branches go on`)
+            opts = undefined
+          }
           if (!fixers.length) {
-            if (!continueOnFail) break
+            if (!continueOnFail) {
+              blockBehind()
+              continue
+            }
             log(set, step.node.id, "→ red with no fixer wired, but continueOnFail is on — the chain goes on")
           } else {
             for (const f of fixers) {
@@ -535,7 +547,10 @@ export const useBlueprintsStore = create<BlueprintsState>((set, get) => ({
               break
             }
             if (ok === "warn" || ok === "inconclusive") ok = true
-            if (ok !== true && !continueOnFail) break
+            if (ok !== true && !continueOnFail) {
+              blockBehind()
+              continue
+            }
             if (ok !== true) log(set, step.node.id, "→ still red, but continueOnFail is on — the chain goes on")
           }
         }

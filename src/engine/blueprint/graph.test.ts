@@ -1,4 +1,37 @@
 import { describe, expect, it } from "vitest"
+import { continuationOf } from "./graph"
+import type { Blueprint as BpForGate } from "@/domain"
+
+describe("continuationOf (red gate, 2026-10-09)", () => {
+  it("blocks the fixer and the continuation behind the gate but nothing past the Build hub", () => {
+    const bp: BpForGate = {
+      id: "g",
+      name: "g",
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [
+        { id: "build", type: "build", x: 0, y: 0, data: { type: "build", title: "B", folderPath: "/tmp/b", kind: "code" } },
+        { id: "verify", type: "verify", x: 0, y: 0, data: { type: "verify", modelRef: "claude:haiku", lanes: ["menu"] } },
+        { id: "fixer", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "codex:luna", mode: "single", role: "eylem" } },
+        { id: "deploy", type: "check", x: 0, y: 0, data: { type: "check", commands: ["x"], maxLines: 10, timeoutSecs: 10 } },
+        { id: "conv", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "claude:haiku", mode: "single", role: "donusturucu" } },
+        { id: "integ", type: "ai", x: 0, y: 0, data: { type: "ai", modelRef: "codex:luna", mode: "single" } },
+      ],
+      edges: [
+        { id: "e1", from: "build", to: "verify" },
+        { id: "e2", from: "verify", to: "fixer" },
+        { id: "e3", from: "fixer", to: "build" },
+        { id: "e4", from: "verify", to: "deploy" },
+        { id: "e5", from: "build", to: "conv" },
+        { id: "e6", from: "conv", to: "integ" },
+        { id: "e7", from: "integ", to: "build" },
+      ],
+    }
+    expect([...continuationOf(bp, "verify")].sort()).toEqual(["deploy", "fixer"])
+    expect(continuationOf(bp, "conv").has("integ")).toBe(true)
+    expect(continuationOf(bp, "conv").has("verify")).toBe(false)
+  })
+})
 import type { Blueprint } from "@/domain"
 import { aiChainFrom, composeAiInput, lintBlueprint, resolveAutorun, validateEdge, walkPlan } from "./graph"
 

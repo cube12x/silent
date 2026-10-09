@@ -259,6 +259,25 @@ export interface AutorunRef {
   edit?: string
 }
 
+/**
+ * The boxes a red gate (Denetçi / Çoklu Tarayıcı) blocks: everything reachable from it WITHOUT passing through a Build
+ * hub — its fixers and the continuation wired behind it. A fixer's wire back into the Build is "writes to the folder",
+ * not flow, so sibling stages hanging off the same Build (art conversion, integration, bug hunt) keep running
+ * (2026-10-09: a red Çoklu Tarayıcı stopped the whole Thanos chain; the converter and integrator never ran).
+ */
+export function continuationOf(bp: Blueprint, gateId: string): Set<string> {
+  const out = new Set<string>()
+  const queue = [...outgoing(bp, gateId)]
+  while (queue.length) {
+    const n = queue.shift()!
+    if (out.has(n.id) || n.id === gateId) continue
+    if (n.type === "build" || n.type === "buildPhoto" || n.type === "stub") continue
+    out.add(n.id)
+    queue.push(...outgoing(bp, n.id))
+  }
+  return out
+}
+
 export function resolveAutorun(blueprints: Blueprint[], req: AutorunRef): { bp: Blueprint; node: BpNode } | undefined {
   // Locale-independent fold (NFC + Unicode lowercase): the Turkish locale turned "I" into "ı", so "Idle Game" never
   // matched "idle game" from the shell, while the Rust side (`silent wait`) matched it (2026-10-05).
